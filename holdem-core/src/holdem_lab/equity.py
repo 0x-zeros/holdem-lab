@@ -35,12 +35,16 @@ class ConvergencePoint:
 
 @dataclass(frozen=True, slots=True)
 class PlayerEquity:
-    """Equity results for a single player."""
+    """Equity results for a single player.
+
+    Note: This class is typically created by calculate_equity(), not directly.
+    If constructing manually, _equity defaults to a simple approximation.
+    """
 
     win_count: int
     tie_count: int
     total_simulations: int
-    _equity: float  # Pre-computed equity with correct tie splitting
+    _equity: float = -1.0  # Pre-computed equity; -1 means use fallback calculation
 
     @property
     def win_rate(self) -> float:
@@ -64,7 +68,12 @@ class PlayerEquity:
         Ties are split equally among all tied players.
         This value is pre-computed during simulation for accuracy.
         """
-        return self._equity
+        if self._equity >= 0:
+            return self._equity
+        # Fallback for manually constructed instances (assumes heads-up)
+        if self.total_simulations == 0:
+            return 0.0
+        return self.win_rate + (self.tie_rate / 2)
 
 
 @dataclass
@@ -114,6 +123,8 @@ class EquityRequest:
             raise ValueError("Need at least 2 players for equity calculation")
         if len(self.board) > 5:
             raise ValueError(f"Board can have at most 5 cards, got {len(self.board)}")
+        if self.track_convergence and self.convergence_interval <= 0:
+            raise ValueError(f"convergence_interval must be positive, got {self.convergence_interval}")
 
         # Check for duplicate cards
         all_cards: list[Card] = list(self.board)

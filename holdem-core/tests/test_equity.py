@@ -65,6 +65,27 @@ class TestEquityRequest:
                 board=parse_cards("2c 3d 4s 5h 6c 7d"),  # 6 cards
             )
 
+    def test_invalid_convergence_interval(self):
+        with pytest.raises(ValueError):
+            EquityRequest(
+                players=[
+                    PlayerHand(hole_cards=tuple(parse_cards("Ah Kh"))),
+                    PlayerHand(hole_cards=tuple(parse_cards("Qc Qd"))),
+                ],
+                track_convergence=True,
+                convergence_interval=0,  # Invalid
+            )
+
+        with pytest.raises(ValueError):
+            EquityRequest(
+                players=[
+                    PlayerHand(hole_cards=tuple(parse_cards("Ah Kh"))),
+                    PlayerHand(hole_cards=tuple(parse_cards("Qc Qd"))),
+                ],
+                track_convergence=True,
+                convergence_interval=-1,  # Invalid
+            )
+
 
 class TestCalculateEquity:
     """Tests for calculate_equity function."""
@@ -201,8 +222,8 @@ class TestCalculateEquity:
         assert result.players[1].equity > result.players[2].equity
 
     def test_multiway_tie_split(self):
-        """Test that multiway ties are split correctly."""
-        # All players have same straight on the board
+        """Test that multiway ties are split correctly with deterministic outcome."""
+        # All players have same straight on the board - 100% tie every time
         request = EquityRequest(
             players=[
                 PlayerHand(hole_cards=tuple(parse_cards("2h 3h"))),
@@ -215,13 +236,36 @@ class TestCalculateEquity:
         )
         result = calculate_equity(request)
 
-        # All players should have equal equity (~33.3%)
-        for player in result.players:
-            assert 0.30 < player.equity < 0.37, f"Expected ~33%, got {player.equity:.1%}"
+        # All players should have exactly 1/3 equity (deterministic)
+        expected = 1.0 / 3.0
+        for i, player in enumerate(result.players):
+            assert abs(player.equity - expected) < 0.001, \
+                f"Player {i}: expected {expected:.4f}, got {player.equity:.4f}"
 
-        # Total equity should sum to 1.0
+        # Total equity should sum to exactly 1.0
         total = sum(p.equity for p in result.players)
-        assert 0.99 < total < 1.01, f"Total equity should be 1.0, got {total}"
+        assert abs(total - 1.0) < 0.001, f"Total equity should be 1.0, got {total}"
+
+    def test_four_way_tie_split(self):
+        """Test 4-way tie split is exactly 1/4 each."""
+        request = EquityRequest(
+            players=[
+                PlayerHand(hole_cards=tuple(parse_cards("2h 3h"))),
+                PlayerHand(hole_cards=tuple(parse_cards("2c 3c"))),
+                PlayerHand(hole_cards=tuple(parse_cards("2d 3d"))),
+                PlayerHand(hole_cards=tuple(parse_cards("2s 3s"))),
+            ],
+            board=parse_cards("Ah Kd Qc Js Tc"),  # Broadway on board
+            num_simulations=50,
+            seed=42,
+        )
+        result = calculate_equity(request)
+
+        # All players should have exactly 1/4 equity
+        expected = 0.25
+        for i, player in enumerate(result.players):
+            assert abs(player.equity - expected) < 0.001, \
+                f"Player {i}: expected {expected:.4f}, got {player.equity:.4f}"
 
     def test_equity_sum_equals_one(self):
         """Test that equities always sum to 1.0."""
