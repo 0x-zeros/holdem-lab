@@ -253,17 +253,19 @@ class HandReplayer:
         Returns:
             HandState at the new position, or None if at start.
         """
-        if self._step <= 0:
+        if self._step <= 1:
+            # At step 0 or 1, can't go back further
             return None
 
-        # Replay from beginning to step-1
-        target = self._step - 1
+        # Replay from beginning to step-2 (one before current)
+        target_step = self._step - 2
         self.reset()
 
-        for _ in range(target):
-            self.step_forward()
+        result = None
+        for _ in range(target_step + 1):
+            result = self.step_forward()
 
-        return self._get_current_state(self.log[self._step - 1] if self._step > 0 else None)
+        return result
 
     def goto_step(self, step: int) -> HandState | None:
         """

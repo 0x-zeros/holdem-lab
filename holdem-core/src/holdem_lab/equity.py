@@ -40,6 +40,7 @@ class PlayerEquity:
     win_count: int
     tie_count: int
     total_simulations: int
+    _equity: float  # Pre-computed equity with correct tie splitting
 
     @property
     def win_rate(self) -> float:
@@ -60,18 +61,10 @@ class PlayerEquity:
         """
         Overall equity (win + tie share).
 
-        Ties are split equally among tied players, but since we track
-        tie_count per player, we estimate equity as:
-        equity = win_rate + (tie_rate / average_tie_players)
-
-        For simplicity, we use: equity = win_rate + tie_rate * 0.5
-        which is a reasonable approximation for heads-up.
+        Ties are split equally among all tied players.
+        This value is pre-computed during simulation for accuracy.
         """
-        # This is a simplified calculation
-        # In practice, we calculate this more precisely in the simulation
-        if self.total_simulations == 0:
-            return 0.0
-        return self.win_rate + (self.tie_rate / 2)
+        return self._equity
 
 
 @dataclass
@@ -205,22 +198,16 @@ def calculate_equity(request: EquityRequest) -> EquityResult:
             )
             convergence_points.append(ConvergencePoint(sim + 1, current_equities))
 
-    # Build results
+    # Build results with correctly computed equity
     player_results = tuple(
         PlayerEquity(
             win_count=acc.wins[i],
             tie_count=acc.ties[i],
             total_simulations=acc.total,
+            _equity=acc.equity_sum[i] / acc.total if acc.total > 0 else 0.0,
         )
         for i in range(num_players)
     )
-
-    # Calculate proper equity from accumulated sums
-    final_equities = [acc.equity_sum[i] / acc.total for i in range(num_players)]
-
-    # Create PlayerEquity with proper equity calculation
-    # We need to store the actual equity, but PlayerEquity calculates it
-    # So we'll create a custom result that stores the accumulated values
 
     return EquityResult(
         players=player_results,
@@ -260,8 +247,7 @@ def equity_vs_random(
     remaining_deck = [c for c in FULL_DECK if c not in known_cards]
     cards_needed_board = 5 - len(board)
 
-    wins = 0
-    ties = 0
+    equity_sum = 0.0
     total = 0
 
     for _ in range(num_simulations):
@@ -285,9 +271,8 @@ def equity_vs_random(
         winners = find_winners(all_hands)
         total += 1
 
-        if winners == [0]:
-            wins += 1
-        elif 0 in winners:
-            ties += 1
+        if 0 in winners:
+            # Hero wins or ties - split equity by number of winners
+            equity_sum += 1.0 / len(winners)
 
-    return (wins + ties * 0.5) / total if total > 0 else 0.0
+    return equity_sum / total if total > 0 else 0.0

@@ -220,9 +220,9 @@ class Deck:
         self.reset()
 
     def reset(self) -> None:
-        """Reset and shuffle the deck, restoring any removed cards."""
+        """Reset and shuffle the deck, keeping previously removed cards excluded."""
         self._cards = [Card.from_index(i) for i in range(52)]
-        # Remove previously removed cards
+        # Keep previously removed cards excluded
         for card in self._removed:
             if card in self._cards:
                 self._cards.remove(card)

@@ -306,10 +306,10 @@ class GameState:
             raise RuntimeError("Cannot calculate equity before dealing hole cards")
 
         # Build player hands for equity calculation
+        active_players = [p for p in self._players if p.is_active]
         player_hands = [
             PlayerHand(hole_cards=tuple(p.hole_cards))
-            for p in self._players
-            if p.is_active
+            for p in active_players
         ]
 
         request = EquityRequest(
@@ -321,9 +321,12 @@ class GameState:
 
         result = calculate_equity(request)
 
-        # Log equity snapshot
+        # Log equity snapshot using seat indices (not result array indices)
         if self._event_log is not None:
-            equities = {i: result.players[i].equity for i in range(len(result.players))}
+            equities = {
+                active_players[i].seat: result.players[i].equity
+                for i in range(len(result.players))
+            }
             self._event_log.append(
                 EventType.EQUITY_SNAPSHOT,
                 street=self._street.name,

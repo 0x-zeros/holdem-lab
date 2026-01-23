@@ -200,6 +200,46 @@ class TestCalculateEquity:
         assert result.players[0].equity > result.players[1].equity
         assert result.players[1].equity > result.players[2].equity
 
+    def test_multiway_tie_split(self):
+        """Test that multiway ties are split correctly."""
+        # All players have same straight on the board
+        request = EquityRequest(
+            players=[
+                PlayerHand(hole_cards=tuple(parse_cards("2h 3h"))),
+                PlayerHand(hole_cards=tuple(parse_cards("2c 3c"))),
+                PlayerHand(hole_cards=tuple(parse_cards("2d 3d"))),
+            ],
+            board=parse_cards("Ah Kd Qc Js Tc"),  # Broadway on board
+            num_simulations=100,
+            seed=42,
+        )
+        result = calculate_equity(request)
+
+        # All players should have equal equity (~33.3%)
+        for player in result.players:
+            assert 0.30 < player.equity < 0.37, f"Expected ~33%, got {player.equity:.1%}"
+
+        # Total equity should sum to 1.0
+        total = sum(p.equity for p in result.players)
+        assert 0.99 < total < 1.01, f"Total equity should be 1.0, got {total}"
+
+    def test_equity_sum_equals_one(self):
+        """Test that equities always sum to 1.0."""
+        request = EquityRequest(
+            players=[
+                PlayerHand(hole_cards=tuple(parse_cards("Ah Kh"))),
+                PlayerHand(hole_cards=tuple(parse_cards("Qc Qd"))),
+                PlayerHand(hole_cards=tuple(parse_cards("Jh Jd"))),
+                PlayerHand(hole_cards=tuple(parse_cards("Ts Td"))),
+            ],
+            num_simulations=5000,
+            seed=42,
+        )
+        result = calculate_equity(request)
+
+        total = sum(p.equity for p in result.players)
+        assert 0.99 < total < 1.01, f"Total equity should be 1.0, got {total}"
+
 
 class TestEquityVsRandom:
     """Tests for equity_vs_random function."""
