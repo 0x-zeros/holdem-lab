@@ -1,0 +1,54 @@
+{
+  "description": "Fixed test cases for regression testing",
+  "cases": [
+    {
+      "name": "AA vs KK preflop",
+      "player1": "Ah Ad",
+      "player2": "Kh Kd",
+      "board": "",
+      "expected_winner": 1,
+      "expected_equity_range": [0.78, 0.86]
+    },
+    {
+      "name": "Royal flush vs straight flush",
+      "player1": "Ah Kh",
+      "player2": "9h 8h",
+      "board": "Qh Jh Th 2c 3d",
+      "expected_winner": 1,
+      "expected_equity_range": [1.0, 1.0]
+    },
+    {
+      "name": "Set over set",
+      "player1": "Ah Ad",
+      "player2": "Kh Kd",
+      "board": "Ac Kc 2s 7h 9d",
+      "expected_winner": 1,
+      "expected_equity_range": [1.0, 1.0]
+    },
+    {
+      "name": "Split pot - same straight",
+      "player1": "Ah 2d",
+      "player2": "As 3c",
+      "board": "Kd Qh Js Tc 9h",
+      "expected_winner": 0,
+      "expected_equity_range": [0.5, 0.5],
+      "note": "Both have AKQJT straight"
+    },
+    {
+      "name": "Flush over straight",
+      "player1": "Ah Kh",
+      "player2": "Qc Jd",
+      "board": "Th 9h 8h 7c 2s",
+      "expected_winner": 1,
+      "expected_equity_range": [1.0, 1.0]
+    },
+    {
+      "name": "Full house over flush",
+      "player1": "Ah Ad",
+      "player2": "Kh Qh",
+      "board": "Ac 2h 2d 5h 7h",
+      "expected_winner": 1,
+      "expected_equity_range": [1.0, 1.0]
+    }
+  ]
+}
