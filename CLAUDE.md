@@ -20,6 +20,9 @@ uv run pytest tests/test_evaluator.py::TestEvaluateFive::test_royal_flush -v
 
 # 安装分析依赖（Jupyter notebooks）
 uv pip install -e ".[analysis]"
+
+# 启动 Jupyter Lab
+uv run jupyter lab analysis/
 ```
 
 ## 架构概览

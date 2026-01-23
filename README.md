@@ -14,12 +14,13 @@ Texas Hold'em poker probability calculator and game engine for analysis and vali
 
 ```
 holdem-lab/
-├── holdem-core/          # Core Python library
-│   ├── src/holdem_lab/   # Main package
-│   └── tests/            # Unit tests
-├── analysis/             # Jupyter notebooks
-├── fixtures/             # Test data
-└── docs/                 # Documentation
+├── README.md
+├── CLAUDE.md              # Development guidance
+└── holdem-core/           # Core Python library
+    ├── src/holdem_lab/    # Main package
+    ├── tests/             # Unit tests (148 tests)
+    ├── analysis/          # Jupyter notebooks
+    └── fixtures/          # Test data
 ```
 
 ## Installation
