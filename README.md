@@ -1,42 +1,29 @@
 # holdem-lab
 
-Texas Hold'em poker probability calculator and game engine for analysis and validation.
+德州扑克概率计算库与游戏引擎，用于分析和验证。
 
-## Features
+## 功能特性
 
-- **Equity Calculator**: Monte Carlo simulation for hand equity
-- **Hand Evaluator**: 7-card to 5-card best hand evaluation
-- **Game Engine**: Complete game state machine for hand simulation
-- **Event Logging**: Record and replay hands
-- **Analysis Tools**: Jupyter notebooks for equity analysis
+- **概率计算器**: Monte Carlo 模拟计算手牌胜率
+- **手牌评估器**: 7 张牌选 5 张最优组合评估
+- **游戏引擎**: 完整的牌局状态机
+- **事件日志**: 记录和回放牌局
+- **分析工具**: Jupyter notebooks 胜率分析
 
-## Project Structure
-
-```
-holdem-lab/
-├── README.md
-├── CLAUDE.md              # Development guidance
-└── holdem-core/           # Core Python library
-    ├── src/holdem_lab/    # Main package
-    ├── tests/             # Unit tests (148 tests)
-    ├── analysis/          # Jupyter notebooks
-    └── fixtures/          # Test data
-```
-
-## Installation
+## 安装
 
 ```bash
 cd holdem-core
 uv pip install -e ".[dev]"
 ```
 
-For analysis notebooks:
+安装分析依赖：
 
 ```bash
 uv pip install -e ".[analysis]"
 ```
 
-## Quick Start
+## 快速开始
 
 ```python
 from holdem_lab import (
@@ -45,7 +32,7 @@ from holdem_lab import (
     GameState,
 )
 
-# Calculate AA vs KK equity
+# 计算 AA vs KK 胜率
 request = EquityRequest(
     players=[
         PlayerHand(hole_cards=tuple(parse_cards("Ah Ad"))),
@@ -57,29 +44,19 @@ result = calculate_equity(request)
 print(f"AA: {result.players[0].equity:.1%}")
 print(f"KK: {result.players[1].equity:.1%}")
 
-# Run a complete hand
+# 运行完整牌局
 game = GameState(num_players=2, seed=42)
 result = game.run_to_showdown()
-print(f"Winner: Player {result.winners[0]}")
+print(f"赢家: 玩家 {result.winners[0]}")
 ```
 
-## Running Tests
+## 运行测试
 
 ```bash
 cd holdem-core
 uv run pytest
 ```
 
-## Modules
-
-| Module | Description |
-|--------|-------------|
-| `cards.py` | Card representation, parsing, and deck management |
-| `evaluator.py` | Hand evaluation (7-card to 5-card best hand) |
-| `equity.py` | Monte Carlo equity calculation |
-| `event_log.py` | Event logging and hand replay |
-| `game_state.py` | Game state machine for hand simulation |
-
-## License
+## 许可证
 
 MIT
