@@ -58,3 +58,6 @@ Thumbs.db
 
 # Project specific
 *.log
+
+# Claude local settings
+.claude/settings.local.json
