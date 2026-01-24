@@ -23,6 +23,12 @@ uv pip install -e ".[dev]"
 uv pip install -e ".[analysis]"
 ```
 
+## 分析 Notebook
+
+```bash
+uv run jupyter lab analysis/
+```
+
 ## 快速开始
 
 ```python
