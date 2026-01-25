@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 interface EquityBarProps {
   equity: number    // 0 to 1
   winRate: number   // 0 to 1
@@ -13,6 +15,7 @@ export function EquityBar({
   label,
   showDetails = true,
 }: EquityBarProps) {
+  const { t } = useTranslation()
   const winWidth = winRate * 100
   const tieWidth = tieRate * 100
 
@@ -41,11 +44,11 @@ export function EquityBar({
         <div className="flex gap-4 text-xs text-[var(--muted-foreground)]">
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 bg-[var(--equity-win)] rounded" />
-            <span>Win: {(winRate * 100).toFixed(1)}%</span>
+            <span>{t('results.win')}: {(winRate * 100).toFixed(1)}%</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 bg-[var(--equity-tie)] rounded" />
-            <span>Tie: {(tieRate * 100).toFixed(1)}%</span>
+            <span>{t('results.tie')}: {(tieRate * 100).toFixed(1)}%</span>
           </div>
         </div>
       )}

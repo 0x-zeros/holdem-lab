@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Card } from '../cards/Card'
 
 interface PlayerRowProps {
@@ -23,6 +24,8 @@ export function PlayerRow({
   onRemove,
   canRemove = true,
 }: PlayerRowProps) {
+  const { t } = useTranslation()
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     const parsed = value
@@ -36,7 +39,7 @@ export function PlayerRow({
     <div className="p-4 bg-white border border-[var(--border)] rounded-[var(--radius-lg)]">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <span className="font-medium">Player {index + 1}</span>
+        <span className="font-medium">{t('player.title', { index: index + 1 })}</span>
         <div className="flex items-center gap-2">
           <button
             onClick={onToggleMode}
@@ -46,7 +49,7 @@ export function PlayerRow({
                 : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
             }`}
           >
-            Cards
+            {t('player.cards')}
           </button>
           <button
             onClick={onToggleMode}
@@ -56,7 +59,7 @@ export function PlayerRow({
                 : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
             }`}
           >
-            Range
+            {t('player.range')}
           </button>
           {canRemove && onRemove && (
             <button
@@ -79,7 +82,7 @@ export function PlayerRow({
             {range.length > 0 ? (
               <span>{range.join(', ')}</span>
             ) : (
-              <span className="text-[var(--muted-foreground)]">Click to select range...</span>
+              <span className="text-[var(--muted-foreground)]">{t('player.selectRange')}</span>
             )}
           </button>
         </div>
@@ -91,7 +94,7 @@ export function PlayerRow({
           </div>
           <input
             type="text"
-            placeholder="e.g., Ah Kh"
+            placeholder={t('player.cardPlaceholder')}
             value={cards.join(' ')}
             onChange={handleInputChange}
             className="w-full px-3 py-2 border border-[var(--border)] rounded-[var(--radius-md)] text-sm"

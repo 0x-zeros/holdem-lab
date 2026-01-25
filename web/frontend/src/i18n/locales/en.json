@@ -1,0 +1,45 @@
+{
+  "app": {
+    "title": "Equity Calculator"
+  },
+  "board": {
+    "title": "Board",
+    "clear": "Clear",
+    "placeholder": "e.g., 7h 6c 2d",
+    "stages": "Flop (3 cards) • Turn (4) • River (5)"
+  },
+  "player": {
+    "title": "Player {{index}}",
+    "cards": "Cards",
+    "range": "Range",
+    "selectRange": "Click to select range...",
+    "cardPlaceholder": "e.g., Ah Kh"
+  },
+  "actions": {
+    "evaluate": "Evaluate",
+    "calculating": "Calculating...",
+    "addPlayer": "+ Add Player",
+    "cancel": "Cancel",
+    "apply": "Apply ({{count}} hands)",
+    "selectAll": "Select All",
+    "clear": "Clear"
+  },
+  "results": {
+    "title": "Results",
+    "error": "Error",
+    "simulations": "Simulations",
+    "time": "Time",
+    "win": "Win",
+    "tie": "Tie",
+    "combos": "{{count}} combos"
+  },
+  "matrix": {
+    "title": "Quick Range Select",
+    "hint": "Click a player's range input to select hands",
+    "selectRange": "Select Range for Player {{index}}",
+    "handsSelected": "{{count}} hands selected",
+    "pairs": "Pairs",
+    "suited": "Suited",
+    "offsuit": "Offsuit"
+  }
+}

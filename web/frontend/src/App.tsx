@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { apiClient } from './api/client'
 import type { EquityRequest } from './api/types'
 import { useEquityStore } from './store'
@@ -7,8 +8,10 @@ import { BoardInput } from './components/cards'
 import { PlayerRow } from './components/players'
 import { ResultTable } from './components/results'
 import { HandMatrix } from './components/matrix'
+import { LanguageSwitcher } from './components/layout'
 
 function App() {
+  const { t } = useTranslation()
   const [showRangeDialog, setShowRangeDialog] = useState(false)
 
   const {
@@ -95,10 +98,11 @@ function App() {
   return (
     <div className="min-h-screen bg-[var(--background)]">
       {/* Header */}
-      <header className="border-b border-[var(--border)] px-6 py-4">
+      <header className="border-b border-[var(--border)] px-6 py-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold text-[var(--foreground)]">
-          Equity Calculator
+          {t('app.title')}
         </h1>
+        <LanguageSwitcher />
       </header>
 
       <main className="container mx-auto px-6 py-8">
@@ -138,7 +142,7 @@ function App() {
                   onClick={addPlayer}
                   className="w-full py-2 border-2 border-dashed border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors"
                 >
-                  + Add Player
+                  {t('actions.addPlayer')}
                 </button>
               )}
             </section>
@@ -149,7 +153,7 @@ function App() {
               disabled={!canCalculate || equityMutation.isPending}
               className="w-full py-3 bg-[var(--primary)] text-white font-medium rounded-[var(--radius-md)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {equityMutation.isPending ? 'Calculating...' : 'Evaluate'}
+              {equityMutation.isPending ? t('actions.calculating') : t('actions.evaluate')}
             </button>
           </div>
 
@@ -158,7 +162,7 @@ function App() {
             {/* Results */}
             {equityMutation.data && (
               <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
-                <h2 className="text-lg font-medium mb-4">Results</h2>
+                <h2 className="text-lg font-medium mb-4">{t('results.title')}</h2>
                 <ResultTable
                   players={equityMutation.data.players}
                   totalSimulations={equityMutation.data.total_simulations}
@@ -170,16 +174,16 @@ function App() {
             {/* Error */}
             {equityMutation.isError && (
               <div className="bg-red-50 border border-red-200 text-red-700 rounded-[var(--radius-lg)] p-4">
-                Error: {(equityMutation.error as Error).message}
+                {t('results.error')}: {(equityMutation.error as Error).message}
               </div>
             )}
 
             {/* Hand Matrix Preview */}
             {canonicalHands.length > 0 && !showRangeDialog && (
               <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
-                <h2 className="text-lg font-medium mb-4">Quick Range Select</h2>
+                <h2 className="text-lg font-medium mb-4">{t('matrix.title')}</h2>
                 <p className="text-sm text-[var(--muted-foreground)] mb-3">
-                  Click a player's range input to select hands
+                  {t('matrix.hint')}
                 </p>
                 <HandMatrix
                   hands={canonicalHands}
@@ -198,7 +202,7 @@ function App() {
           <div className="bg-white rounded-[var(--radius-lg)] p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-medium">
-                Select Range for Player {activeRangePlayer + 1}
+                {t('matrix.selectRange', { index: activeRangePlayer + 1 })}
               </h2>
               <button
                 onClick={() => {
@@ -227,13 +231,13 @@ function App() {
                 }}
                 className="flex-1 py-2 border border-[var(--border)] rounded-[var(--radius-md)] hover:bg-[var(--muted)]"
               >
-                Cancel
+                {t('actions.cancel')}
               </button>
               <button
                 onClick={handleApplyRange}
                 className="flex-1 py-2 bg-[var(--primary)] text-white rounded-[var(--radius-md)] hover:opacity-90"
               >
-                Apply ({selectedRangeHands.size} hands)
+                {t('actions.apply', { count: selectedRangeHands.size })}
               </button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { CanonicalHandInfo } from '../../api/types'
 
 interface HandMatrixProps {
@@ -16,6 +17,8 @@ export function HandMatrix({
   onSelectAll,
   onClearAll,
 }: HandMatrixProps) {
+  const { t } = useTranslation()
+
   // Build matrix grid
   const matrix = useMemo(() => {
     const grid: (CanonicalHandInfo | null)[][] = Array(13)
@@ -47,7 +50,7 @@ export function HandMatrix({
             onClick={onSelectAll}
             className="px-3 py-1 text-sm bg-[var(--muted)] rounded-[var(--radius-sm)] hover:bg-[var(--border)] transition-colors"
           >
-            Select All
+            {t('actions.selectAll')}
           </button>
         )}
         {onClearAll && (
@@ -55,11 +58,11 @@ export function HandMatrix({
             onClick={onClearAll}
             className="px-3 py-1 text-sm bg-[var(--muted)] rounded-[var(--radius-sm)] hover:bg-[var(--border)] transition-colors"
           >
-            Clear
+            {t('actions.clear')}
           </button>
         )}
         <span className="ml-auto text-sm text-[var(--muted-foreground)]">
-          {selectedHands.size} hands selected
+          {t('matrix.handsSelected', { count: selectedHands.size })}
         </span>
       </div>
 
@@ -89,15 +92,15 @@ export function HandMatrix({
       <div className="flex gap-4 text-xs text-[var(--muted-foreground)]">
         <div className="flex items-center gap-1">
           <div className="w-4 h-4 bg-[var(--matrix-pair)] rounded-[var(--radius-sm)]" />
-          <span>Pairs</span>
+          <span>{t('matrix.pairs')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-4 h-4 bg-[var(--matrix-suited)] rounded-[var(--radius-sm)]" />
-          <span>Suited</span>
+          <span>{t('matrix.suited')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-4 h-4 bg-[var(--matrix-offsuit)] rounded-[var(--radius-sm)]" />
-          <span>Offsuit</span>
+          <span>{t('matrix.offsuit')}</span>
         </div>
       </div>
     </div>

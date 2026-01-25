@@ -1,0 +1,45 @@
+{
+  "app": {
+    "title": "权益计算器"
+  },
+  "board": {
+    "title": "公共牌",
+    "clear": "清空",
+    "placeholder": "例如: 7h 6c 2d",
+    "stages": "翻牌(3张) • 转牌(4) • 河牌(5)"
+  },
+  "player": {
+    "title": "玩家 {{index}}",
+    "cards": "手牌",
+    "range": "范围",
+    "selectRange": "点击选择范围...",
+    "cardPlaceholder": "例如: Ah Kh"
+  },
+  "actions": {
+    "evaluate": "计算",
+    "calculating": "计算中...",
+    "addPlayer": "+ 添加玩家",
+    "cancel": "取消",
+    "apply": "应用 ({{count}} 手牌)",
+    "selectAll": "全选",
+    "clear": "清空"
+  },
+  "results": {
+    "title": "结果",
+    "error": "错误",
+    "simulations": "模拟次数",
+    "time": "耗时",
+    "win": "胜率",
+    "tie": "平局",
+    "combos": "{{count}} 种组合"
+  },
+  "matrix": {
+    "title": "快速范围选择",
+    "hint": "点击玩家的范围输入框选择手牌",
+    "selectRange": "为玩家 {{index}} 选择范围",
+    "handsSelected": "已选 {{count}} 手牌",
+    "pairs": "对子",
+    "suited": "同花",
+    "offsuit": "杂色"
+  }
+}

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Card } from './Card'
 
 interface BoardInputProps {
@@ -7,6 +8,8 @@ interface BoardInputProps {
 }
 
 export function BoardInput({ cards, onCardsChange, onClear }: BoardInputProps) {
+  const { t } = useTranslation()
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     const parsed = value
@@ -20,13 +23,13 @@ export function BoardInput({ cards, onCardsChange, onClear }: BoardInputProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-medium">Board</h3>
+        <h3 className="font-medium">{t('board.title')}</h3>
         {cards.length > 0 && (
           <button
             onClick={onClear}
             className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
           >
-            Clear
+            {t('board.clear')}
           </button>
         )}
       </div>
@@ -44,14 +47,14 @@ export function BoardInput({ cards, onCardsChange, onClear }: BoardInputProps) {
       {/* Text input */}
       <input
         type="text"
-        placeholder="e.g., 7h 6c 2d"
+        placeholder={t('board.placeholder')}
         value={cards.join(' ')}
         onChange={handleInputChange}
         className="w-full px-3 py-2 border border-[var(--border)] rounded-[var(--radius-md)] text-sm"
       />
 
       <div className="text-xs text-[var(--muted-foreground)]">
-        Flop (3 cards) • Turn (4) • River (5)
+        {t('board.stages')}
       </div>
     </div>
   )
