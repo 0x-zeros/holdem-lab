@@ -8,6 +8,19 @@ import type {
   HealthResponse,
 } from './types'
 
+// Environment detection
+declare global {
+  interface Window {
+    __TAURI__?: unknown
+    __TAURI_INTERNALS__?: unknown
+  }
+}
+
+const isTauri = (): boolean => {
+  return typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)
+}
+
+// Web API client (HTTP)
 const API_BASE = '/api'
 
 class ApiError extends Error {
@@ -37,7 +50,7 @@ async function fetchApi<T>(
   return response.json()
 }
 
-export const apiClient = {
+const webClient = {
   // Health check
   getHealth: () => fetchApi<HealthResponse>('/health'),
 
@@ -63,6 +76,62 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify(request),
     }),
+}
+
+// Lazy-load Tauri client to avoid issues in web environment
+let tauriClientCache: typeof webClient | null = null
+
+async function getTauriClient(): Promise<typeof webClient> {
+  if (tauriClientCache) {
+    return tauriClientCache
+  }
+
+  const { tauriClient } = await import('./tauri')
+  tauriClientCache = tauriClient
+  return tauriClient
+}
+
+// Unified API client
+export const apiClient = {
+  getHealth: async (): Promise<HealthResponse> => {
+    if (isTauri()) {
+      const client = await getTauriClient()
+      return client.getHealth()
+    }
+    return webClient.getHealth()
+  },
+
+  getCanonicalHands: async (): Promise<CanonicalHandsResponse> => {
+    if (isTauri()) {
+      const client = await getTauriClient()
+      return client.getCanonicalHands()
+    }
+    return webClient.getCanonicalHands()
+  },
+
+  parseCards: async (input: string): Promise<ParseCardsResponse> => {
+    if (isTauri()) {
+      const client = await getTauriClient()
+      return client.parseCards(input)
+    }
+    return webClient.parseCards(input)
+  },
+
+  calculateEquity: async (request: EquityRequest): Promise<EquityResponse> => {
+    if (isTauri()) {
+      const client = await getTauriClient()
+      return client.calculateEquity(request)
+    }
+    return webClient.calculateEquity(request)
+  },
+
+  analyzeDraws: async (request: DrawsRequest): Promise<DrawsResponse> => {
+    if (isTauri()) {
+      const client = await getTauriClient()
+      return client.analyzeDraws(request)
+    }
+    return webClient.analyzeDraws(request)
+  },
 }
 
 export { ApiError }

@@ -1,0 +1,21 @@
+//! # Holdem Core
+//!
+//! Texas Hold'em poker library providing:
+//! - Card representation and deck management
+//! - Hand evaluation (7-card to 5-card best hand)
+//! - Equity calculation via Monte Carlo simulation
+//! - Draw analysis (flush draws, straight draws)
+//! - Canonical hand representation (169 starting hands)
+
+pub mod card;
+pub mod canonize;
+pub mod draws;
+pub mod equity;
+pub mod evaluator;
+
+// Re-export commonly used types
+pub use card::{Card, Deck, Rank, Suit};
+pub use canonize::{CanonicalHand, get_all_canonical_hands};
+pub use draws::{analyze_draws, DrawAnalysis, DrawType, FlushDraw, StraightDraw};
+pub use equity::{calculate_equity, EquityRequest, EquityResult, PlayerEquity, PlayerHand};
+pub use evaluator::{evaluate_hand, find_winners, HandRank, HandType};
