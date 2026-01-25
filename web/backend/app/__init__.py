@@ -1,0 +1,1 @@
+"""Equity Calculator API backend."""
