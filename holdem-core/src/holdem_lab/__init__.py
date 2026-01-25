@@ -36,6 +36,25 @@ from holdem_lab.game_state import (
     PotResult,
     Street,
 )
+from holdem_lab.canonize import (
+    CanonicalHand,
+    are_strategically_equivalent,
+    canonize_hole_cards,
+    get_all_canonical_hands,
+    get_all_combos,
+    get_combos_excluding,
+    parse_canonical_hand,
+)
+from holdem_lab.draws import (
+    DrawAnalysis,
+    DrawType,
+    FlushDraw,
+    StraightDraw,
+    analyze_draws,
+    count_flush_outs,
+    count_straight_outs,
+    get_primary_draw,
+)
 
 __all__ = [
     # cards
@@ -69,6 +88,23 @@ __all__ = [
     "GameState",
     "PotResult",
     "Street",
+    # canonize
+    "CanonicalHand",
+    "are_strategically_equivalent",
+    "canonize_hole_cards",
+    "get_all_canonical_hands",
+    "get_all_combos",
+    "get_combos_excluding",
+    "parse_canonical_hand",
+    # draws
+    "DrawAnalysis",
+    "DrawType",
+    "FlushDraw",
+    "StraightDraw",
+    "analyze_draws",
+    "count_flush_outs",
+    "count_straight_outs",
+    "get_primary_draw",
 ]
 
 __version__ = "0.1.0"
