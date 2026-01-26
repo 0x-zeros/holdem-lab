@@ -140,15 +140,31 @@ impl CanonicalHand {
     }
 
     /// Get row index for 13x13 matrix display (0 = AA row)
+    /// - Pairs: row = high_rank index (diagonal)
+    /// - Suited: row = high_rank index (upper right triangle)
+    /// - Offsuit: row = low_rank index (lower left triangle)
     #[must_use]
     pub fn matrix_row(&self) -> usize {
-        14 - self.high_rank.value() as usize
+        if self.is_pair() || self.suited {
+            14 - self.high_rank.value() as usize
+        } else {
+            // Offsuit: swap row/col to place in lower left
+            14 - self.low_rank.value() as usize
+        }
     }
 
     /// Get column index for 13x13 matrix display (0 = AA column)
+    /// - Pairs: col = low_rank index (diagonal)
+    /// - Suited: col = low_rank index (upper right triangle)
+    /// - Offsuit: col = high_rank index (lower left triangle)
     #[must_use]
     pub fn matrix_col(&self) -> usize {
-        14 - self.low_rank.value() as usize
+        if self.is_pair() || self.suited {
+            14 - self.low_rank.value() as usize
+        } else {
+            // Offsuit: swap row/col to place in lower left
+            14 - self.high_rank.value() as usize
+        }
     }
 }
 
@@ -453,17 +469,29 @@ mod tests {
 
     #[test]
     fn test_matrix_positions() {
+        // Pairs on diagonal
         let aa = CanonicalHand::new(Rank::Ace, Rank::Ace, false);
         assert_eq!(aa.matrix_row(), 0);
         assert_eq!(aa.matrix_col(), 0);
 
+        let two_two = CanonicalHand::new(Rank::Two, Rank::Two, false);
+        assert_eq!(two_two.matrix_row(), 12);
+        assert_eq!(two_two.matrix_col(), 12);
+
+        // Suited hands in upper right triangle
         let aks = CanonicalHand::new(Rank::Ace, Rank::King, true);
         assert_eq!(aks.matrix_row(), 0);
         assert_eq!(aks.matrix_col(), 1);
 
-        let two_two = CanonicalHand::new(Rank::Two, Rank::Two, false);
-        assert_eq!(two_two.matrix_row(), 12);
-        assert_eq!(two_two.matrix_col(), 12);
+        // Offsuit hands in lower left triangle (row/col swapped)
+        let ako = CanonicalHand::new(Rank::Ace, Rank::King, false);
+        assert_eq!(ako.matrix_row(), 1);  // low_rank (K) determines row
+        assert_eq!(ako.matrix_col(), 0);  // high_rank (A) determines col
+
+        // Another offsuit test
+        let t9o = CanonicalHand::new(Rank::Ten, Rank::Nine, false);
+        assert_eq!(t9o.matrix_row(), 5);  // 9 is at index 5
+        assert_eq!(t9o.matrix_col(), 4);  // T is at index 4
     }
 
     #[test]
