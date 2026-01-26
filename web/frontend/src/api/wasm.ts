@@ -101,17 +101,30 @@ export const wasmClient = {
   calculateEquity: async (request: EquityRequest): Promise<EquityResponse> => {
     console.log('[WASM] calculateEquity request:', JSON.stringify(request, null, 2))
     const wasm = await loadWasm()
-    const result = wasm.wasm_calculate_equity(request)
-    console.log('[WASM] calculateEquity result:', result)
-    return result
+    try {
+      const result = wasm.wasm_calculate_equity(request)
+      console.log('[WASM] calculateEquity result:', result)
+      return result
+    } catch (error) {
+      // WASM errors come as strings from JsValue::from_str()
+      const errorMessage = typeof error === 'string' ? error : String(error)
+      console.error('[WASM] calculateEquity error:', errorMessage)
+      throw new Error(errorMessage)
+    }
   },
 
   analyzeDraws: async (request: DrawsRequest): Promise<DrawsResponse> => {
     const wasm = await loadWasm()
-    return wasm.wasm_analyze_draws(
-      request.hole_cards,
-      request.board,
-      request.dead_cards || []
-    )
+    try {
+      return wasm.wasm_analyze_draws(
+        request.hole_cards,
+        request.board,
+        request.dead_cards || []
+      )
+    } catch (error) {
+      const errorMessage = typeof error === 'string' ? error : String(error)
+      console.error('[WASM] analyzeDraws error:', errorMessage)
+      throw new Error(errorMessage)
+    }
   },
 }
