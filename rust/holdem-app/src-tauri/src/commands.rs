@@ -71,6 +71,18 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
     // Parse dead cards
     let dead_cards = parse_card_strings(&request.dead_cards)?;
 
+    // First pass: collect all specific cards from players
+    let mut specific_cards: Vec<Card> = Vec::new();
+    for player_input in &request.players {
+        if let Some(cards) = &player_input.cards {
+            if !cards.is_empty() {
+                if let Ok(parsed) = parse_card_strings(cards) {
+                    specific_cards.extend(parsed);
+                }
+            }
+        }
+    }
+
     // Parse players
     let mut players: Vec<PlayerHand> = Vec::new();
     let mut hand_descriptions: Vec<String> = Vec::new();
@@ -102,7 +114,12 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
             let canonical = canonize::CanonicalHand::parse(&range[0])
                 .map_err(|e| format!("Invalid range '{}': {}", range[0], e))?;
 
-            let combos = canonize::get_combos_excluding(&canonical, &dead_cards);
+            // Combine dead cards, board cards, and specific cards from other players
+            let mut excluded: Vec<Card> = dead_cards.clone();
+            excluded.extend(board.iter().cloned());
+            excluded.extend(specific_cards.iter().cloned());
+
+            let combos = canonize::get_combos_excluding(&canonical, &excluded);
             if combos.is_empty() {
                 return Err(format!(
                     "No valid combos for player {} range '{}'",
