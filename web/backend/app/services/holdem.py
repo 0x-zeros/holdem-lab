@@ -139,6 +139,12 @@ class HoldemService:
         board_cards = parse_cards(" ".join(board)) if board else []
         dead = frozenset(parse_cards(" ".join(dead_cards))) if dead_cards else frozenset()
 
+        # First pass: collect all specific cards from players
+        specific_cards: set[Card] = set()
+        for p in players:
+            if p.cards:
+                specific_cards.update(parse_cards(" ".join(p.cards)))
+
         # Build player hands
         player_hands: list[PlayerHand] = []
         hand_descriptions: list[str] = []
@@ -156,7 +162,7 @@ class HoldemService:
                 all_combos: list[tuple[Card, Card]] = []
                 for range_str in p.range:
                     canonical = parse_canonical_hand(range_str)
-                    combos = get_combos_excluding(canonical, dead | set(board_cards))
+                    combos = get_combos_excluding(canonical, dead | set(board_cards) | specific_cards)
                     all_combos.extend(combos)
 
                 if not all_combos:
