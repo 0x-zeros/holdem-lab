@@ -87,17 +87,23 @@ function App() {
       }
     })
 
-    // Need at least 2 players for equity calculation
-    if (validPlayers.length < 2) return
+    // 构建请求玩家列表
+    const requestPlayers = validPlayers.map((p) => {
+      switch (p.mode) {
+        case 'cards': return { cards: p.cards }
+        case 'range': return { range: p.range }
+        case 'random': return { random: true }
+      }
+    })
+
+    // 自动补充随机玩家到总玩家数
+    const playersNeeded = totalPlayers - requestPlayers.length
+    for (let i = 0; i < playersNeeded; i++) {
+      requestPlayers.push({ random: true })
+    }
 
     const request: EquityRequest = {
-      players: validPlayers.map((p) => {
-        switch (p.mode) {
-          case 'cards': return { cards: p.cards }
-          case 'range': return { range: p.range }
-          case 'random': return { random: true }
-        }
-      }),
+      players: requestPlayers,
       board: board.length > 0 ? board : undefined,
       num_simulations: numSimulations,
     }
@@ -124,13 +130,15 @@ function App() {
     setShowRangeDialog(false)
   }
 
-  const canCalculate = players.filter((p) => {
+  // 只要有1个有效玩家，且总玩家数>=2，就可以计算（剩余玩家自动补充为随机）
+  const validPlayerCount = players.filter((p) => {
     switch (p.mode) {
       case 'cards': return p.cards.length === 2
       case 'range': return p.range.length > 0
       case 'random': return true
     }
-  }).length >= 2
+  }).length
+  const canCalculate = validPlayerCount >= 1 && totalPlayers >= 2
 
   return (
     <div className="min-h-screen bg-[var(--background)]">

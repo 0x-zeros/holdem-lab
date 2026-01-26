@@ -34,7 +34,13 @@ async function fetchApi<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const url = `${API_BASE}${endpoint}`
+  console.log('[fetchApi] Request:', options?.method || 'GET', url)
+  if (options?.body) {
+    console.log('[fetchApi] Body:', options.body)
+  }
+
+  const response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -42,12 +48,17 @@ async function fetchApi<T>(
     },
   })
 
+  console.log('[fetchApi] Response status:', response.status)
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    console.error('[fetchApi] Error:', error)
     throw new ApiError(response.status, error.detail || 'Request failed')
   }
 
-  return response.json()
+  const data = await response.json()
+  console.log('[fetchApi] Response data:', data)
+  return data
 }
 
 const webClient = {
@@ -118,10 +129,16 @@ export const apiClient = {
   },
 
   calculateEquity: async (request: EquityRequest): Promise<EquityResponse> => {
+    console.log('[API] calculateEquity request:', JSON.stringify(request, null, 2))
+    console.log('[API] isTauri:', isTauri())
+
     if (isTauri()) {
+      console.log('[API] Using Tauri client')
       const client = await getTauriClient()
       return client.calculateEquity(request)
     }
+
+    console.log('[API] Using Web client, endpoint:', `${API_BASE}/equity`)
     return webClient.calculateEquity(request)
   },
 
