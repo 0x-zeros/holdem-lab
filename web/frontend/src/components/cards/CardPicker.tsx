@@ -31,12 +31,13 @@ export function CardPicker({ selectedCards, usedCards, onCardClick }: CardPicker
     <div className="flex flex-col gap-1">
       {SUITS.map((suit) => (
         <div key={suit} className="flex items-center gap-1">
-          {/* Suit label */}
+          {/* Suit label with symbol and letter */}
           <div
-            className="w-6 text-center text-lg font-bold"
+            className="w-10 flex items-center justify-center gap-0.5 text-lg font-bold"
             style={{ color: SUIT_COLORS[suit] }}
           >
-            {SUIT_SYMBOLS[suit]}
+            <span>{SUIT_SYMBOLS[suit]}</span>
+            <span className="text-xs opacity-70">{suit}</span>
           </div>
 
           {/* Cards in this suit */}
