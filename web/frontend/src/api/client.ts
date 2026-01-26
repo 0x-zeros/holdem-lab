@@ -20,6 +20,21 @@ const isTauri = (): boolean => {
   return typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)
 }
 
+const isWasmMode = (): boolean => {
+  // Not WASM mode if running in Tauri
+  if (isTauri()) return false
+
+  // Check for explicit WASM mode via environment variable
+  if (import.meta.env.VITE_USE_WASM === 'true') return true
+
+  // Auto-detect GitHub Pages (no backend available)
+  if (typeof window !== 'undefined' && window.location.hostname.includes('github.io')) {
+    return true
+  }
+
+  return false
+}
+
 // Web API client (HTTP)
 const API_BASE = '/api'
 
@@ -102,11 +117,28 @@ async function getTauriClient(): Promise<typeof webClient> {
   return tauriClient
 }
 
+// Lazy-load WASM client
+let wasmClientCache: typeof webClient | null = null
+
+async function getWasmClient(): Promise<typeof webClient> {
+  if (wasmClientCache) {
+    return wasmClientCache
+  }
+
+  const { wasmClient } = await import('./wasm')
+  wasmClientCache = wasmClient
+  return wasmClient
+}
+
 // Unified API client
 export const apiClient = {
   getHealth: async (): Promise<HealthResponse> => {
     if (isTauri()) {
       const client = await getTauriClient()
+      return client.getHealth()
+    }
+    if (isWasmMode()) {
+      const client = await getWasmClient()
       return client.getHealth()
     }
     return webClient.getHealth()
@@ -117,6 +149,10 @@ export const apiClient = {
       const client = await getTauriClient()
       return client.getCanonicalHands()
     }
+    if (isWasmMode()) {
+      const client = await getWasmClient()
+      return client.getCanonicalHands()
+    }
     return webClient.getCanonicalHands()
   },
 
@@ -125,16 +161,26 @@ export const apiClient = {
       const client = await getTauriClient()
       return client.parseCards(input)
     }
+    if (isWasmMode()) {
+      const client = await getWasmClient()
+      return client.parseCards(input)
+    }
     return webClient.parseCards(input)
   },
 
   calculateEquity: async (request: EquityRequest): Promise<EquityResponse> => {
     console.log('[API] calculateEquity request:', JSON.stringify(request, null, 2))
-    console.log('[API] isTauri:', isTauri())
+    console.log('[API] isTauri:', isTauri(), 'isWasmMode:', isWasmMode())
 
     if (isTauri()) {
       console.log('[API] Using Tauri client')
       const client = await getTauriClient()
+      return client.calculateEquity(request)
+    }
+
+    if (isWasmMode()) {
+      console.log('[API] Using WASM client')
+      const client = await getWasmClient()
       return client.calculateEquity(request)
     }
 
@@ -145,6 +191,10 @@ export const apiClient = {
   analyzeDraws: async (request: DrawsRequest): Promise<DrawsResponse> => {
     if (isTauri()) {
       const client = await getTauriClient()
+      return client.analyzeDraws(request)
+    }
+    if (isWasmMode()) {
+      const client = await getWasmClient()
       return client.analyzeDraws(request)
     }
     return webClient.analyzeDraws(request)

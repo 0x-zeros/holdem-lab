@@ -149,15 +149,21 @@ class HoldemService:
         player_hands: list[PlayerHand] = []
         hand_descriptions: list[str] = []
         combo_counts: list[int] = []
+        player_is_random: list[bool] = []
 
         for p in players:
-            if p.cards:
+            has_cards = bool(p.cards)
+            has_range = bool(p.range)
+            is_random = p.random or (not has_cards and not has_range)
+
+            if has_cards:
                 # Specific hand
                 cards = tuple(parse_cards(" ".join(p.cards)))
                 player_hands.append(PlayerHand(cards))
                 hand_descriptions.append(format_cards(cards))
                 combo_counts.append(1)
-            elif p.range:
+                player_is_random.append(False)
+            elif has_range:
                 # Range - expand to combos
                 all_combos: list[tuple[Card, Card]] = []
                 for range_str in p.range:
@@ -172,11 +178,13 @@ class HoldemService:
                 player_hands.append(PlayerHand(all_combos[0]))
                 hand_descriptions.append(", ".join(p.range))
                 combo_counts.append(len(all_combos))
-            elif p.random:
+                player_is_random.append(False)
+            elif is_random:
                 # Random player - sampled each simulation
                 player_hands.append(PlayerHand(is_random=True))
                 hand_descriptions.append("Random")
                 combo_counts.append(1326)  # C(52,2) total possible hands
+                player_is_random.append(True)
             else:
                 raise ValueError("Each player must have 'cards', 'range', or 'random=true'")
 
@@ -194,7 +202,7 @@ class HoldemService:
         player_results = []
         for i, eq in enumerate(result.players):
             desc = hand_descriptions[i]
-            if combo_counts[i] > 1 and not players[i].random:
+            if combo_counts[i] > 1 and not player_is_random[i]:
                 desc = f"{desc} ({combo_counts[i]} combos)"
 
             player_results.append(PlayerEquityResult(
