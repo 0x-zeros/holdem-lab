@@ -112,8 +112,32 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
         }
     }
 
-    if players.len() < 2 {
-        return Err("Need at least 2 players".to_string());
+    // Handle single player: add a virtual opponent with full range (like PokerStove)
+    if players.len() == 1 {
+        // Get all 169 canonical hands and use first available combo as opponent
+        let all_hands = canonize::get_all_canonical_hands();
+        // Exclude player cards, board cards, and dead cards
+        let mut excluded_cards: Vec<Card> = players.iter().flat_map(|p| p.cards.clone()).collect();
+        excluded_cards.extend(board.iter().cloned());
+        excluded_cards.extend(dead_cards.iter().cloned());
+        let mut found_opponent = false;
+
+        for hand in &all_hands {
+            let combos = canonize::get_combos_excluding(hand, &excluded_cards);
+            if let Some((c1, c2)) = combos.first() {
+                players.push(PlayerHand::new(vec![*c1, *c2]));
+                found_opponent = true;
+                break;
+            }
+        }
+
+        if !found_opponent {
+            return Err("Could not find valid opponent hand".to_string());
+        }
+    }
+
+    if players.is_empty() {
+        return Err("Need at least 1 player".to_string());
     }
 
     // Build equity request

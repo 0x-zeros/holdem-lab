@@ -135,6 +135,12 @@ class HoldemService:
         """Calculate equity for given players."""
         start_time = time.perf_counter()
 
+        # Handle single player: add a virtual opponent with full range (like PokerStove)
+        if len(players) == 1:
+            all_hands = get_all_canonical_hands()
+            all_range = [str(h) for h in all_hands]  # All 169 canonical hands
+            players = list(players) + [PlayerHandInput(range=all_range)]
+
         # Parse board and dead cards
         board_cards = parse_cards(" ".join(board)) if board else []
         dead = frozenset(parse_cards(" ".join(dead_cards))) if dead_cards else frozenset()

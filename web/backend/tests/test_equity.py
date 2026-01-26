@@ -38,10 +38,24 @@ def test_equity_with_board(client):
     assert data["players"][0]["equity"] > 0.4
 
 
-def test_equity_invalid_too_few_players(client):
-    """Test equity with too few players."""
+def test_equity_single_player_vs_random(client):
+    """Test equity calculation with single player against random opponent."""
     response = client.post("/api/equity", json={
-        "players": [{"cards": ["Ah", "Kh"]}],
+        "players": [{"cards": ["As", "Td"]}],
+        "num_simulations": 1000
+    })
+    assert response.status_code == 200
+    data = response.json()
+    # Single player is expanded to 2 players (vs random opponent)
+    assert len(data["players"]) == 2
+    # First player should have reasonable equity against random
+    assert 0.4 <= data["players"][0]["equity"] <= 0.7
+
+
+def test_equity_invalid_no_players(client):
+    """Test equity with no players."""
+    response = client.post("/api/equity", json={
+        "players": [],
         "num_simulations": 1000
     })
     assert response.status_code == 422  # Validation error
