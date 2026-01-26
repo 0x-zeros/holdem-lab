@@ -14,7 +14,7 @@ class PlayerHandInput(BaseModel):
 class EquityRequest(BaseModel):
     """Request to calculate equity."""
 
-    players: list[PlayerHandInput] = Field(..., min_length=2, max_length=10)
+    players: list[PlayerHandInput] = Field(..., min_length=1, max_length=10)
     board: list[str] | None = None  # ["7h", "6c", "2d"]
     dead_cards: list[str] | None = None  # ["2h"]
     num_simulations: int = Field(default=10000, ge=100, le=1000000)

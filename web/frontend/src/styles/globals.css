@@ -25,11 +25,15 @@
   --equity-win: #22C55E;
   --equity-tie: #F59E0B;
 
-  /* Card suit colors */
-  --suit-hearts: #EF4444;
-  --suit-diamonds: #3B82F6;
-  --suit-clubs: #22C55E;
+  /* Card suit colors (traditional black/red) */
+  --suit-hearts: #DC2626;
+  --suit-diamonds: #DC2626;
+  --suit-clubs: #1F2937;
   --suit-spades: #1F2937;
+
+  /* Card suit colors for picker (traditional: black/red) */
+  --card-suit-black: #1F2937;
+  --card-suit-red: #DC2626;
 
   /* Border radius */
   --radius-sm: 4px;
