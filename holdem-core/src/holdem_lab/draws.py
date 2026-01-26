@@ -127,14 +127,22 @@ def _analyze_flush_draws(
             if card not in known_cards:
                 outs.append(card)
 
-        # Check if hero has the Ace of this suit
-        hero_has_ace = any(c.suit == suit and c.rank == Rank.ACE for c in hole_cards)
+        # Check if hero has the nut flush draw:
+        # 1. Hero holds the Ace of this suit, OR
+        # 2. Ace is on the board (part of all_cards but not hole_cards), OR
+        # 3. Ace is dead (unavailable to opponents)
+        ace_of_suit = Card(Rank.ACE, suit)
+        hole_set = set(hole_cards)
+        hero_has_ace = ace_of_suit in hole_set
+        ace_on_board = ace_of_suit in set(all_cards) and ace_of_suit not in hole_set
+        ace_is_dead = ace_of_suit in dead_cards
+        is_nut = hero_has_ace or ace_on_board or ace_is_dead
 
         flush_draws.append(FlushDraw(
             suit=suit,
             cards_held=count,
             outs=tuple(sorted(outs, key=lambda c: -c.rank.value)),
-            is_nut=hero_has_ace,
+            is_nut=is_nut,
         ))
 
     return flush_draws
@@ -307,8 +315,10 @@ def _analyze_straight_draws(
             ))
 
     # Check for double gutshot (4 cards spanning 6 ranks)
-    double_gutshots = _detect_double_gutshots(rank_mask, known_cards)
-    straight_draws.extend(double_gutshots)
+    # Only meaningful when more cards are to come (not on river)
+    if board_size < 5:
+        double_gutshots = _detect_double_gutshots(rank_mask, known_cards)
+        straight_draws.extend(double_gutshots)
 
     # Check for backdoor straights (3 connected cards, only on flop)
     # But only if we don't already have 4+ card straight draw

@@ -378,3 +378,87 @@ class TestSpecificScenarios:
         # Total should be around 15 unique outs
         assert analysis.total_outs >= 12
         assert analysis.is_combo_draw is True
+
+
+class TestIsNutFlushDrawEdgeCases:
+    """Tests for is_nut flush draw edge cases."""
+
+    def test_is_nut_ace_on_board(self):
+        """When Ace of flush suit is on board, hero has nut flush draw."""
+        hole = parse_cards("Kh 5h")
+        # Ah on board, only 3 hearts total (Ah, Kh, 5h) - backdoor on flop
+        board = parse_cards("Ah Tc 6c")
+        analysis = analyze_draws(hole, board)
+
+        # Should have backdoor flush draw with is_nut=True
+        assert len(analysis.flush_draws) == 1
+        assert analysis.flush_draws[0].is_nut is True
+
+    def test_is_nut_ace_on_board_4_cards(self):
+        """When Ace of flush suit is on board with 4-card draw."""
+        hole = parse_cards("Kh 5h")
+        # Ah on board, 4 hearts total (Ah, Kh, 6h, 5h)
+        board = parse_cards("Ah 6h 2c")
+        analysis = analyze_draws(hole, board)
+
+        # Should have flush draw with is_nut=True
+        assert len(analysis.flush_draws) == 1
+        assert analysis.flush_draws[0].is_nut is True
+        assert analysis.flush_draws[0].cards_held == 4
+
+    def test_is_nut_ace_dead(self):
+        """When Ace of flush suit is dead, hero has nut flush draw."""
+        hole = parse_cards("Kh 5h")
+        board = parse_cards("Tc 6h 2c")
+        dead = parse_cards("Ah")
+        analysis = analyze_draws(hole, board, dead_cards=dead)
+
+        # Should have backdoor flush draw with is_nut=True (Ace is dead)
+        assert len(analysis.flush_draws) == 1
+        assert analysis.flush_draws[0].is_nut is True
+
+    def test_is_nut_ace_not_available(self):
+        """When Ace is neither held, on board, nor dead, is_nut is False."""
+        hole = parse_cards("Kh 5h")
+        board = parse_cards("Tc 6h 2c")
+        analysis = analyze_draws(hole, board)
+
+        # Ace is live somewhere else, so not nut flush draw
+        assert len(analysis.flush_draws) == 1
+        assert analysis.flush_draws[0].is_nut is False
+
+
+class TestRiverDrawBehavior:
+    """Tests for draw behavior on the river."""
+
+    def test_no_double_gutshot_on_river(self):
+        """Double gutshot should not be detected on river (no more cards)."""
+        hole = parse_cards("Th 7c")
+        # River: 5 board cards
+        board = parse_cards("8d 5s 2h 3c Ks")
+        analysis = analyze_draws(hole, board)
+
+        # Double gutshot should not appear on river
+        double_gs = [sd for sd in analysis.straight_draws if sd.draw_type == DrawType.DOUBLE_GUTSHOT]
+        assert len(double_gs) == 0
+
+    def test_double_gutshot_on_turn(self):
+        """Double gutshot should still be detected on turn (1 card to come)."""
+        hole = parse_cards("Th 7c")
+        # Turn: 4 board cards
+        board = parse_cards("8d 5s 2h 3c")
+        analysis = analyze_draws(hole, board)
+
+        # 5-7-8-T needs 6 or 9 - should still detect
+        double_gs = [sd for sd in analysis.straight_draws if sd.draw_type == DrawType.DOUBLE_GUTSHOT]
+        assert len(double_gs) >= 1
+
+    def test_flush_draw_on_river(self):
+        """Flush draw is still reported on river (for information purposes)."""
+        hole = parse_cards("Ah Kh")
+        board = parse_cards("7h 6h 2c 3d 9s")
+        analysis = analyze_draws(hole, board)
+
+        # Flush draw is still detected (4 hearts)
+        assert len(analysis.flush_draws) == 1
+        assert analysis.flush_draws[0].cards_held == 4
