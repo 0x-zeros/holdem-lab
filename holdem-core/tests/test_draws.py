@@ -407,13 +407,35 @@ class TestIsNutFlushDrawEdgeCases:
         assert analysis.flush_draws[0].cards_held == 4
 
     def test_is_nut_ace_dead(self):
-        """When Ace of flush suit is dead, hero has nut flush draw."""
+        """When Ace of flush suit is dead and hero has King, hero has nut flush draw."""
         hole = parse_cards("Kh 5h")
         board = parse_cards("Tc 6h 2c")
         dead = parse_cards("Ah")
         analysis = analyze_draws(hole, board, dead_cards=dead)
 
-        # Should have backdoor flush draw with is_nut=True (Ace is dead)
+        # Hero has King (highest remaining), so is_nut=True
+        assert len(analysis.flush_draws) == 1
+        assert analysis.flush_draws[0].is_nut is True
+
+    def test_is_nut_ace_dead_but_king_live(self):
+        """When Ace is dead but King is live, hero without King is NOT nut."""
+        hole = parse_cards("Qh 5h")  # Hero has Queen high
+        board = parse_cards("Tc 6h 2c")
+        dead = parse_cards("Ah")  # Ace dead, but Kh is still live!
+        analysis = analyze_draws(hole, board, dead_cards=dead)
+
+        # Kh could beat Qh, so is_nut=False
+        assert len(analysis.flush_draws) == 1
+        assert analysis.flush_draws[0].is_nut is False
+
+    def test_is_nut_ace_and_king_dead(self):
+        """When both Ace and King are dead and hero has Queen, hero has nut flush draw."""
+        hole = parse_cards("Qh 5h")  # Hero has Queen high
+        board = parse_cards("Tc 6h 2c")
+        dead = parse_cards("Ah Kh")  # Both Ace and King dead
+        analysis = analyze_draws(hole, board, dead_cards=dead)
+
+        # Queen is highest remaining, so is_nut=True
         assert len(analysis.flush_draws) == 1
         assert analysis.flush_draws[0].is_nut is True
 

@@ -197,14 +197,33 @@ fn analyze_flush_draws(
             .collect();
 
         // Check if hero has the nut flush draw:
-        // 1. Hero holds the Ace of this suit, OR
-        // 2. Ace is on the board, OR
-        // 3. Ace is dead (unavailable to opponents)
-        let ace_of_suit = Card::new(Rank::Ace, suit);
-        let hero_has_ace = hole_cards.iter().any(|&c| c == ace_of_suit);
-        let ace_on_board = board.iter().any(|&c| c == ace_of_suit);
-        let ace_is_dead = dead_cards.contains(&ace_of_suit);
-        let is_nut = hero_has_ace || ace_on_board || ace_is_dead;
+        // Hero holds the highest suited card among all cards that could be
+        // held by opponents (i.e., not on board, not dead)
+        let hero_suited: Vec<Card> = hole_cards
+            .iter()
+            .filter(|c| c.suit == suit)
+            .copied()
+            .collect();
+        let hero_highest = hero_suited.iter().map(|c| c.rank as u8).max().unwrap_or(0);
+
+        // Check if any higher card of this suit could be held by opponents
+        // (not in hero's hand, not on board, not dead)
+        let all_known: HashSet<Card> = all_cards
+            .iter()
+            .copied()
+            .chain(dead_cards.iter().copied())
+            .collect();
+        let mut is_nut = true;
+        for rank in Rank::ALL {
+            if (rank as u8) > hero_highest {
+                let higher_card = Card::new(rank, suit);
+                if !all_known.contains(&higher_card) {
+                    // A higher card is still live - could be held by opponent
+                    is_nut = false;
+                    break;
+                }
+            }
+        }
 
         draws.push(FlushDraw {
             suit,
@@ -730,6 +749,32 @@ mod tests {
 
         assert_eq!(analysis.flush_draws.len(), 1);
         assert!(!analysis.flush_draws[0].is_nut); // Ace could be out there
+    }
+
+    #[test]
+    fn test_is_nut_ace_dead_but_king_live() {
+        // When Ace is dead but King is live, hero without King is NOT nut
+        let hole = cards("Qh 5h"); // Hero has Queen high
+        let board = cards("Tc 6h 2c");
+        let dead = cards("Ah"); // Ace dead, but Kh is still live!
+
+        let analysis = analyze_draws(&hole, &board, &dead);
+
+        assert_eq!(analysis.flush_draws.len(), 1);
+        assert!(!analysis.flush_draws[0].is_nut); // Kh could beat Qh
+    }
+
+    #[test]
+    fn test_is_nut_ace_and_king_dead() {
+        // When both Ace and King are dead and hero has Queen, hero has nut flush draw
+        let hole = cards("Qh 5h"); // Hero has Queen high
+        let board = cards("Tc 6h 2c");
+        let dead = cards("Ah Kh"); // Both Ace and King dead
+
+        let analysis = analyze_draws(&hole, &board, &dead);
+
+        assert_eq!(analysis.flush_draws.len(), 1);
+        assert!(analysis.flush_draws[0].is_nut); // Queen is highest remaining
     }
 
     // Regression tests for river draw behavior

@@ -53,3 +53,31 @@ cards.py (基础层，无依赖)
 - A-2-3-4-5 (wheel) 是有效顺子，顶牌为 5
 - `EventLog` 实现了 `__len__`，判断非空时需用 `is not None` 而非 truthy 检查
 - 所有 Card 对象是 frozen dataclass，可 hash
+
+### 重要：Python 与 Rust 代码同步
+
+核心算法在 Python (`holdem-core/`) 和 Rust (`rust/holdem-core/`) 中各有一份实现。
+
+**修改算法时必须同时更新两个版本：**
+
+| Python | Rust |
+|--------|------|
+| `holdem-core/src/holdem_lab/cards.py` | `rust/holdem-core/src/card.rs` |
+| `holdem-core/src/holdem_lab/evaluator.py` | `rust/holdem-core/src/evaluator.rs` |
+| `holdem-core/src/holdem_lab/equity.py` | `rust/holdem-core/src/equity.rs` |
+| `holdem-core/src/holdem_lab/draws.py` | `rust/holdem-core/src/draws.rs` |
+
+**测试对应关系：**
+
+| Python | Rust |
+|--------|------|
+| `holdem-core/tests/test_*.py` | `rust/holdem-core/src/*.rs` (mod tests) |
+
+修改算法后务必运行两边的测试：
+```bash
+# Python 测试
+cd holdem-core && uv run pytest
+
+# Rust 测试
+cd rust/holdem-core && cargo test
+```

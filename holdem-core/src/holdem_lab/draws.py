@@ -128,15 +128,22 @@ def _analyze_flush_draws(
                 outs.append(card)
 
         # Check if hero has the nut flush draw:
-        # 1. Hero holds the Ace of this suit, OR
-        # 2. Ace is on the board (part of all_cards but not hole_cards), OR
-        # 3. Ace is dead (unavailable to opponents)
-        ace_of_suit = Card(Rank.ACE, suit)
-        hole_set = set(hole_cards)
-        hero_has_ace = ace_of_suit in hole_set
-        ace_on_board = ace_of_suit in set(all_cards) and ace_of_suit not in hole_set
-        ace_is_dead = ace_of_suit in dead_cards
-        is_nut = hero_has_ace or ace_on_board or ace_is_dead
+        # Hero holds the highest suited card among all cards that could be
+        # held by opponents (i.e., not on board, not dead)
+        hero_suited = [c for c in hole_cards if c.suit == suit]
+        hero_highest = max((c.rank.value for c in hero_suited), default=0)
+
+        # Check if any higher card of this suit could be held by opponents
+        # (not in hero's hand, not on board, not dead)
+        all_known = set(all_cards) | dead_cards
+        is_nut = True
+        for rank in Rank:
+            if rank.value > hero_highest:
+                higher_card = Card(rank, suit)
+                if higher_card not in all_known:
+                    # A higher card is still live - could be held by opponent
+                    is_nut = False
+                    break
 
         flush_draws.append(FlushDraw(
             suit=suit,
