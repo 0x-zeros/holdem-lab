@@ -55,7 +55,8 @@
           "fill": "$--card-suit-black",
           "content": "♠",
           "fontFamily": "$--font-primary",
-          "fontSize": 18
+          "fontSize": 18,
+          "fontWeight": "normal"
         }
       ]
     },
@@ -402,7 +403,8 @@
                   "fill": "$--muted-foreground",
                   "content": "Equity Calculator",
                   "fontFamily": "Inter",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -2100,6 +2102,1137 @@
                   "content": "OK"
                 }
               }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "yspj9",
+      "x": 2080,
+      "y": 50,
+      "name": "PickerCard/Available",
+      "reusable": true,
+      "width": 36,
+      "height": 36,
+      "fill": "$--card",
+      "cornerRadius": "$--radius-sm",
+      "stroke": {
+        "thickness": 1,
+        "fill": "$--border"
+      },
+      "layout": "vertical",
+      "gap": -2,
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "6fp4c",
+          "name": "rankText",
+          "fill": "$--card-suit-black",
+          "content": "A",
+          "fontFamily": "Inter",
+          "fontSize": 13,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "ZRXxl",
+          "name": "suitText",
+          "fill": "$--card-suit-black",
+          "content": "♠",
+          "fontFamily": "Inter",
+          "fontSize": 11,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "hDMTM",
+      "x": 2130,
+      "y": 50,
+      "name": "PickerCard/Selected",
+      "reusable": true,
+      "width": 36,
+      "height": 36,
+      "fill": "$--primary",
+      "cornerRadius": "$--radius-sm",
+      "stroke": {
+        "thickness": 2,
+        "fill": "$--primary"
+      },
+      "layout": "vertical",
+      "gap": -2,
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "eoCSm",
+          "name": "rankText",
+          "fill": "$--primary-foreground",
+          "content": "A",
+          "fontFamily": "Inter",
+          "fontSize": 13,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "sstwk",
+          "name": "suitText",
+          "fill": "$--primary-foreground",
+          "content": "♠",
+          "fontFamily": "Inter",
+          "fontSize": 11,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "LYAh2",
+      "x": 2180,
+      "y": 50,
+      "name": "PickerCard/Disabled",
+      "reusable": true,
+      "opacity": 0.4,
+      "width": 36,
+      "height": 36,
+      "fill": "$--muted",
+      "cornerRadius": "$--radius-sm",
+      "stroke": {
+        "thickness": 1,
+        "fill": "$--border"
+      },
+      "layout": "vertical",
+      "gap": -2,
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "4dj5T",
+          "name": "rankText",
+          "fill": "$--muted-foreground",
+          "content": "A",
+          "fontFamily": "Inter",
+          "fontSize": 13,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "1AD4n",
+          "name": "suitText",
+          "fill": "$--muted-foreground",
+          "content": "♠",
+          "fontFamily": "Inter",
+          "fontSize": 11,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "JWDRf",
+      "x": 50,
+      "y": 730,
+      "name": "CardPickerDialog",
+      "width": 600,
+      "fill": "$--card",
+      "cornerRadius": "$--radius-lg",
+      "stroke": {
+        "thickness": 1,
+        "fill": "$--border"
+      },
+      "effect": {
+        "type": "shadow",
+        "shadowType": "outer",
+        "color": "#00000020",
+        "offset": {
+          "x": 0,
+          "y": 8
+        },
+        "blur": 24
+      },
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "Y8Zb5",
+          "name": "dialogHeader",
+          "width": "fill_container",
+          "height": 48,
+          "stroke": {
+            "thickness": {
+              "bottom": 1
+            },
+            "fill": "$--border"
+          },
+          "padding": [
+            0,
+            16
+          ],
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "hRL02",
+              "name": "dialogTitle",
+              "fill": "$--foreground",
+              "content": "Select Hole Cards",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "jK4Bh",
+              "name": "closeBtn",
+              "width": 28,
+              "height": 28,
+              "fill": "transparent",
+              "cornerRadius": "$--radius-sm",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "Hm2UU",
+                  "name": "closeIcon",
+                  "width": 18,
+                  "height": 18,
+                  "iconFontName": "x",
+                  "iconFontFamily": "lucide",
+                  "fill": "$--muted-foreground"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "FwcBc",
+          "name": "DialogContent",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "3LXGb",
+              "name": "cardGrid",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "B3tTY",
+                  "name": "spadesRow",
+                  "gap": 4,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "AWCfm",
+                      "name": "suitLabel",
+                      "fill": "$--card-suit-black",
+                      "content": "♠",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 18,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "id": "OnNYt",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "As"
+                    },
+                    {
+                      "id": "Y9wFz",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Ks",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "K"
+                        }
+                      }
+                    },
+                    {
+                      "id": "9UmZR",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Qs",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "Q"
+                        }
+                      }
+                    },
+                    {
+                      "id": "PCkei",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Js",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "J"
+                        }
+                      }
+                    },
+                    {
+                      "id": "nZjOu",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Ts",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "T"
+                        }
+                      }
+                    },
+                    {
+                      "id": "wNlgI",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "9s",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "9"
+                        }
+                      }
+                    },
+                    {
+                      "id": "3efiw",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "8s",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "8"
+                        }
+                      }
+                    },
+                    {
+                      "id": "Q4Eqo",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "7s",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "7"
+                        }
+                      }
+                    },
+                    {
+                      "id": "vdnTW",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "6s",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "6"
+                        }
+                      }
+                    },
+                    {
+                      "id": "f68Ki",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "5s",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "5"
+                        }
+                      }
+                    },
+                    {
+                      "id": "EeIsV",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "4s",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "4"
+                        }
+                      }
+                    },
+                    {
+                      "id": "narMw",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "3s",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "3"
+                        }
+                      }
+                    },
+                    {
+                      "id": "CR9Y2",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "2s",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "2"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "qwzHB",
+                  "name": "heartsRow",
+                  "gap": 4,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "0o8Qz",
+                      "name": "suitLabel",
+                      "fill": "$--card-suit-red",
+                      "content": "♥",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 18,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "id": "5ufmt",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Ah",
+                      "descendants": {
+                        "6fp4c": {
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "zJ1YR",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Kh",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "K",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "zNeLC",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Qh",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "Q",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "8XIhJ",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Jh",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "J",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "0VDTE",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Th",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "T",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "SsVOS",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "9h",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "9",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "0ZawI",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "8h",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "8",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "vR2d2",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "7h",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "7",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "F3ChV",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "6h",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "6",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "fLAlV",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "5h",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "5",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "S7Zoh",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "4h",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "4",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "c7bkP",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "3h",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "3",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "s3oAj",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "2h",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "2",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♥",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "sWbcN",
+                  "name": "diamondsRow",
+                  "gap": 4,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "idv3Z",
+                      "name": "suitLabel",
+                      "fill": "$--card-suit-red",
+                      "content": "♦",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 18,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "id": "FGXkp",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Ad",
+                      "descendants": {
+                        "6fp4c": {
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "hl61B",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Kd",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "K",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "zf1yd",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Qd",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "Q",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "U8yBP",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Jd",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "J",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "mgeMl",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Td",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "T",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "uxOYB",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "9d",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "9",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "IHeSy",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "8d",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "8",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "xToqi",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "7d",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "7",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "X9oXq",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "6d",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "6",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "BCvmF",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "5d",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "5",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "DRsTN",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "4d",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "4",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "xKjnb",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "3d",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "3",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    },
+                    {
+                      "id": "2vza9",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "2d",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "2",
+                          "fill": "$--card-suit-red"
+                        },
+                        "ZRXxl": {
+                          "content": "♦",
+                          "fill": "$--card-suit-red"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tsr4d",
+                  "name": "clubsRow",
+                  "gap": 4,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "t4B6l",
+                      "name": "suitLabel",
+                      "fill": "$--card-suit-black",
+                      "content": "♣",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 18,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "id": "uNzzo",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Ac",
+                      "descendants": {
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "bR73R",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Kc",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "K"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "9lneZ",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Qc",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "Q"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "QtvBl",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Jc",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "J"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "A3FwY",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "Tc",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "T"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "jY3ur",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "9c",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "9"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "8OPnG",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "8c",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "8"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "ijAtP",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "7c",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "7"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "SipFu",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "6c",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "6"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "MiizF",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "5c",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "5"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "Pughm",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "4c",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "4"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "Dlq7O",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "3c",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "3"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    },
+                    {
+                      "id": "ltpQY",
+                      "type": "ref",
+                      "ref": "yspj9",
+                      "name": "2c",
+                      "descendants": {
+                        "6fp4c": {
+                          "content": "2"
+                        },
+                        "ZRXxl": {
+                          "content": "♣"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "qwdj9",
+              "name": "selectedArea",
+              "width": "fill_container",
+              "padding": [
+                8,
+                0
+              ],
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "UowRS",
+                  "name": "selectedLeft",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sQ5L8",
+                      "name": "selectedLabel",
+                      "fill": "$--muted-foreground",
+                      "content": "Selected:",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "id": "FX2tr",
+                      "type": "ref",
+                      "ref": "hDMTM",
+                      "name": "selected1",
+                      "descendants": {
+                        "eoCSm": {
+                          "content": "A"
+                        },
+                        "sstwk": {
+                          "content": "♥"
+                        }
+                      }
+                    },
+                    {
+                      "id": "PqTkn",
+                      "type": "ref",
+                      "ref": "hDMTM",
+                      "name": "selected2",
+                      "descendants": {
+                        "eoCSm": {
+                          "content": "K"
+                        },
+                        "sstwk": {
+                          "content": "♠"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "96TD3",
+                  "name": "btnsArea",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "id": "qGmj0",
+                      "type": "ref",
+                      "ref": "Wgs29",
+                      "name": "clearBtn",
+                      "descendants": {
+                        "xmaSo": {
+                          "content": "Clear"
+                        }
+                      }
+                    },
+                    {
+                      "id": "Un8wB",
+                      "type": "ref",
+                      "ref": "ALpSR",
+                      "name": "doneBtn",
+                      "descendants": {
+                        "DtreF": {
+                          "content": "Done"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }

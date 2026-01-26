@@ -243,20 +243,6 @@ function App() {
               </div>
             )}
 
-            {/* Hand Matrix Preview */}
-            {canonicalHands.length > 0 && !showRangeDialog && (
-              <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
-                <h2 className="text-lg font-medium mb-4">{t('matrix.title')}</h2>
-                <p className="text-sm text-[var(--muted-foreground)] mb-3">
-                  {t('matrix.hint')}
-                </p>
-                <HandMatrix
-                  hands={canonicalHands}
-                  selectedHands={new Set()}
-                  onToggleHand={() => {}}
-                />
-              </section>
-            )}
           </div>
         </div>
       </main>
