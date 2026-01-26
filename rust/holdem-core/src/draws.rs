@@ -196,8 +196,15 @@ fn analyze_flush_draws(
             .copied()
             .collect();
 
-        // Check if hero has the Ace of this suit (nut flush card)
-        let is_nut = hole_cards.iter().any(|c| c.suit == suit && c.rank == Rank::Ace);
+        // Check if hero has the nut flush draw:
+        // 1. Hero holds the Ace of this suit, OR
+        // 2. Ace is on the board, OR
+        // 3. Ace is dead (unavailable to opponents)
+        let ace_of_suit = Card::new(Rank::Ace, suit);
+        let hero_has_ace = hole_cards.iter().any(|&c| c == ace_of_suit);
+        let ace_on_board = board.iter().any(|&c| c == ace_of_suit);
+        let ace_is_dead = dead_cards.contains(&ace_of_suit);
+        let is_nut = hero_has_ace || ace_on_board || ace_is_dead;
 
         draws.push(FlushDraw {
             suit,
@@ -309,6 +316,8 @@ fn analyze_straight_draws(
     }
 
     // Check for double gutshot (6-card window with 4 cards, 2 internal gaps)
+    // Only meaningful when more cards are to come (not on river)
+    if board.len() < 5 {
     for start in 0..=8 {
         let window_mask: u16 = 0b111111 << start;
         let present = mask & window_mask;
@@ -359,6 +368,7 @@ fn analyze_straight_draws(
                 }
             }
         }
+    }
     }
 
     // Check for backdoor straights (only on flop)
@@ -680,7 +690,82 @@ mod tests {
         let flush_outs = count_flush_outs(&hole, &board);
         assert_eq!(flush_outs, 9);
 
-        let straight_outs = count_straight_outs(&hole, &board);
+        let _straight_outs = count_straight_outs(&hole, &board);
         // straight_outs is usize, always >= 0
+    }
+
+    // Regression tests for is_nut flush draw edge cases
+    #[test]
+    fn test_is_nut_ace_on_board() {
+        // When Ace of flush suit is on board, hero has nut flush draw
+        let hole = cards("Kh 5h");
+        let board = cards("Ah 6h 2c"); // Ah on board, 4 hearts total
+
+        let analysis = analyze_draws(&hole, &board, &[]);
+
+        assert_eq!(analysis.flush_draws.len(), 1);
+        assert!(analysis.flush_draws[0].is_nut); // Ace on board means nut
+    }
+
+    #[test]
+    fn test_is_nut_ace_dead() {
+        // When Ace of flush suit is dead, hero has nut flush draw
+        let hole = cards("Kh 5h");
+        let board = cards("Tc 6h 2c");
+        let dead = cards("Ah");
+
+        let analysis = analyze_draws(&hole, &board, &dead);
+
+        assert_eq!(analysis.flush_draws.len(), 1);
+        assert!(analysis.flush_draws[0].is_nut); // Ace is dead means nut
+    }
+
+    #[test]
+    fn test_is_nut_ace_not_available() {
+        // When Ace is neither held, on board, nor dead, is_nut is False
+        let hole = cards("Kh 5h");
+        let board = cards("Tc 6h 2c");
+
+        let analysis = analyze_draws(&hole, &board, &[]);
+
+        assert_eq!(analysis.flush_draws.len(), 1);
+        assert!(!analysis.flush_draws[0].is_nut); // Ace could be out there
+    }
+
+    // Regression tests for river draw behavior
+    #[test]
+    fn test_no_double_gutshot_on_river() {
+        // Double gutshot should not be detected on river (no more cards)
+        let hole = cards("Th 7c");
+        // River: 5 board cards
+        let board = cards("8d 5s 2h 3c Ks");
+
+        let analysis = analyze_draws(&hole, &board, &[]);
+
+        // Double gutshot should not appear on river
+        let double_gs: Vec<_> = analysis
+            .straight_draws
+            .iter()
+            .filter(|d| d.draw_type == DrawType::DoubleGutshot)
+            .collect();
+        assert!(double_gs.is_empty());
+    }
+
+    #[test]
+    fn test_double_gutshot_on_turn() {
+        // Double gutshot should still be detected on turn (1 card to come)
+        let hole = cards("Th 7c");
+        // Turn: 4 board cards
+        let board = cards("8d 5s 2h 3c");
+
+        let analysis = analyze_draws(&hole, &board, &[]);
+
+        // 5-7-8-T needs 6 or 9 - should still detect
+        let double_gs: Vec<_> = analysis
+            .straight_draws
+            .iter()
+            .filter(|d| d.draw_type == DrawType::DoubleGutshot)
+            .collect();
+        assert!(!double_gs.is_empty());
     }
 }
