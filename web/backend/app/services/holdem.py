@@ -135,6 +135,9 @@ class HoldemService:
         """Calculate equity for given players."""
         start_time = time.perf_counter()
 
+        # Track original player count before adding virtual opponent
+        original_player_count = len(players)
+
         # Handle single player: add a virtual opponent with full range (like PokerStove)
         if len(players) == 1:
             all_hands = get_all_canonical_hands()
@@ -201,8 +204,9 @@ class HoldemService:
                 combos=combo_counts[i],
             ))
 
+        # Only return results for original players (exclude virtual opponent)
         return EquityResponse(
-            players=player_results,
+            players=player_results[:original_player_count],
             total_simulations=result.total_simulations,
             elapsed_ms=elapsed_ms,
         )

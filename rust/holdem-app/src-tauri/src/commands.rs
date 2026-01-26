@@ -112,6 +112,9 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
         }
     }
 
+    // Track original player count before adding virtual opponent
+    let original_player_count = players.len();
+
     // Handle single player: add a virtual opponent with full range (like PokerStove)
     if players.len() == 1 {
         // Get all 169 canonical hands and use first available combo as opponent
@@ -147,11 +150,12 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
 
     let result = equity::calculate_equity(&eq_request);
 
-    // Convert to output format
+    // Convert to output format (only return original players, exclude virtual opponent)
     Ok(EquityResultOutput {
         players: result
             .players
             .iter()
+            .take(original_player_count)
             .map(|p| PlayerEquityOutput {
                 index: p.index,
                 hand_description: p.hand_description.clone(),
