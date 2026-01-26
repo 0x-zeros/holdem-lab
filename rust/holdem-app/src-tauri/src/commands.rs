@@ -15,6 +15,9 @@ pub struct PlayerInput {
     pub cards: Option<Vec<String>>,
     /// Range notation (e.g., ["AA", "AKs"])
     pub range: Option<Vec<String>>,
+    /// Random hand (sampled each simulation)
+    #[serde(default)]
+    pub random: bool,
 }
 
 /// Request for equity calculation from frontend
@@ -70,6 +73,8 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
 
     // Parse players
     let mut players: Vec<PlayerHand> = Vec::new();
+    let mut hand_descriptions: Vec<String> = Vec::new();
+    let mut combo_counts: Vec<usize> = Vec::new();
 
     for (i, player_input) in request.players.iter().enumerate() {
         if let Some(cards) = &player_input.cards {
@@ -82,6 +87,8 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
                         parsed.len()
                     ));
                 }
+                hand_descriptions.push(format!("{}{}", parsed[0], parsed[1]));
+                combo_counts.push(1);
                 players.push(PlayerHand::new(parsed));
             }
         } else if let Some(range) = &player_input.range {
@@ -104,43 +111,24 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
                 ));
             }
 
+            hand_descriptions.push(range.join(", "));
+            combo_counts.push(combos.len());
+
             // Use first available combo
             let (c1, c2) = combos[0];
             players.push(PlayerHand::new(vec![c1, c2]));
+        } else if player_input.random {
+            // Random player - sampled each simulation
+            hand_descriptions.push("Random".to_string());
+            combo_counts.push(1326); // C(52,2) total possible hands
+            players.push(PlayerHand::random());
         } else {
-            return Err(format!("Player {} has no cards or range specified", i + 1));
+            return Err(format!("Player {} has no cards, range, or random specified", i + 1));
         }
     }
 
-    // Track original player count before adding virtual opponent
-    let original_player_count = players.len();
-
-    // Handle single player: add a virtual opponent with full range (like PokerStove)
-    if players.len() == 1 {
-        // Get all 169 canonical hands and use first available combo as opponent
-        let all_hands = canonize::get_all_canonical_hands();
-        // Exclude player cards, board cards, and dead cards
-        let mut excluded_cards: Vec<Card> = players.iter().flat_map(|p| p.cards.clone()).collect();
-        excluded_cards.extend(board.iter().cloned());
-        excluded_cards.extend(dead_cards.iter().cloned());
-        let mut found_opponent = false;
-
-        for hand in &all_hands {
-            let combos = canonize::get_combos_excluding(hand, &excluded_cards);
-            if let Some((c1, c2)) = combos.first() {
-                players.push(PlayerHand::new(vec![*c1, *c2]));
-                found_opponent = true;
-                break;
-            }
-        }
-
-        if !found_opponent {
-            return Err("Could not find valid opponent hand".to_string());
-        }
-    }
-
-    if players.is_empty() {
-        return Err("Need at least 1 player".to_string());
+    if players.len() < 2 {
+        return Err("Need at least 2 players".to_string());
     }
 
     // Build equity request
@@ -150,19 +138,19 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
 
     let result = equity::calculate_equity(&eq_request);
 
-    // Convert to output format (only return original players, exclude virtual opponent)
+    // Convert to output format
     Ok(EquityResultOutput {
         players: result
             .players
             .iter()
-            .take(original_player_count)
-            .map(|p| PlayerEquityOutput {
+            .enumerate()
+            .map(|(i, p)| PlayerEquityOutput {
                 index: p.index,
-                hand_description: p.hand_description.clone(),
+                hand_description: hand_descriptions.get(i).cloned().unwrap_or_default(),
                 equity: p.equity,
                 win_rate: p.win_rate,
                 tie_rate: p.tie_rate,
-                combos: p.combos,
+                combos: combo_counts.get(i).copied().unwrap_or(1),
             })
             .collect(),
         total_simulations: result.total_simulations,

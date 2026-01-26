@@ -13,16 +13,21 @@ from holdem_lab.evaluator import evaluate_hand, find_winners
 @dataclass(frozen=True, slots=True)
 class PlayerHand:
     """
-    A player's known hole cards.
+    A player's hole cards for equity calculation.
 
-    For equity calculation, hole_cards should contain exactly 2 cards.
+    - If hole_cards is provided: uses the specific 2 cards
+    - If hole_cards is None and is_random is True: random hand sampled each simulation
     """
 
-    hole_cards: tuple[Card, ...]
+    hole_cards: tuple[Card, ...] | None = None
+    is_random: bool = False
 
     def __post_init__(self) -> None:
-        if len(self.hole_cards) != 2:
-            raise ValueError(f"Player must have exactly 2 hole cards, got {len(self.hole_cards)}")
+        if self.hole_cards is not None:
+            if len(self.hole_cards) != 2:
+                raise ValueError(f"Player must have exactly 2 hole cards, got {len(self.hole_cards)}")
+        elif not self.is_random:
+            raise ValueError("Player must have either hole_cards or is_random=True")
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,10 +131,11 @@ class EquityRequest:
         if self.track_convergence and self.convergence_interval <= 0:
             raise ValueError(f"convergence_interval must be positive, got {self.convergence_interval}")
 
-        # Check for duplicate cards
+        # Check for duplicate cards (only among known cards)
         all_cards: list[Card] = list(self.board)
         for player in self.players:
-            all_cards.extend(player.hole_cards)
+            if player.hole_cards is not None:
+                all_cards.extend(player.hole_cards)
 
         if len(all_cards) != len(set(all_cards)):
             raise ValueError("Duplicate cards detected in players/board")
@@ -157,6 +163,9 @@ def calculate_equity(request: EquityRequest) -> EquityResult:
     """
     Calculate equity for all players using Monte Carlo simulation.
 
+    Supports both known hands and random players. Random players have their
+    hole cards sampled from the remaining deck each simulation.
+
     Args:
         request: EquityRequest with players, board, and simulation parameters.
 
@@ -166,16 +175,30 @@ def calculate_equity(request: EquityRequest) -> EquityResult:
     rng = random.Random(request.seed)
     num_players = len(request.players)
 
-    # Collect known cards
+    # Identify random vs known players
+    random_player_indices: list[int] = []
+    known_hole_cards: list[tuple[Card, ...] | None] = []
+
+    for i, player in enumerate(request.players):
+        if player.is_random:
+            random_player_indices.append(i)
+            known_hole_cards.append(None)
+        else:
+            known_hole_cards.append(player.hole_cards)
+
+    # Collect known cards (board + known player hands)
     known_cards: set[Card] = set(request.board)
     for player in request.players:
-        known_cards.update(player.hole_cards)
+        if player.hole_cards is not None:
+            known_cards.update(player.hole_cards)
 
     # Build remaining deck
     remaining_deck = [c for c in FULL_DECK if c not in known_cards]
 
     # How many more community cards needed?
-    cards_needed = 5 - len(request.board)
+    cards_needed_board = 5 - len(request.board)
+    # Cards needed for random players (2 per random player)
+    cards_needed_random = 2 * len(random_player_indices)
 
     # Initialize accumulator
     acc = EquityAccumulator()
@@ -186,15 +209,24 @@ def calculate_equity(request: EquityRequest) -> EquityResult:
 
     # Run simulations
     for sim in range(request.num_simulations):
-        # Shuffle remaining deck and deal community cards
+        # Shuffle remaining deck
         rng.shuffle(remaining_deck)
-        runout = remaining_deck[:cards_needed]
+
+        # Deal cards to random players first
+        deck_idx = 0
+        sim_hole_cards: list[tuple[Card, ...]] = list(known_hole_cards)  # type: ignore
+        for rand_idx in random_player_indices:
+            sim_hole_cards[rand_idx] = (remaining_deck[deck_idx], remaining_deck[deck_idx + 1])
+            deck_idx += 2
+
+        # Deal community cards
+        runout = remaining_deck[deck_idx : deck_idx + cards_needed_board]
         full_board = list(request.board) + runout
 
         # Evaluate each player's hand
         player_hands: list[list[Card]] = []
-        for player in request.players:
-            full_hand = list(player.hole_cards) + full_board
+        for hole in sim_hole_cards:
+            full_hand = list(hole) + full_board
             player_hands.append(full_hand)
 
         # Find winner(s)

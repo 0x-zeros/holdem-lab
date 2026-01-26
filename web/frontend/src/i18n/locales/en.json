@@ -12,8 +12,13 @@
     "title": "Player {{index}}",
     "cards": "Cards",
     "range": "Range",
+    "random": "Random",
     "selectRange": "Click to select range...",
-    "cardPlaceholder": "e.g., Ah Kh"
+    "cardPlaceholder": "e.g., Ah Kh",
+    "randomHand": "Random hand (sampled each simulation)"
+  },
+  "settings": {
+    "totalPlayers": "Total Players"
   },
   "actions": {
     "evaluate": "Evaluate",

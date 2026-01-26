@@ -135,15 +135,6 @@ class HoldemService:
         """Calculate equity for given players."""
         start_time = time.perf_counter()
 
-        # Track original player count before adding virtual opponent
-        original_player_count = len(players)
-
-        # Handle single player: add a virtual opponent with full range (like PokerStove)
-        if len(players) == 1:
-            all_hands = get_all_canonical_hands()
-            all_range = [str(h) for h in all_hands]  # All 169 canonical hands
-            players = list(players) + [PlayerHandInput(range=all_range)]
-
         # Parse board and dead cards
         board_cards = parse_cards(" ".join(board)) if board else []
         dead = frozenset(parse_cards(" ".join(dead_cards))) if dead_cards else frozenset()
@@ -175,8 +166,13 @@ class HoldemService:
                 player_hands.append(PlayerHand(all_combos[0]))
                 hand_descriptions.append(", ".join(p.range))
                 combo_counts.append(len(all_combos))
+            elif p.random:
+                # Random player - sampled each simulation
+                player_hands.append(PlayerHand(is_random=True))
+                hand_descriptions.append("Random")
+                combo_counts.append(1326)  # C(52,2) total possible hands
             else:
-                raise ValueError("Each player must have either 'cards' or 'range'")
+                raise ValueError("Each player must have 'cards', 'range', or 'random=true'")
 
         # Create request and calculate
         request = HoldemEquityRequest(
@@ -192,7 +188,7 @@ class HoldemService:
         player_results = []
         for i, eq in enumerate(result.players):
             desc = hand_descriptions[i]
-            if combo_counts[i] > 1:
+            if combo_counts[i] > 1 and not players[i].random:
                 desc = f"{desc} ({combo_counts[i]} combos)"
 
             player_results.append(PlayerEquityResult(
@@ -204,9 +200,8 @@ class HoldemService:
                 combos=combo_counts[i],
             ))
 
-        # Only return results for original players (exclude virtual opponent)
         return EquityResponse(
-            players=player_results[:original_player_count],
+            players=player_results,
             total_simulations=result.total_simulations,
             elapsed_ms=elapsed_ms,
         )

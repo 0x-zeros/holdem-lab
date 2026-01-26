@@ -5,10 +5,11 @@ from pydantic import BaseModel, Field
 
 
 class PlayerHandInput(BaseModel):
-    """Input for a player's hand (either specific cards or range)."""
+    """Input for a player's hand (specific cards, range, or random)."""
 
     cards: list[str] | None = None  # ["Ah", "Kh"]
     range: list[str] | None = None  # ["QQ+", "AKs"]
+    random: bool = False  # True = random hand sampled each simulation
 
 
 class EquityRequest(BaseModel):

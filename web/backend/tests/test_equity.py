@@ -38,18 +38,45 @@ def test_equity_with_board(client):
     assert data["players"][0]["equity"] > 0.4
 
 
-def test_equity_single_player_vs_random(client):
-    """Test equity calculation with single player against random opponent."""
+def test_equity_player_vs_random(client):
+    """Test equity calculation with specific player against random opponent."""
     response = client.post("/api/equity", json={
-        "players": [{"cards": ["As", "Td"]}],
+        "players": [
+            {"cards": ["As", "Td"]},
+            {"random": True}
+        ],
         "num_simulations": 1000
     })
     assert response.status_code == 200
     data = response.json()
-    # Single player returns only 1 player result (virtual opponent hidden)
-    assert len(data["players"]) == 1
+    assert len(data["players"]) == 2
     # First player should have reasonable equity against random
     assert 0.4 <= data["players"][0]["equity"] <= 0.7
+    # Random player description
+    assert data["players"][1]["hand_description"] == "Random"
+
+
+def test_equity_multiple_random_players(client):
+    """Test equity calculation with one specific player and multiple random opponents."""
+    response = client.post("/api/equity", json={
+        "players": [
+            {"cards": ["Ah", "Kh"]},
+            {"random": True},
+            {"random": True},
+            {"random": True}
+        ],
+        "num_simulations": 1000
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["players"]) == 4
+
+    # Check equity sums to ~1.0
+    total_equity = sum(p["equity"] for p in data["players"])
+    assert 0.99 <= total_equity <= 1.01
+
+    # AhKh should have lower equity against 3 opponents than heads-up
+    assert data["players"][0]["equity"] < 0.5
 
 
 def test_equity_invalid_no_players(client):

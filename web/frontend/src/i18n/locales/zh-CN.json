@@ -12,8 +12,13 @@
     "title": "玩家 {{index}}",
     "cards": "手牌",
     "range": "范围",
+    "random": "随机",
     "selectRange": "点击选择范围...",
-    "cardPlaceholder": "例如: Ah Kh"
+    "cardPlaceholder": "例如: Ah Kh",
+    "randomHand": "随机手牌（每次模拟随机采样）"
+  },
+  "settings": {
+    "totalPlayers": "总玩家数"
   },
   "actions": {
     "evaluate": "计算",

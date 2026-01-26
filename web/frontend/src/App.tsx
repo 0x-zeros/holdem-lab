@@ -19,6 +19,9 @@ function App() {
     updatePlayer,
     addPlayer,
     removePlayer,
+    setPlayerMode,
+    totalPlayers,
+    setTotalPlayers,
     board,
     setBoard,
     clearBoard,
@@ -57,7 +60,7 @@ function App() {
     return (playerId: number) => {
       const usedCards: string[] = [...board]
       players.forEach((p) => {
-        if (p.id !== playerId && !p.useRange) {
+        if (p.id !== playerId && p.mode === 'cards') {
           usedCards.push(...p.cards)
         }
       })
@@ -68,7 +71,7 @@ function App() {
   const usedCardsForBoard = useMemo(() => {
     const usedCards: string[] = []
     players.forEach((p) => {
-      if (!p.useRange) {
+      if (p.mode === 'cards') {
         usedCards.push(...p.cards)
       }
     })
@@ -77,17 +80,24 @@ function App() {
 
   const handleCalculate = () => {
     const validPlayers = players.filter((p) => {
-      if (p.useRange) return p.range.length > 0
-      return p.cards.length === 2
+      switch (p.mode) {
+        case 'cards': return p.cards.length === 2
+        case 'range': return p.range.length > 0
+        case 'random': return true
+      }
     })
 
-    // Allow single player with range to calculate against random opponent
-    if (validPlayers.length < 1) return
+    // Need at least 2 players for equity calculation
+    if (validPlayers.length < 2) return
 
     const request: EquityRequest = {
-      players: validPlayers.map((p) =>
-        p.useRange ? { range: p.range } : { cards: p.cards }
-      ),
+      players: validPlayers.map((p) => {
+        switch (p.mode) {
+          case 'cards': return { cards: p.cards }
+          case 'range': return { range: p.range }
+          case 'random': return { random: true }
+        }
+      }),
       board: board.length > 0 ? board : undefined,
       num_simulations: numSimulations,
     }
@@ -115,9 +125,12 @@ function App() {
   }
 
   const canCalculate = players.filter((p) => {
-    if (p.useRange) return p.range.length > 0
-    return p.cards.length === 2
-  }).length >= 1
+    switch (p.mode) {
+      case 'cards': return p.cards.length === 2
+      case 'range': return p.range.length > 0
+      case 'random': return true
+    }
+  }).length >= 2
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -143,6 +156,26 @@ function App() {
               />
             </section>
 
+            {/* Total Players Selector */}
+            <section className="flex items-center gap-4 py-2">
+              <span className="text-sm font-medium">{t('settings.totalPlayers')}</span>
+              <div className="flex gap-1">
+                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setTotalPlayers(n)}
+                    className={`px-2 py-1 text-xs rounded-[var(--radius-sm)] ${
+                      totalPlayers === n
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--border)]'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </section>
+
             {/* Players */}
             <section className="space-y-4">
               {players.map((player) => (
@@ -151,21 +184,19 @@ function App() {
                   index={player.id}
                   cards={player.cards}
                   range={player.range}
-                  useRange={player.useRange}
+                  mode={player.mode}
                   onCardsChange={(cards) => updatePlayer(player.id, { cards })}
                   onRangeClick={() => handleOpenRangeDialog(player.id)}
-                  onToggleMode={() =>
-                    updatePlayer(player.id, { useRange: !player.useRange })
-                  }
+                  onSetMode={(mode) => setPlayerMode(player.id, mode)}
                   onRemove={() => removePlayer(player.id)}
                   canRemove={players.length > 1}
                   usedCards={getUsedCardsForPlayer(player.id)}
                 />
               ))}
 
-              {players.length < 10 && (
+              {players.length < totalPlayers && (
                 <button
-                  onClick={addPlayer}
+                  onClick={() => addPlayer('random')}
                   className="w-full py-2 border-2 border-dashed border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors"
                 >
                   {t('actions.addPlayer')}

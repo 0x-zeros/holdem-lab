@@ -1,19 +1,26 @@
 import { create } from 'zustand'
 import type { EquityResponse, CanonicalHandInfo } from '../api/types'
 
+export type PlayerMode = 'cards' | 'range' | 'random'
+
 interface Player {
   id: number
   cards: string[]       // Specific cards like ["Ah", "Kh"]
   range: string[]       // Range notation like ["QQ+", "AKs"]
-  useRange: boolean     // Toggle between cards and range input
+  mode: PlayerMode      // 'cards', 'range', or 'random'
 }
 
 interface EquityStore {
-  // Players
+  // Total players (including random opponents)
+  totalPlayers: number
+  setTotalPlayers: (n: number) => void
+
+  // Players (those with specific cards or range)
   players: Player[]
-  addPlayer: () => void
+  addPlayer: (mode?: PlayerMode) => void
   removePlayer: (id: number) => void
   updatePlayer: (id: number, updates: Partial<Player>) => void
+  setPlayerMode: (id: number, mode: PlayerMode) => void
 
   // Board
   board: string[]
@@ -54,20 +61,28 @@ interface EquityStore {
   reset: () => void
 }
 
-const createDefaultPlayer = (id: number): Player => ({
+const createDefaultPlayer = (id: number, mode: PlayerMode = 'cards'): Player => ({
   id,
   cards: [],
   range: [],
-  useRange: id > 0, // First player uses specific cards by default
+  mode: id === 0 ? 'cards' : mode, // First player uses specific cards by default
 })
 
 export const useEquityStore = create<EquityStore>((set, get) => ({
+  // Total players (default 6 like PokerStove)
+  totalPlayers: 6,
+  setTotalPlayers: (totalPlayers) => {
+    // Clamp between 2 and 10
+    const clamped = Math.max(2, Math.min(10, totalPlayers))
+    set({ totalPlayers: clamped })
+  },
+
   // Players
   players: [createDefaultPlayer(0)],
-  addPlayer: () => {
-    const { players } = get()
-    if (players.length >= 10) return
-    set({ players: [...players, createDefaultPlayer(players.length)] })
+  addPlayer: (mode: PlayerMode = 'random') => {
+    const { players, totalPlayers } = get()
+    if (players.length >= totalPlayers) return
+    set({ players: [...players, createDefaultPlayer(players.length, mode)] })
   },
   removePlayer: (id) => {
     const { players } = get()
@@ -78,6 +93,14 @@ export const useEquityStore = create<EquityStore>((set, get) => ({
     const { players } = get()
     set({
       players: players.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+    })
+  },
+  setPlayerMode: (id, mode) => {
+    const { players } = get()
+    set({
+      players: players.map((p) =>
+        p.id === id ? { ...p, mode, cards: mode === 'cards' ? p.cards : [], range: mode === 'range' ? p.range : [] } : p
+      ),
     })
   },
 
@@ -149,7 +172,7 @@ export const useEquityStore = create<EquityStore>((set, get) => ({
     const range = Array.from(selectedRangeHands)
     set({
       players: players.map((p) =>
-        p.id === activeRangePlayer ? { ...p, range, useRange: true } : p
+        p.id === activeRangePlayer ? { ...p, range, mode: 'range' } : p
       ),
       activeRangePlayer: null,
       selectedRangeHands: new Set(),
@@ -159,6 +182,7 @@ export const useEquityStore = create<EquityStore>((set, get) => ({
   // Reset
   reset: () =>
     set({
+      totalPlayers: 6,
       players: [createDefaultPlayer(0)],
       board: [],
       deadCards: [],

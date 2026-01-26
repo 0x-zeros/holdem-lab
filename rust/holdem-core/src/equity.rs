@@ -11,16 +11,33 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 /// A player's hole cards
+///
+/// - If cards is Some: uses the specific 2 cards
+/// - If is_random is true: random hand sampled each simulation
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlayerHand {
     pub cards: Vec<Card>,
+    #[serde(default)]
+    pub is_random: bool,
 }
 
 impl PlayerHand {
-    /// Create a new player hand
+    /// Create a new player hand with specific cards
     #[must_use]
     pub fn new(cards: Vec<Card>) -> Self {
-        Self { cards }
+        Self {
+            cards,
+            is_random: false,
+        }
+    }
+
+    /// Create a random player hand
+    #[must_use]
+    pub fn random() -> Self {
+        Self {
+            cards: Vec::new(),
+            is_random: true,
+        }
     }
 
     /// Parse from string notation (e.g., "Ah Kh")
@@ -201,6 +218,9 @@ impl EquityAccumulator {
 
 /// Calculate equity for all players
 ///
+/// Supports both known hands and random players. Random players have their
+/// hole cards sampled from the remaining deck each simulation.
+///
 /// # Panics
 /// Panics if fewer than 2 players or more than 5 board cards
 #[must_use]
@@ -216,11 +236,22 @@ pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
 
     let start = Instant::now();
 
-    // Collect all known cards
+    // Identify random vs known players
+    let random_player_indices: Vec<usize> = request
+        .players
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.is_random)
+        .map(|(i, _)| i)
+        .collect();
+
+    // Collect all known cards (board + known player hands + dead cards)
     let mut known_cards: HashSet<Card> = HashSet::new();
     for player in &request.players {
-        for &card in &player.cards {
-            known_cards.insert(card);
+        if !player.is_random {
+            for &card in &player.cards {
+                known_cards.insert(card);
+            }
         }
     }
     for &card in &request.board {
@@ -237,7 +268,7 @@ pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
         .copied()
         .collect();
 
-    let cards_needed = 5 - request.board.len();
+    let cards_needed_board = 5 - request.board.len();
     let num_players = request.players.len();
 
     // Initialize RNG
@@ -254,11 +285,15 @@ pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
         .players
         .iter()
         .map(|p| {
-            p.cards
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(" ")
+            if p.is_random {
+                "(Random)".to_string()
+            } else {
+                p.cards
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
         })
         .collect();
 
@@ -269,21 +304,34 @@ pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
         // Shuffle remaining deck
         deck_remaining.shuffle(&mut rng);
 
-        // Take runout cards
-        let runout: Vec<Card> = deck_remaining[..cards_needed].to_vec();
+        // Deal cards to random players first
+        let mut deck_idx = 0;
+        let mut sim_hole_cards: Vec<Vec<Card>> = Vec::with_capacity(num_players);
+
+        for (i, player) in request.players.iter().enumerate() {
+            if random_player_indices.contains(&i) {
+                // Random player: deal from shuffled deck
+                sim_hole_cards.push(vec![deck_remaining[deck_idx], deck_remaining[deck_idx + 1]]);
+                deck_idx += 2;
+            } else {
+                // Known player: use their cards
+                sim_hole_cards.push(player.cards.clone());
+            }
+        }
+
+        // Deal community cards
+        let runout: Vec<Card> = deck_remaining[deck_idx..deck_idx + cards_needed_board].to_vec();
 
         // Build complete board
         let mut full_board = request.board.clone();
         full_board.extend(runout);
 
         // Build complete hands for each player
-        let hands: Vec<Vec<Card>> = request
-            .players
-            .iter()
-            .map(|p| {
-                let mut hand = p.cards.clone();
-                hand.extend(full_board.iter().copied());
-                hand
+        let hands: Vec<Vec<Card>> = sim_hole_cards
+            .into_iter()
+            .map(|mut hole| {
+                hole.extend(full_board.iter().copied());
+                hole
             })
             .collect();
 
@@ -500,5 +548,48 @@ mod tests {
     fn test_player_hand_parse() {
         let hand = PlayerHand::parse("Ah Kh").unwrap();
         assert_eq!(hand.cards.len(), 2);
+    }
+
+    #[test]
+    fn test_equity_with_random_player() {
+        let request = EquityRequest::new(
+            vec![
+                PlayerHand::new(cards("As Kd")),
+                PlayerHand::random(),
+            ],
+            vec![],
+        )
+        .with_simulations(5_000)
+        .with_seed(42);
+
+        let result = calculate_equity(&request);
+
+        assert_eq!(result.players.len(), 2);
+        // AK should have ~62-65% equity vs random
+        assert!(result.players[0].equity > 0.55);
+        assert!(result.players[0].equity < 0.70);
+        // Random player hand description
+        assert_eq!(result.players[1].hand_description, "(Random)");
+    }
+
+    #[test]
+    fn test_equity_with_multiple_random_players() {
+        let request = EquityRequest::new(
+            vec![
+                PlayerHand::new(cards("As Kd")),
+                PlayerHand::random(),
+                PlayerHand::random(),
+            ],
+            vec![],
+        )
+        .with_simulations(5_000)
+        .with_seed(42);
+
+        let result = calculate_equity(&request);
+
+        assert_eq!(result.players.len(), 3);
+        // AK vs 2 random should be ~47-50% equity
+        assert!(result.players[0].equity > 0.40);
+        assert!(result.players[0].equity < 0.55);
     }
 }

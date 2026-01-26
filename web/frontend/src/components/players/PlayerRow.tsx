@@ -2,14 +2,16 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Card, CardPickerDialog } from '../cards'
 
+type PlayerMode = 'cards' | 'range' | 'random'
+
 interface PlayerRowProps {
   index: number
   cards: string[]
   range: string[]
-  useRange: boolean
+  mode: PlayerMode
   onCardsChange: (cards: string[]) => void
   onRangeClick: () => void
-  onToggleMode: () => void
+  onSetMode: (mode: PlayerMode) => void
   onRemove?: () => void
   canRemove?: boolean
   usedCards?: string[]
@@ -19,10 +21,10 @@ export function PlayerRow({
   index,
   cards,
   range,
-  useRange,
+  mode,
   onCardsChange,
   onRangeClick,
-  onToggleMode,
+  onSetMode,
   onRemove,
   canRemove = true,
   usedCards = [],
@@ -47,31 +49,27 @@ export function PlayerRow({
     onCardsChange(selectedCards)
   }
 
+  const modeButtonClass = (m: PlayerMode) =>
+    `px-2 py-1 text-xs rounded-[var(--radius-sm)] ${
+      mode === m
+        ? 'bg-[var(--primary)] text-white'
+        : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
+    }`
+
   return (
     <div className="p-4 bg-white border border-[var(--border)] rounded-[var(--radius-lg)]">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <span className="font-medium">{t('player.title', { index: index + 1 })}</span>
         <div className="flex items-center gap-2">
-          <button
-            onClick={onToggleMode}
-            className={`px-2 py-1 text-xs rounded-[var(--radius-sm)] ${
-              !useRange
-                ? 'bg-[var(--primary)] text-white'
-                : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
-            }`}
-          >
+          <button onClick={() => onSetMode('cards')} className={modeButtonClass('cards')}>
             {t('player.cards')}
           </button>
-          <button
-            onClick={onToggleMode}
-            className={`px-2 py-1 text-xs rounded-[var(--radius-sm)] ${
-              useRange
-                ? 'bg-[var(--primary)] text-white'
-                : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
-            }`}
-          >
+          <button onClick={() => onSetMode('range')} className={modeButtonClass('range')}>
             {t('player.range')}
+          </button>
+          <button onClick={() => onSetMode('random')} className={modeButtonClass('random')}>
+            {t('player.random')}
           </button>
           {canRemove && onRemove && (
             <button
@@ -85,7 +83,7 @@ export function PlayerRow({
       </div>
 
       {/* Input based on mode */}
-      {useRange ? (
+      {mode === 'range' ? (
         <div>
           <button
             onClick={onRangeClick}
@@ -97,6 +95,10 @@ export function PlayerRow({
               <span className="text-[var(--muted-foreground)]">{t('player.selectRange')}</span>
             )}
           </button>
+        </div>
+      ) : mode === 'random' ? (
+        <div className="py-2 px-3 text-center text-sm text-[var(--muted-foreground)] border border-dashed border-[var(--border)] rounded-[var(--radius-md)]">
+          {t('player.randomHand')}
         </div>
       ) : (
         <div className="space-y-3">

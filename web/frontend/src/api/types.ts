@@ -33,6 +33,7 @@ export interface ParseCardsResponse {
 export interface PlayerHandInput {
   cards?: string[]
   range?: string[]
+  random?: boolean
 }
 
 export interface EquityRequest {
