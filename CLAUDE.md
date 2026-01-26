@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 常用命令
 
+### Python 核心库
+
 ```bash
-# 安装开发依赖
 cd holdem-core
 uv pip install -e ".[dev]"
 
@@ -20,9 +21,44 @@ uv run pytest tests/test_evaluator.py::TestEvaluateFive::test_royal_flush -v
 
 # 安装分析依赖（Jupyter notebooks）
 uv pip install -e ".[analysis]"
-
-# 启动 Jupyter Lab
 uv run jupyter lab analysis/
+```
+
+### Web 前端
+
+```bash
+cd web/frontend
+npm install
+npm run dev          # 开发服务器 → localhost:5173
+npm run build        # 构建生产版本
+npm run typecheck    # TypeScript 类型检查
+npm run lint         # ESLint 检查
+```
+
+### Web 后端
+
+```bash
+cd web/backend
+uv pip install -e "../../holdem-core" -e ".[dev]"
+python run.py        # 开发服务器 → localhost:8000
+uv run pytest        # 运行后端测试
+```
+
+### Rust 核心库
+
+```bash
+cd rust/holdem-core
+cargo build
+cargo test
+```
+
+### Tauri 桌面应用
+
+```bash
+cd rust/holdem-app
+npm install
+npm run tauri:dev    # 开发模式
+npm run tauri:build  # 构建发布包
 ```
 
 ## 架构概览
@@ -33,6 +69,8 @@ uv run jupyter lab analysis/
 cards.py (基础层，无依赖)
     │
     ├── evaluator.py (手牌评估)
+    ├── draws.py (听牌分析)
+    ├── canonize.py (169 规范手牌)
     ├── event_log.py (事件日志)
     └── equity.py (概率计算)
             │
@@ -66,6 +104,7 @@ cards.py (基础层，无依赖)
 | `holdem-core/src/holdem_lab/evaluator.py` | `rust/holdem-core/src/evaluator.rs` |
 | `holdem-core/src/holdem_lab/equity.py` | `rust/holdem-core/src/equity.rs` |
 | `holdem-core/src/holdem_lab/draws.py` | `rust/holdem-core/src/draws.rs` |
+| `holdem-core/src/holdem_lab/canonize.py` | `rust/holdem-core/src/canonize.rs` |
 
 **测试对应关系：**
 
