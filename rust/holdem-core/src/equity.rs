@@ -8,6 +8,10 @@ use crate::evaluator::find_winners;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
+// std::time::Instant is not available in WASM, so we skip timing there
+// The WASM binding layer (holdem-wasm) handles timing with js_sys::Date
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 /// A player's hole cards
@@ -280,6 +284,7 @@ impl EquityAccumulator {
 pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
     validate_equity_request(request);
 
+    #[cfg(not(target_arch = "wasm32"))]
     let start = Instant::now();
 
     // Identify random vs known players
@@ -388,7 +393,10 @@ pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
         acc.record(&winners);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    #[cfg(target_arch = "wasm32")]
+    let elapsed_ms = 0.0; // WASM timing handled by holdem-wasm with js_sys::Date
 
     acc.into_results(hand_descriptions, elapsed_ms)
 }
