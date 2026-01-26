@@ -40,6 +40,7 @@ export const tauriClient = {
       players: request.players.map((p) => ({
         cards: p.cards,
         range: p.range,
+        random: p.random,
       })),
       board: request.board || [],
       dead_cards: request.dead_cards || [],
