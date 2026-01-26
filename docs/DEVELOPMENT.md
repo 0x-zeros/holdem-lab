@@ -72,6 +72,7 @@ uv run jupyter lab analysis/
 ```bash
 # 后端 (Python/FastAPI)
 cd web/backend
+pip install -e "../../holdem-core" -e ".[dev]"
 python run.py              # → localhost:8000
 
 # 前端 (React/Vite)
