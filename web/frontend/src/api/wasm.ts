@@ -102,7 +102,9 @@ export const wasmClient = {
     console.log('[WASM] calculateEquity request:', JSON.stringify(request, null, 2))
     const wasm = await loadWasm()
     try {
-      const result = wasm.wasm_calculate_equity(request)
+      // Convert to plain object - Vue reactive proxies break serde_wasm_bindgen
+      const plainRequest = JSON.parse(JSON.stringify(request))
+      const result = wasm.wasm_calculate_equity(plainRequest)
       console.log('[WASM] calculateEquity result:', result)
       return result
     } catch (error) {
@@ -116,11 +118,11 @@ export const wasmClient = {
   analyzeDraws: async (request: DrawsRequest): Promise<DrawsResponse> => {
     const wasm = await loadWasm()
     try {
-      return wasm.wasm_analyze_draws(
-        request.hole_cards,
-        request.board,
-        request.dead_cards || []
-      )
+      // Convert to plain arrays - Vue reactive proxies break serde_wasm_bindgen
+      const holeCards = JSON.parse(JSON.stringify(request.hole_cards))
+      const board = JSON.parse(JSON.stringify(request.board))
+      const deadCards = JSON.parse(JSON.stringify(request.dead_cards || []))
+      return wasm.wasm_analyze_draws(holeCards, board, deadCards)
     } catch (error) {
       const errorMessage = typeof error === 'string' ? error : String(error)
       console.error('[WASM] analyzeDraws error:', errorMessage)
