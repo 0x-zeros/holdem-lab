@@ -11,6 +11,7 @@ pub mod card;
 pub mod canonize;
 pub mod draws;
 pub mod equity;
+pub mod error;
 pub mod evaluator;
 
 // Re-export commonly used types
@@ -18,4 +19,5 @@ pub use card::{Card, Deck, Rank, Suit};
 pub use canonize::{CanonicalHand, get_all_canonical_hands};
 pub use draws::{analyze_draws, DrawAnalysis, DrawType, FlushDraw, StraightDraw};
 pub use equity::{calculate_equity, EquityRequest, EquityResult, PlayerEquity, PlayerHand};
+pub use error::{HoldemError, HoldemResult};
 pub use evaluator::{evaluate_hand, find_winners, HandRank, HandType};

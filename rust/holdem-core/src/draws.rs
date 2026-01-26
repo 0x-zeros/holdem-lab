@@ -3,6 +3,7 @@
 //! Analyzes hole cards + board to identify drawing hands and their outs.
 
 use crate::card::{Card, Rank, Suit, FULL_DECK};
+use crate::error::{HoldemError, HoldemResult};
 use crate::evaluator::{evaluate_hand, HandType};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -452,17 +453,28 @@ fn analyze_straight_draws(
 }
 
 /// Analyze draws for given hole cards and board
-#[must_use]
-pub fn analyze_draws(hole_cards: &[Card], board: &[Card], dead_cards: &[Card]) -> DrawAnalysis {
-    assert!(hole_cards.len() == 2, "Must have exactly 2 hole cards");
-    assert!(board.len() <= 5, "Board cannot exceed 5 cards");
+///
+/// # Errors
+/// Returns an error if:
+/// - `hole_cards.len() != 2`
+/// - `board.len() > 5`
+pub fn analyze_draws(hole_cards: &[Card], board: &[Card], dead_cards: &[Card]) -> HoldemResult<DrawAnalysis> {
+    if hole_cards.len() != 2 {
+        return Err(HoldemError::InvalidCardCount {
+            expected: "2",
+            got: hole_cards.len(),
+        });
+    }
+    if board.len() > 5 {
+        return Err(HoldemError::BoardTooLarge(board.len()));
+    }
 
     let dead_set: HashSet<Card> = dead_cards.iter().copied().collect();
 
     // Check if already has flush or straight
     let all_cards: Vec<Card> = hole_cards.iter().chain(board.iter()).copied().collect();
     let (has_flush, has_straight) = if all_cards.len() >= 5 {
-        let rank = evaluate_hand(&all_cards);
+        let rank = evaluate_hand(&all_cards)?;
         let flush = matches!(
             rank.hand_type,
             HandType::Flush | HandType::StraightFlush | HandType::RoyalFlush
@@ -500,7 +512,7 @@ pub fn analyze_draws(hole_cards: &[Card], board: &[Card], dead_cards: &[Card]) -
     let all_outs: Vec<Card> = all_outs_set.into_iter().collect();
     let total_outs = all_outs.len();
 
-    DrawAnalysis {
+    Ok(DrawAnalysis {
         hole_cards: hole_cards.to_vec(),
         board: board.to_vec(),
         has_flush,
@@ -509,26 +521,30 @@ pub fn analyze_draws(hole_cards: &[Card], board: &[Card], dead_cards: &[Card]) -
         straight_draws,
         total_outs,
         all_outs,
-    }
+    })
 }
 
 /// Count flush outs (convenience function)
-#[must_use]
-pub fn count_flush_outs(hole_cards: &[Card], board: &[Card]) -> usize {
-    let analysis = analyze_draws(hole_cards, board, &[]);
-    analysis
+///
+/// # Errors
+/// Returns an error if hole_cards or board are invalid.
+pub fn count_flush_outs(hole_cards: &[Card], board: &[Card]) -> HoldemResult<usize> {
+    let analysis = analyze_draws(hole_cards, board, &[])?;
+    Ok(analysis
         .flush_draws
         .iter()
         .filter(|d| d.draw_type() == DrawType::FlushDraw)
         .map(FlushDraw::out_count)
         .max()
-        .unwrap_or(0)
+        .unwrap_or(0))
 }
 
 /// Count straight outs (convenience function)
-#[must_use]
-pub fn count_straight_outs(hole_cards: &[Card], board: &[Card]) -> usize {
-    let analysis = analyze_draws(hole_cards, board, &[]);
+///
+/// # Errors
+/// Returns an error if hole_cards or board are invalid.
+pub fn count_straight_outs(hole_cards: &[Card], board: &[Card]) -> HoldemResult<usize> {
+    let analysis = analyze_draws(hole_cards, board, &[])?;
     let mut outs: HashSet<Card> = HashSet::new();
     for draw in &analysis.straight_draws {
         if matches!(
@@ -538,35 +554,37 @@ pub fn count_straight_outs(hole_cards: &[Card], board: &[Card]) -> usize {
             outs.extend(draw.outs.iter().copied());
         }
     }
-    outs.len()
+    Ok(outs.len())
 }
 
 /// Get the primary (strongest) draw type
-#[must_use]
-pub fn get_primary_draw(hole_cards: &[Card], board: &[Card]) -> Option<DrawType> {
-    let analysis = analyze_draws(hole_cards, board, &[]);
+///
+/// # Errors
+/// Returns an error if hole_cards or board are invalid.
+pub fn get_primary_draw(hole_cards: &[Card], board: &[Card]) -> HoldemResult<Option<DrawType>> {
+    let analysis = analyze_draws(hole_cards, board, &[])?;
 
     // Priority: Flush > OESD > Double Gutshot > Gutshot > Backdoor
     if analysis.flush_draws.iter().any(|d| d.draw_type() == DrawType::FlushDraw) {
-        return Some(DrawType::FlushDraw);
+        return Ok(Some(DrawType::FlushDraw));
     }
     if analysis.straight_draws.iter().any(|d| d.draw_type == DrawType::OpenEnded) {
-        return Some(DrawType::OpenEnded);
+        return Ok(Some(DrawType::OpenEnded));
     }
     if analysis.straight_draws.iter().any(|d| d.draw_type == DrawType::DoubleGutshot) {
-        return Some(DrawType::DoubleGutshot);
+        return Ok(Some(DrawType::DoubleGutshot));
     }
     if analysis.straight_draws.iter().any(|d| d.draw_type == DrawType::Gutshot) {
-        return Some(DrawType::Gutshot);
+        return Ok(Some(DrawType::Gutshot));
     }
     if analysis.flush_draws.iter().any(|d| d.draw_type() == DrawType::BackdoorFlush) {
-        return Some(DrawType::BackdoorFlush);
+        return Ok(Some(DrawType::BackdoorFlush));
     }
     if analysis.straight_draws.iter().any(|d| d.draw_type == DrawType::BackdoorStraight) {
-        return Some(DrawType::BackdoorStraight);
+        return Ok(Some(DrawType::BackdoorStraight));
     }
 
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -583,7 +601,7 @@ mod tests {
         let hole = cards("Ah 9h");
         let board = cards("Kh 5h 2c");
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         assert!(!analysis.has_flush);
         assert_eq!(analysis.flush_draws.len(), 1);
@@ -597,7 +615,7 @@ mod tests {
         let hole = cards("Ah 9h");
         let board = cards("Kh 5c 2c");
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         assert!(!analysis.has_flush);
         assert_eq!(analysis.flush_draws.len(), 1);
@@ -609,7 +627,7 @@ mod tests {
         let hole = cards("9h 8c");
         let board = cards("7d 6s 2h");
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         assert!(!analysis.has_straight);
         let oesd = analysis
@@ -625,7 +643,7 @@ mod tests {
         let hole = cards("Ah Kc");
         let board = cards("Qd Ts 2h"); // Need J for broadway
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         let gutshots = analysis
             .straight_draws
@@ -640,7 +658,7 @@ mod tests {
         let hole = cards("9h 8h");
         let board = cards("7h 6c 2h"); // Flush draw + OESD
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         assert!(analysis.is_combo_draw());
         assert!(analysis.total_outs > 12); // Should be ~15 outs
@@ -651,7 +669,7 @@ mod tests {
         let hole = cards("Ah 9h");
         let board = cards("Kh 5h 2h");
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         assert!(analysis.has_flush);
         assert!(analysis.flush_draws.is_empty());
@@ -662,7 +680,7 @@ mod tests {
         let hole = cards("9h 8c");
         let board = cards("7d 6s 5h");
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         assert!(analysis.has_straight);
         assert!(analysis.straight_draws.is_empty());
@@ -673,7 +691,7 @@ mod tests {
         let hole = cards("Ah 2c");
         let board = cards("4d 3s Kh"); // Need 5 for wheel
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         let has_wheel_draw = analysis.straight_draws.iter().any(|d| d.high_card == 5);
         assert!(has_wheel_draw);
@@ -685,8 +703,8 @@ mod tests {
         let board = cards("Kh 5h 2c");
         let dead = cards("Qh Jh"); // 2 hearts are dead
 
-        let analysis_no_dead = analyze_draws(&hole, &board, &[]);
-        let analysis_with_dead = analyze_draws(&hole, &board, &dead);
+        let analysis_no_dead = analyze_draws(&hole, &board, &[]).unwrap();
+        let analysis_with_dead = analyze_draws(&hole, &board, &dead).unwrap();
 
         assert!(analysis_with_dead.flush_draws[0].out_count() < analysis_no_dead.flush_draws[0].out_count());
     }
@@ -696,7 +714,7 @@ mod tests {
         let hole = cards("9h 8h");
         let board = cards("7h 6c 2h");
 
-        let primary = get_primary_draw(&hole, &board);
+        let primary = get_primary_draw(&hole, &board).unwrap();
         assert_eq!(primary, Some(DrawType::FlushDraw)); // Flush > OESD
     }
 
@@ -705,10 +723,10 @@ mod tests {
         let hole = cards("Ah 9h");
         let board = cards("Kh 5h 2c");
 
-        let flush_outs = count_flush_outs(&hole, &board);
+        let flush_outs = count_flush_outs(&hole, &board).unwrap();
         assert_eq!(flush_outs, 9);
 
-        let _straight_outs = count_straight_outs(&hole, &board);
+        let _straight_outs = count_straight_outs(&hole, &board).unwrap();
         // straight_outs is usize, always >= 0
     }
 
@@ -719,7 +737,7 @@ mod tests {
         let hole = cards("Kh 5h");
         let board = cards("Ah 6h 2c"); // Ah on board, 4 hearts total
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         assert_eq!(analysis.flush_draws.len(), 1);
         assert!(analysis.flush_draws[0].is_nut); // Ace on board means nut
@@ -732,7 +750,7 @@ mod tests {
         let board = cards("Tc 6h 2c");
         let dead = cards("Ah");
 
-        let analysis = analyze_draws(&hole, &board, &dead);
+        let analysis = analyze_draws(&hole, &board, &dead).unwrap();
 
         assert_eq!(analysis.flush_draws.len(), 1);
         assert!(analysis.flush_draws[0].is_nut); // Ace is dead means nut
@@ -744,7 +762,7 @@ mod tests {
         let hole = cards("Kh 5h");
         let board = cards("Tc 6h 2c");
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         assert_eq!(analysis.flush_draws.len(), 1);
         assert!(!analysis.flush_draws[0].is_nut); // Ace could be out there
@@ -757,7 +775,7 @@ mod tests {
         let board = cards("Tc 6h 2c");
         let dead = cards("Ah"); // Ace dead, but Kh is still live!
 
-        let analysis = analyze_draws(&hole, &board, &dead);
+        let analysis = analyze_draws(&hole, &board, &dead).unwrap();
 
         assert_eq!(analysis.flush_draws.len(), 1);
         assert!(!analysis.flush_draws[0].is_nut); // Kh could beat Qh
@@ -770,7 +788,7 @@ mod tests {
         let board = cards("Tc 6h 2c");
         let dead = cards("Ah Kh"); // Both Ace and King dead
 
-        let analysis = analyze_draws(&hole, &board, &dead);
+        let analysis = analyze_draws(&hole, &board, &dead).unwrap();
 
         assert_eq!(analysis.flush_draws.len(), 1);
         assert!(analysis.flush_draws[0].is_nut); // Queen is highest remaining
@@ -784,7 +802,7 @@ mod tests {
         // River: 5 board cards
         let board = cards("8d 5s 2h 3c Ks");
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         // Double gutshot should not appear on river
         let double_gs: Vec<_> = analysis
@@ -802,7 +820,7 @@ mod tests {
         // Turn: 4 board cards
         let board = cards("8d 5s 2h 3c");
 
-        let analysis = analyze_draws(&hole, &board, &[]);
+        let analysis = analyze_draws(&hole, &board, &[]).unwrap();
 
         // 5-7-8-T needs 6 or 9 - should still detect
         let double_gs: Vec<_> = analysis

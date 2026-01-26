@@ -155,7 +155,8 @@ fn calculate_equity_impl(request: EquityRequestInput) -> Result<EquityResultOutp
 
     // Use js_sys::Date for timing in WASM (std::time::Instant not available)
     let start = js_sys::Date::now();
-    let result = equity::calculate_equity(&eq_request);
+    let result = equity::calculate_equity(&eq_request)
+        .map_err(|e| e.to_string())?;
     let elapsed_ms = js_sys::Date::now() - start;
 
     // Convert to output format
@@ -229,7 +230,8 @@ fn analyze_draws_impl(
 
     let dead = parse_card_strings(&dead_cards)?;
 
-    let analysis = draws::analyze_draws(&hole, &board, &dead);
+    let analysis = draws::analyze_draws(&hole, &board, &dead)
+        .map_err(|e| e.to_string())?;
 
     Ok(DrawAnalysisOutput {
         has_flush: analysis.has_flush,

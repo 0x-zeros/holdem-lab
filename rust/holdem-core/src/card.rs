@@ -1,5 +1,6 @@
 //! Card representation and deck management.
 
+use crate::error::{HoldemError, HoldemResult};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -384,30 +385,38 @@ impl Deck {
     }
 
     /// Deal n cards from the deck
-    pub fn deal(&mut self, n: usize) -> Vec<Card> {
+    ///
+    /// # Errors
+    /// Returns an error if there are not enough cards remaining.
+    pub fn deal(&mut self, n: usize) -> HoldemResult<Vec<Card>> {
         if n > self.cards.len() {
-            panic!(
-                "Cannot deal {} cards, only {} remain",
-                n,
-                self.cards.len()
-            );
+            return Err(HoldemError::InsufficientCards {
+                requested: n,
+                available: self.cards.len(),
+            });
         }
-        self.cards.drain(..n).collect()
+        Ok(self.cards.drain(..n).collect())
     }
 
     /// Deal one card
-    pub fn deal_one(&mut self) -> Card {
-        self.deal(1).pop().expect("deal_one should return a card")
+    ///
+    /// # Errors
+    /// Returns an error if the deck is empty.
+    pub fn deal_one(&mut self) -> HoldemResult<Card> {
+        self.deal(1).map(|mut v| v.pop().unwrap())
     }
 
     /// Remove specific cards from the deck
-    pub fn remove(&mut self, cards: &[Card]) {
+    ///
+    /// # Errors
+    /// Returns an error if a card is not in the deck or was already removed.
+    pub fn remove(&mut self, cards: &[Card]) -> HoldemResult<()> {
         for card in cards {
             if !self.cards.contains(card) {
                 if self.removed.contains(card) {
-                    panic!("Card {} was already removed", card);
+                    return Err(HoldemError::CardAlreadyRemoved(card.to_string()));
                 }
-                panic!("Card {} not in deck", card);
+                return Err(HoldemError::CardNotInDeck(card.to_string()));
             }
 
             if let Some(index) = self.cards.iter().position(|c| c == card) {
@@ -415,6 +424,7 @@ impl Deck {
                 self.removed.insert(*card);
             }
         }
+        Ok(())
     }
 
     /// Check if a card is in the deck
@@ -442,16 +452,17 @@ impl Deck {
     }
 
     /// Peek at the top n cards
-    #[must_use]
-    pub fn peek(&self, n: usize) -> &[Card] {
+    ///
+    /// # Errors
+    /// Returns an error if there are not enough cards remaining.
+    pub fn peek(&self, n: usize) -> HoldemResult<&[Card]> {
         if n > self.cards.len() {
-            panic!(
-                "Cannot peek {} cards, only {} remain",
-                n,
-                self.cards.len()
-            );
+            return Err(HoldemError::InsufficientCards {
+                requested: n,
+                available: self.cards.len(),
+            });
         }
-        &self.cards[..n]
+        Ok(&self.cards[..n])
     }
 }
 
@@ -559,7 +570,7 @@ mod tests {
         assert_eq!(deck.len(), 52);
 
         deck.shuffle();
-        let dealt = deck.deal(5);
+        let dealt = deck.deal(5).unwrap();
         assert_eq!(dealt.len(), 5);
         assert_eq!(deck.len(), 47);
 
@@ -573,7 +584,7 @@ mod tests {
         let ah = Card::new(Rank::Ace, Suit::Hearts);
         let kh = Card::new(Rank::King, Suit::Hearts);
 
-        deck.remove(&[ah, kh]);
+        deck.remove(&[ah, kh]).unwrap();
         assert_eq!(deck.len(), 50);
         assert!(!deck.contains(ah));
         assert!(!deck.contains(kh));

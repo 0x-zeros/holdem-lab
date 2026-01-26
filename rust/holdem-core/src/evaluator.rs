@@ -3,6 +3,7 @@
 //! Evaluates 5-7 card hands and determines the best 5-card combination.
 
 use crate::card::{Card, Rank};
+use crate::error::{HoldemError, HoldemResult};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -290,21 +291,24 @@ pub fn evaluate_five(cards: &[Card; 5]) -> HandRank {
 }
 
 /// Evaluate 5-7 cards and return the best 5-card hand
-#[must_use]
-pub fn evaluate_hand(cards: &[Card]) -> HandRank {
-    assert!(
-        (5..=7).contains(&cards.len()),
-        "evaluate_hand requires 5-7 cards, got {}",
-        cards.len()
-    );
+///
+/// # Errors
+/// Returns an error if the number of cards is not 5-7.
+pub fn evaluate_hand(cards: &[Card]) -> HoldemResult<HandRank> {
+    if !(5..=7).contains(&cards.len()) {
+        return Err(HoldemError::InvalidCardCount {
+            expected: "5-7",
+            got: cards.len(),
+        });
+    }
 
     if cards.len() == 5 {
         let arr: [Card; 5] = cards.try_into().unwrap();
-        return evaluate_five(&arr);
+        return Ok(evaluate_five(&arr));
     }
 
     // Enumerate all C(n, 5) combinations and find the best
-    cards
+    Ok(cards
         .iter()
         .copied()
         .combinations(5)
@@ -313,37 +317,48 @@ pub fn evaluate_hand(cards: &[Card]) -> HandRank {
             evaluate_five(&arr)
         })
         .max()
-        .unwrap()
+        .unwrap())
 }
 
 /// Find the indices of players with the best hand (handles ties)
-#[must_use]
-pub fn find_winners(hands: &[Vec<Card>]) -> Vec<usize> {
-    assert!(!hands.is_empty(), "Must provide at least one hand");
+///
+/// # Errors
+/// Returns an error if:
+/// - `hands` is empty
+/// - Any hand has invalid card count
+pub fn find_winners(hands: &[Vec<Card>]) -> HoldemResult<Vec<usize>> {
+    if hands.is_empty() {
+        return Err(HoldemError::EmptyHands);
+    }
 
-    let ranks: Vec<HandRank> = hands.iter().map(|h| evaluate_hand(h)).collect();
+    let ranks: Vec<HandRank> = hands
+        .iter()
+        .map(|h| evaluate_hand(h))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let best = ranks.iter().max().unwrap();
 
-    ranks
+    Ok(ranks
         .iter()
         .enumerate()
         .filter_map(|(i, r)| if r == best { Some(i) } else { None })
-        .collect()
+        .collect())
 }
 
 /// Compare two hands directly
 /// Returns: 1 if hand1 wins, -1 if hand2 wins, 0 if tie
-#[must_use]
-pub fn compare_hands(hand1: &[Card], hand2: &[Card]) -> i8 {
-    let rank1 = evaluate_hand(hand1);
-    let rank2 = evaluate_hand(hand2);
+///
+/// # Errors
+/// Returns an error if either hand has invalid card count.
+pub fn compare_hands(hand1: &[Card], hand2: &[Card]) -> HoldemResult<i8> {
+    let rank1 = evaluate_hand(hand1)?;
+    let rank2 = evaluate_hand(hand2)?;
 
-    match rank1.cmp(&rank2) {
+    Ok(match rank1.cmp(&rank2) {
         Ordering::Greater => 1,
         Ordering::Less => -1,
         Ordering::Equal => 0,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -461,7 +476,7 @@ mod tests {
     fn test_evaluate_seven_cards() {
         // Best 5 from 7 should be a flush
         let hand = cards("Ah Kh 9h 5h 2h 3c 4d");
-        let rank = evaluate_hand(&hand);
+        let rank = evaluate_hand(&hand).unwrap();
         assert_eq!(rank.hand_type, HandType::Flush);
     }
 
@@ -471,7 +486,7 @@ mod tests {
         let hand2 = cards("9h 8h 7h 6h 5h"); // Straight flush
         let hand3 = cards("Ks Kh Kd Kc 2h"); // Four of a kind
 
-        let winners = find_winners(&[hand1, hand2, hand3]);
+        let winners = find_winners(&[hand1, hand2, hand3]).unwrap();
         assert_eq!(winners, vec![0]); // Royal flush wins
     }
 
@@ -480,7 +495,7 @@ mod tests {
         let hand1 = cards("Ah Kd Qc Jh Ts"); // Broadway straight
         let hand2 = cards("Ac Ks Qh Jd Tc"); // Same broadway straight
 
-        let winners = find_winners(&[hand1, hand2]);
+        let winners = find_winners(&[hand1, hand2]).unwrap();
         assert_eq!(winners, vec![0, 1]); // Tie
     }
 
@@ -489,9 +504,9 @@ mod tests {
         let hand1 = cards("Ah Kh Qh Jh Th");
         let hand2 = cards("9h 8h 7h 6h 5h");
 
-        assert_eq!(compare_hands(&hand1, &hand2), 1); // Royal > Straight flush
-        assert_eq!(compare_hands(&hand2, &hand1), -1);
-        assert_eq!(compare_hands(&hand1, &hand1), 0); // Tie
+        assert_eq!(compare_hands(&hand1, &hand2).unwrap(), 1); // Royal > Straight flush
+        assert_eq!(compare_hands(&hand2, &hand1).unwrap(), -1);
+        assert_eq!(compare_hands(&hand1, &hand1).unwrap(), 0); // Tie
     }
 
     #[test]

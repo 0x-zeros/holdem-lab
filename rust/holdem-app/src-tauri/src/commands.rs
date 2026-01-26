@@ -153,7 +153,8 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
         .with_simulations(request.num_simulations)
         .with_dead_cards(dead_cards);
 
-    let result = equity::calculate_equity(&eq_request);
+    let result = equity::calculate_equity(&eq_request)
+        .map_err(|e| e.to_string())?;
 
     // Convert to output format
     Ok(EquityResultOutput {
@@ -254,7 +255,8 @@ pub fn analyze_draws(
         .transpose()?
         .unwrap_or_default();
 
-    let analysis = draws::analyze_draws(&hole, &board, &dead);
+    let analysis = draws::analyze_draws(&hole, &board, &dead)
+        .map_err(|e| e.to_string())?;
 
     Ok(DrawAnalysisOutput {
         has_flush: analysis.has_flush,

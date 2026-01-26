@@ -4,6 +4,7 @@
 //! random runouts multiple times.
 
 use crate::card::{Card, FULL_DECK};
+use crate::error::{HoldemError, HoldemResult};
 use crate::evaluator::find_winners;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -27,17 +28,28 @@ pub struct PlayerHand {
 
 impl PlayerHand {
     /// Create a new player hand with specific cards
+    ///
+    /// # Panics
+    /// Panics if cards.len() != 2. Use `try_new()` for a Result-returning version.
     #[must_use]
     pub fn new(cards: Vec<Card>) -> Self {
-        assert!(
-            cards.len() == 2,
-            "Player must have exactly 2 hole cards, got {}",
-            cards.len()
-        );
-        Self {
+        Self::try_new(cards).expect("Player must have exactly 2 hole cards")
+    }
+
+    /// Try to create a new player hand with specific cards
+    ///
+    /// Returns an error if the number of cards is not exactly 2.
+    pub fn try_new(cards: Vec<Card>) -> HoldemResult<Self> {
+        if cards.len() != 2 {
+            return Err(HoldemError::InvalidCardCount {
+                expected: "2",
+                got: cards.len(),
+            });
+        }
+        Ok(Self {
             cards,
             is_random: false,
-        }
+        })
     }
 
     /// Create a random player hand
@@ -52,6 +64,7 @@ impl PlayerHand {
     /// Parse from string notation (e.g., "Ah Kh")
     pub fn parse(s: &str) -> Result<Self, crate::card::ParseError> {
         let cards = crate::card::parse_cards(s)?;
+        // Use new() here since parse_cards already validates
         Ok(Self::new(cards))
     }
 }
@@ -100,52 +113,51 @@ fn default_simulations() -> u32 {
     10_000
 }
 
-fn validate_equity_request(request: &EquityRequest) {
-    assert!(
-        request.players.len() >= 2,
-        "Need at least 2 players"
-    );
-    assert!(
-        request.board.len() <= 5,
-        "Board cannot have more than 5 cards"
-    );
+fn validate_equity_request(request: &EquityRequest) -> HoldemResult<()> {
+    if request.players.len() < 2 {
+        return Err(HoldemError::NotEnoughPlayers(2));
+    }
+    if request.board.len() > 5 {
+        return Err(HoldemError::BoardTooLarge(request.board.len()));
+    }
 
-    for (i, player) in request.players.iter().enumerate() {
+    for player in &request.players {
         if player.is_random {
-            assert!(
-                player.cards.is_empty(),
-                "Random player must not specify cards"
-            );
-        } else {
-            assert!(
-                player.cards.len() == 2,
-                "Player {} must have exactly 2 hole cards, got {}",
-                i,
-                player.cards.len()
-            );
+            if !player.cards.is_empty() {
+                return Err(HoldemError::InvalidCardCount {
+                    expected: "0 (random player)",
+                    got: player.cards.len(),
+                });
+            }
+        } else if player.cards.len() != 2 {
+            return Err(HoldemError::InvalidCardCount {
+                expected: "2",
+                got: player.cards.len(),
+            });
         }
     }
 
     let mut known_cards: HashSet<Card> = HashSet::new();
     for &card in &request.board {
         if !known_cards.insert(card) {
-            panic!("Duplicate cards detected in players/board");
+            return Err(HoldemError::DuplicateCard(card.to_string()));
         }
     }
     for &card in &request.dead_cards {
         if !known_cards.insert(card) {
-            panic!("Duplicate cards detected in players/board");
+            return Err(HoldemError::DuplicateCard(card.to_string()));
         }
     }
     for player in &request.players {
         if !player.is_random {
             for &card in &player.cards {
                 if !known_cards.insert(card) {
-                    panic!("Duplicate cards detected in players/board");
+                    return Err(HoldemError::DuplicateCard(card.to_string()));
                 }
             }
         }
     }
+    Ok(())
 }
 
 impl EquityRequest {
@@ -278,11 +290,14 @@ impl EquityAccumulator {
 /// Supports both known hands and random players. Random players have their
 /// hole cards sampled from the remaining deck each simulation.
 ///
-/// # Panics
-/// Panics if fewer than 2 players or more than 5 board cards
-#[must_use]
-pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
-    validate_equity_request(request);
+/// # Errors
+/// Returns an error if:
+/// - Fewer than 2 players
+/// - More than 5 board cards
+/// - Duplicate cards detected
+/// - Invalid player hand configuration
+pub fn calculate_equity(request: &EquityRequest) -> HoldemResult<EquityResult> {
+    validate_equity_request(request)?;
 
     #[cfg(not(target_arch = "wasm32"))]
     let start = Instant::now();
@@ -386,8 +401,8 @@ pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
             })
             .collect();
 
-        // Find winners
-        let winners = find_winners(&hands);
+        // Find winners (unwrap is safe here - we always have 7-card hands)
+        let winners = find_winners(&hands).unwrap();
 
         // Record result
         acc.record(&winners);
@@ -398,23 +413,31 @@ pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
     #[cfg(target_arch = "wasm32")]
     let elapsed_ms = 0.0; // WASM timing handled by holdem-wasm with js_sys::Date
 
-    acc.into_results(hand_descriptions, elapsed_ms)
+    Ok(acc.into_results(hand_descriptions, elapsed_ms))
 }
 
 /// Convenience function: calculate equity of hole cards vs random opponents
-#[must_use]
+///
+/// # Errors
+/// Returns an error if:
+/// - `hole_cards.len() != 2`
+/// - `num_opponents < 1`
 pub fn equity_vs_random(
     hole_cards: &[Card],
     board: &[Card],
     num_opponents: usize,
     num_simulations: u32,
     seed: Option<u64>,
-) -> f64 {
-    assert!(
-        hole_cards.len() == 2,
-        "Hole cards must be exactly 2"
-    );
-    assert!(num_opponents >= 1, "Need at least 1 opponent");
+) -> HoldemResult<f64> {
+    if hole_cards.len() != 2 {
+        return Err(HoldemError::InvalidCardCount {
+            expected: "2",
+            got: hole_cards.len(),
+        });
+    }
+    if num_opponents < 1 {
+        return Err(HoldemError::NotEnoughOpponents(1));
+    }
 
     // Collect known cards
     let mut known_cards: HashSet<Card> = HashSet::new();
@@ -478,8 +501,8 @@ pub fn equity_vs_random(
             hands.push(hand);
         }
 
-        // Find winners
-        let winners = find_winners(&hands);
+        // Find winners (unwrap is safe here - we always have 7-card hands)
+        let winners = find_winners(&hands).unwrap();
 
         // Check if hero (index 0) won
         if winners.contains(&0) {
@@ -487,7 +510,7 @@ pub fn equity_vs_random(
         }
     }
 
-    equity_sum / num_simulations as f64
+    Ok(equity_sum / num_simulations as f64)
 }
 
 #[cfg(test)]
@@ -511,7 +534,7 @@ mod tests {
         .with_simulations(10_000)
         .with_seed(42);
 
-        let result = calculate_equity(&request);
+        let result = calculate_equity(&request).unwrap();
 
         assert_eq!(result.players.len(), 2);
         // AA should have ~82% equity vs KK
@@ -533,7 +556,7 @@ mod tests {
         .with_simulations(10_000)
         .with_seed(42);
 
-        let result = calculate_equity(&request);
+        let result = calculate_equity(&request).unwrap();
 
         // With the flush draw, AK should be heavily favored
         assert!(result.players[0].equity > 0.80);
@@ -552,7 +575,7 @@ mod tests {
         .with_simulations(5_000)
         .with_seed(42);
 
-        let result = calculate_equity(&request);
+        let result = calculate_equity(&request).unwrap();
 
         let total_equity: f64 = result.players.iter().map(|p| p.equity).sum();
         assert!((total_equity - 1.0).abs() < 0.01);
@@ -572,8 +595,8 @@ mod tests {
 
         let request2 = request1.clone();
 
-        let result1 = calculate_equity(&request1);
-        let result2 = calculate_equity(&request2);
+        let result1 = calculate_equity(&request1).unwrap();
+        let result2 = calculate_equity(&request2).unwrap();
 
         assert_eq!(result1.players[0].equity, result2.players[0].equity);
     }
@@ -581,7 +604,7 @@ mod tests {
     #[test]
     fn test_equity_vs_random() {
         let hole = cards("Ah As");
-        let equity = equity_vs_random(&hole, &[], 1, 10_000, Some(42));
+        let equity = equity_vs_random(&hole, &[], 1, 10_000, Some(42)).unwrap();
 
         // AA vs 1 random should be ~85%
         assert!(equity > 0.80);
@@ -591,7 +614,7 @@ mod tests {
     #[test]
     fn test_equity_vs_multiple_random() {
         let hole = cards("Ah As");
-        let equity = equity_vs_random(&hole, &[], 5, 10_000, Some(42));
+        let equity = equity_vs_random(&hole, &[], 5, 10_000, Some(42)).unwrap();
 
         // AA vs 5 random should be ~49%
         assert!(equity > 0.40);
@@ -616,7 +639,7 @@ mod tests {
         .with_simulations(5_000)
         .with_seed(42);
 
-        let result = calculate_equity(&request);
+        let result = calculate_equity(&request).unwrap();
 
         assert_eq!(result.players.len(), 2);
         // AK should have ~62-65% equity vs random
@@ -639,7 +662,7 @@ mod tests {
         .with_simulations(5_000)
         .with_seed(42);
 
-        let result = calculate_equity(&request);
+        let result = calculate_equity(&request).unwrap();
 
         assert_eq!(result.players.len(), 3);
         // AK vs 2 random should be ~47-50% equity
