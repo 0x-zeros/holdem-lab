@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { apiClient } from './api/client'
@@ -52,13 +52,37 @@ function App() {
     mutationFn: (request: EquityRequest) => apiClient.calculateEquity(request),
   })
 
+  // Calculate used cards (for card picker to disable)
+  const getUsedCardsForPlayer = useMemo(() => {
+    return (playerId: number) => {
+      const usedCards: string[] = [...board]
+      players.forEach((p) => {
+        if (p.id !== playerId && !p.useRange) {
+          usedCards.push(...p.cards)
+        }
+      })
+      return usedCards
+    }
+  }, [players, board])
+
+  const usedCardsForBoard = useMemo(() => {
+    const usedCards: string[] = []
+    players.forEach((p) => {
+      if (!p.useRange) {
+        usedCards.push(...p.cards)
+      }
+    })
+    return usedCards
+  }, [players])
+
   const handleCalculate = () => {
     const validPlayers = players.filter((p) => {
       if (p.useRange) return p.range.length > 0
       return p.cards.length === 2
     })
 
-    if (validPlayers.length < 2) return
+    // Allow single player with range to calculate against random opponent
+    if (validPlayers.length < 1) return
 
     const request: EquityRequest = {
       players: validPlayers.map((p) =>
@@ -93,7 +117,7 @@ function App() {
   const canCalculate = players.filter((p) => {
     if (p.useRange) return p.range.length > 0
     return p.cards.length === 2
-  }).length >= 2
+  }).length >= 1
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -115,6 +139,7 @@ function App() {
                 cards={board}
                 onCardsChange={setBoard}
                 onClear={clearBoard}
+                usedCards={usedCardsForBoard}
               />
             </section>
 
@@ -133,11 +158,12 @@ function App() {
                     updatePlayer(player.id, { useRange: !player.useRange })
                   }
                   onRemove={() => removePlayer(player.id)}
-                  canRemove={players.length > 2}
+                  canRemove={players.length > 1}
+                  usedCards={getUsedCardsForPlayer(player.id)}
                 />
               ))}
 
-              {players.length < 6 && (
+              {players.length < 10 && (
                 <button
                   onClick={addPlayer}
                   className="w-full py-2 border-2 border-dashed border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors"

@@ -22,7 +22,13 @@
     "cancel": "Cancel",
     "apply": "Apply ({{count}} hands)",
     "selectAll": "Select All",
-    "clear": "Clear"
+    "clear": "Clear",
+    "done": "Done"
+  },
+  "cardPicker": {
+    "selectHoleCards": "Select Hole Cards",
+    "selectBoard": "Select Board Cards",
+    "selected": "Selected"
   },
   "results": {
     "title": "Results",

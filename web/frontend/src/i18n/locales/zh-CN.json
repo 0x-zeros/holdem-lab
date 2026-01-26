@@ -22,7 +22,13 @@
     "cancel": "取消",
     "apply": "应用 ({{count}} 手牌)",
     "selectAll": "全选",
-    "clear": "清空"
+    "clear": "清空",
+    "done": "完成"
+  },
+  "cardPicker": {
+    "selectHoleCards": "选择手牌",
+    "selectBoard": "选择公共牌",
+    "selected": "已选"
   },
   "results": {
     "title": "结果",

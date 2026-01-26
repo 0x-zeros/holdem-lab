@@ -63,15 +63,15 @@ const createDefaultPlayer = (id: number): Player => ({
 
 export const useEquityStore = create<EquityStore>((set, get) => ({
   // Players
-  players: [createDefaultPlayer(0), createDefaultPlayer(1)],
+  players: [createDefaultPlayer(0)],
   addPlayer: () => {
     const { players } = get()
-    if (players.length >= 6) return
+    if (players.length >= 10) return
     set({ players: [...players, createDefaultPlayer(players.length)] })
   },
   removePlayer: (id) => {
     const { players } = get()
-    if (players.length <= 2) return
+    if (players.length <= 1) return
     set({ players: players.filter((p) => p.id !== id) })
   },
   updatePlayer: (id, updates) => {
@@ -159,7 +159,7 @@ export const useEquityStore = create<EquityStore>((set, get) => ({
   // Reset
   reset: () =>
     set({
-      players: [createDefaultPlayer(0), createDefaultPlayer(1)],
+      players: [createDefaultPlayer(0)],
       board: [],
       deadCards: [],
       result: null,

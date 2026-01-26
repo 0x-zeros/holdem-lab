@@ -1,14 +1,18 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Card } from './Card'
+import { CardPickerDialog } from './CardPickerDialog'
 
 interface BoardInputProps {
   cards: string[]
   onCardsChange: (cards: string[]) => void
   onClear: () => void
+  usedCards?: string[]
 }
 
-export function BoardInput({ cards, onCardsChange, onClear }: BoardInputProps) {
+export function BoardInput({ cards, onCardsChange, onClear, usedCards = [] }: BoardInputProps) {
   const { t } = useTranslation()
+  const [showPicker, setShowPicker] = useState(false)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
@@ -18,6 +22,14 @@ export function BoardInput({ cards, onCardsChange, onClear }: BoardInputProps) {
       .filter(Boolean)
       .slice(0, 5)
     onCardsChange(parsed)
+  }
+
+  const handleCardClick = () => {
+    setShowPicker(true)
+  }
+
+  const handlePickerConfirm = (selectedCards: string[]) => {
+    onCardsChange(selectedCards)
   }
 
   return (
@@ -37,11 +49,11 @@ export function BoardInput({ cards, onCardsChange, onClear }: BoardInputProps) {
       {/* Card slots */}
       <div className="flex gap-2">
         {[0, 1, 2].map((i) => (
-          <Card key={i} notation={cards[i]} empty={!cards[i]} size="md" />
+          <Card key={i} notation={cards[i]} empty={!cards[i]} size="md" onClick={handleCardClick} />
         ))}
         <div className="w-px bg-[var(--border)] mx-1" />
-        <Card notation={cards[3]} empty={!cards[3]} size="md" />
-        <Card notation={cards[4]} empty={!cards[4]} size="md" />
+        <Card notation={cards[3]} empty={!cards[3]} size="md" onClick={handleCardClick} />
+        <Card notation={cards[4]} empty={!cards[4]} size="md" onClick={handleCardClick} />
       </div>
 
       {/* Text input */}
@@ -56,6 +68,17 @@ export function BoardInput({ cards, onCardsChange, onClear }: BoardInputProps) {
       <div className="text-xs text-[var(--muted-foreground)]">
         {t('board.stages')}
       </div>
+
+      {/* Card Picker Dialog */}
+      <CardPickerDialog
+        isOpen={showPicker}
+        onClose={() => setShowPicker(false)}
+        title={t('cardPicker.selectBoard')}
+        maxCards={5}
+        initialCards={cards}
+        usedCards={usedCards}
+        onConfirm={handlePickerConfirm}
+      />
     </div>
   )
 }

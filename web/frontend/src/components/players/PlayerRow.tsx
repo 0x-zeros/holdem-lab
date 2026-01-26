@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Card } from '../cards/Card'
+import { Card, CardPickerDialog } from '../cards'
 
 interface PlayerRowProps {
   index: number
@@ -11,6 +12,7 @@ interface PlayerRowProps {
   onToggleMode: () => void
   onRemove?: () => void
   canRemove?: boolean
+  usedCards?: string[]
 }
 
 export function PlayerRow({
@@ -23,8 +25,10 @@ export function PlayerRow({
   onToggleMode,
   onRemove,
   canRemove = true,
+  usedCards = [],
 }: PlayerRowProps) {
   const { t } = useTranslation()
+  const [showPicker, setShowPicker] = useState(false)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
@@ -33,6 +37,14 @@ export function PlayerRow({
       .map((s) => s.trim())
       .filter(Boolean)
     onCardsChange(parsed)
+  }
+
+  const handleCardClick = () => {
+    setShowPicker(true)
+  }
+
+  const handlePickerConfirm = (selectedCards: string[]) => {
+    onCardsChange(selectedCards)
   }
 
   return (
@@ -89,8 +101,8 @@ export function PlayerRow({
       ) : (
         <div className="space-y-3">
           <div className="flex gap-2">
-            <Card notation={cards[0]} empty={!cards[0]} size="sm" />
-            <Card notation={cards[1]} empty={!cards[1]} size="sm" />
+            <Card notation={cards[0]} empty={!cards[0]} size="sm" onClick={handleCardClick} />
+            <Card notation={cards[1]} empty={!cards[1]} size="sm" onClick={handleCardClick} />
           </div>
           <input
             type="text"
@@ -101,6 +113,17 @@ export function PlayerRow({
           />
         </div>
       )}
+
+      {/* Card Picker Dialog */}
+      <CardPickerDialog
+        isOpen={showPicker}
+        onClose={() => setShowPicker(false)}
+        title={t('cardPicker.selectHoleCards')}
+        maxCards={2}
+        initialCards={cards}
+        usedCards={usedCards}
+        onConfirm={handlePickerConfirm}
+      />
     </div>
   )
 }
