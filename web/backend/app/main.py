@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import health, cards, equity, draws
+from app.config import settings
 
 app = FastAPI(
     title="Equity Calculator API",
@@ -11,15 +12,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS configuration
+# CORS configuration - dynamic port from settings
+frontend_port = settings.frontend_port
+cors_origins = [
+    f"http://localhost:{frontend_port}",
+    f"http://127.0.0.1:{frontend_port}",
+    "http://localhost:3000",  # Alternative dev port
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # Alternative dev port
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

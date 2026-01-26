@@ -7,13 +7,15 @@ services:
       dockerfile: web/backend/Dockerfile
     container_name: equity-calculator-api-dev
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
     volumes:
       - ./backend/app:/app/app
       - ../holdem-core/src:/holdem-core/src
     environment:
       - PYTHONUNBUFFERED=1
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - EQUITY_PORT=${BACKEND_PORT:-8000}
+      - EQUITY_FRONTEND_PORT=${FRONTEND_PORT:-5173}
+    command: uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000} --reload
 
   frontend:
     build:
@@ -21,10 +23,12 @@ services:
       dockerfile: Dockerfile.dev
     container_name: equity-calculator-ui-dev
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
     volumes:
       - ./frontend/src:/app/src
     environment:
       - NODE_ENV=development
+      - VITE_FRONTEND_PORT=${FRONTEND_PORT:-5173}
+      - VITE_BACKEND_PORT=${BACKEND_PORT:-8000}
     depends_on:
       - backend
