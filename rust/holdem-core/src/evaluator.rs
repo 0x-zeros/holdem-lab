@@ -319,9 +319,7 @@ pub fn evaluate_hand(cards: &[Card]) -> HandRank {
 /// Find the indices of players with the best hand (handles ties)
 #[must_use]
 pub fn find_winners(hands: &[Vec<Card>]) -> Vec<usize> {
-    if hands.is_empty() {
-        return vec![];
-    }
+    assert!(!hands.is_empty(), "Must provide at least one hand");
 
     let ranks: Vec<HandRank> = hands.iter().map(|h| evaluate_hand(h)).collect();
 

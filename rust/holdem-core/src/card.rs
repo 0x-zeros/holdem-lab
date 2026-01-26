@@ -348,12 +348,13 @@ impl Deck {
             Some(s) => StdRng::seed_from_u64(s),
             None => StdRng::from_os_rng(),
         };
-
-        Self {
+        let mut deck = Self {
             cards: Self::full_deck(),
             removed: HashSet::new(),
             rng,
-        }
+        };
+        deck.shuffle();
+        deck
     }
 
     /// Get all 52 cards in order
@@ -371,7 +372,10 @@ impl Deck {
     /// Reset deck to full 52 cards
     pub fn reset(&mut self) {
         self.cards = Self::full_deck();
-        self.removed.clear();
+        if !self.removed.is_empty() {
+            self.cards.retain(|c| !self.removed.contains(c));
+        }
+        self.shuffle();
     }
 
     /// Shuffle the remaining cards
@@ -381,21 +385,36 @@ impl Deck {
 
     /// Deal n cards from the deck
     pub fn deal(&mut self, n: usize) -> Vec<Card> {
-        let n = n.min(self.cards.len());
+        if n > self.cards.len() {
+            panic!(
+                "Cannot deal {} cards, only {} remain",
+                n,
+                self.cards.len()
+            );
+        }
         self.cards.drain(..n).collect()
     }
 
     /// Deal one card
-    pub fn deal_one(&mut self) -> Option<Card> {
-        self.cards.pop()
+    pub fn deal_one(&mut self) -> Card {
+        self.deal(1).pop().expect("deal_one should return a card")
     }
 
     /// Remove specific cards from the deck
     pub fn remove(&mut self, cards: &[Card]) {
         for card in cards {
-            self.removed.insert(*card);
+            if !self.cards.contains(card) {
+                if self.removed.contains(card) {
+                    panic!("Card {} was already removed", card);
+                }
+                panic!("Card {} not in deck", card);
+            }
+
+            if let Some(index) = self.cards.iter().position(|c| c == card) {
+                self.cards.remove(index);
+                self.removed.insert(*card);
+            }
         }
-        self.cards.retain(|c| !self.removed.contains(c));
     }
 
     /// Check if a card is in the deck
@@ -425,7 +444,13 @@ impl Deck {
     /// Peek at the top n cards
     #[must_use]
     pub fn peek(&self, n: usize) -> &[Card] {
-        let n = n.min(self.cards.len());
+        if n > self.cards.len() {
+            panic!(
+                "Cannot peek {} cards, only {} remain",
+                n,
+                self.cards.len()
+            );
+        }
         &self.cards[..n]
     }
 }

@@ -25,6 +25,11 @@ impl PlayerHand {
     /// Create a new player hand with specific cards
     #[must_use]
     pub fn new(cards: Vec<Card>) -> Self {
+        assert!(
+            cards.len() == 2,
+            "Player must have exactly 2 hole cards, got {}",
+            cards.len()
+        );
         Self {
             cards,
             is_random: false,
@@ -89,6 +94,54 @@ pub struct EquityRequest {
 
 fn default_simulations() -> u32 {
     10_000
+}
+
+fn validate_equity_request(request: &EquityRequest) {
+    assert!(
+        request.players.len() >= 2,
+        "Need at least 2 players"
+    );
+    assert!(
+        request.board.len() <= 5,
+        "Board cannot have more than 5 cards"
+    );
+
+    for (i, player) in request.players.iter().enumerate() {
+        if player.is_random {
+            assert!(
+                player.cards.is_empty(),
+                "Random player must not specify cards"
+            );
+        } else {
+            assert!(
+                player.cards.len() == 2,
+                "Player {} must have exactly 2 hole cards, got {}",
+                i,
+                player.cards.len()
+            );
+        }
+    }
+
+    let mut known_cards: HashSet<Card> = HashSet::new();
+    for &card in &request.board {
+        if !known_cards.insert(card) {
+            panic!("Duplicate cards detected in players/board");
+        }
+    }
+    for &card in &request.dead_cards {
+        if !known_cards.insert(card) {
+            panic!("Duplicate cards detected in players/board");
+        }
+    }
+    for player in &request.players {
+        if !player.is_random {
+            for &card in &player.cards {
+                if !known_cards.insert(card) {
+                    panic!("Duplicate cards detected in players/board");
+                }
+            }
+        }
+    }
 }
 
 impl EquityRequest {
@@ -225,14 +278,7 @@ impl EquityAccumulator {
 /// Panics if fewer than 2 players or more than 5 board cards
 #[must_use]
 pub fn calculate_equity(request: &EquityRequest) -> EquityResult {
-    assert!(
-        request.players.len() >= 2,
-        "Need at least 2 players"
-    );
-    assert!(
-        request.board.len() <= 5,
-        "Board cannot have more than 5 cards"
-    );
+    validate_equity_request(request);
 
     let start = Instant::now();
 

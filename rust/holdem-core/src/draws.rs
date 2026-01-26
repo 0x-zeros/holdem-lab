@@ -529,17 +529,16 @@ pub fn count_flush_outs(hole_cards: &[Card], board: &[Card]) -> usize {
 #[must_use]
 pub fn count_straight_outs(hole_cards: &[Card], board: &[Card]) -> usize {
     let analysis = analyze_draws(hole_cards, board, &[]);
-    analysis
-        .straight_draws
-        .iter()
-        .filter(|d| {
-            matches!(
-                d.draw_type,
-                DrawType::OpenEnded | DrawType::Gutshot | DrawType::DoubleGutshot
-            )
-        })
-        .map(StraightDraw::out_count)
-        .sum()
+    let mut outs: HashSet<Card> = HashSet::new();
+    for draw in &analysis.straight_draws {
+        if matches!(
+            draw.draw_type,
+            DrawType::OpenEnded | DrawType::Gutshot | DrawType::DoubleGutshot
+        ) {
+            outs.extend(draw.outs.iter().copied());
+        }
+    }
+    outs.len()
 }
 
 /// Get the primary (strongest) draw type
