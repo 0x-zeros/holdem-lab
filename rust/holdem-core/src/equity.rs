@@ -6,6 +6,7 @@
 use crate::card::{Card, FULL_DECK};
 use crate::error::{HoldemError, HoldemResult};
 use crate::evaluator::find_winners;
+use crate::range::{hands_are_disjoint, CardDistribution, Odometer};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -416,6 +417,390 @@ pub fn calculate_equity(request: &EquityRequest) -> HoldemResult<EquityResult> {
     Ok(acc.into_results(hand_descriptions, elapsed_ms))
 }
 
+/// Player input for range-based equity calculation
+#[derive(Clone, Debug)]
+pub enum RangePlayer {
+    /// Specific cards (2 hole cards)
+    Specific(Card, Card),
+    /// Random cards from remaining deck
+    Random,
+    /// Range distribution
+    Range(CardDistribution),
+}
+
+impl RangePlayer {
+    /// Create from specific cards
+    #[must_use]
+    pub fn specific(c1: Card, c2: Card) -> Self {
+        RangePlayer::Specific(c1, c2)
+    }
+
+    /// Create random player
+    #[must_use]
+    pub fn random() -> Self {
+        RangePlayer::Random
+    }
+
+    /// Create from range distribution
+    #[must_use]
+    pub fn range(dist: CardDistribution) -> Self {
+        RangePlayer::Range(dist)
+    }
+}
+
+/// Request for range-based equity calculation
+#[derive(Clone, Debug)]
+pub struct RangeEquityRequest {
+    /// Players with their hand distributions
+    pub players: Vec<RangePlayer>,
+    /// Community cards (0-5)
+    pub board: Vec<Card>,
+    /// Dead cards
+    pub dead_cards: Vec<Card>,
+    /// Number of Monte Carlo simulations per combination
+    pub num_simulations: u32,
+    /// Random seed
+    pub seed: Option<u64>,
+}
+
+impl RangeEquityRequest {
+    /// Create a new range equity request
+    #[must_use]
+    pub fn new(players: Vec<RangePlayer>, board: Vec<Card>) -> Self {
+        Self {
+            players,
+            board,
+            dead_cards: Vec::new(),
+            num_simulations: default_simulations(),
+            seed: None,
+        }
+    }
+
+    /// Set number of simulations
+    #[must_use]
+    pub fn with_simulations(mut self, n: u32) -> Self {
+        self.num_simulations = n;
+        self
+    }
+
+    /// Set random seed
+    #[must_use]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    /// Set dead cards
+    #[must_use]
+    pub fn with_dead_cards(mut self, dead: Vec<Card>) -> Self {
+        self.dead_cards = dead;
+        self
+    }
+}
+
+/// Result for range-based equity calculation
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RangeEquityResult {
+    /// Equity for each player
+    pub players: Vec<RangePlayerEquity>,
+    /// Total valid combinations evaluated
+    pub total_combinations: u64,
+    /// Total simulations across all combinations
+    pub total_simulations: u64,
+    /// Elapsed time in milliseconds
+    pub elapsed_ms: f64,
+}
+
+/// Equity result for a single player in range calculation
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RangePlayerEquity {
+    /// Player index (0-based)
+    pub index: usize,
+    /// Overall equity (weighted average across combinations)
+    pub equity: f64,
+    /// Win rate
+    pub win_rate: f64,
+    /// Tie rate
+    pub tie_rate: f64,
+    /// Number of combos in the distribution
+    pub combos: usize,
+    /// Hand description
+    pub hand_description: String,
+}
+
+/// Calculate equity with range support using pokerstove-style enumeration.
+///
+/// For each combination of hands from the ranges:
+/// 1. Check for card conflicts (skip if any)
+/// 2. Run Monte Carlo simulation
+/// 3. Weight the results
+///
+/// # Errors
+/// Returns an error if fewer than 2 players or more than 5 board cards.
+pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResult<RangeEquityResult> {
+    if request.players.len() < 2 {
+        return Err(HoldemError::NotEnoughPlayers(2));
+    }
+    if request.board.len() > 5 {
+        return Err(HoldemError::BoardTooLarge(request.board.len()));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let start = Instant::now();
+
+    let num_players = request.players.len();
+
+    // Build base excluded cards (board + dead)
+    let mut base_excluded: HashSet<Card> = HashSet::new();
+    for &card in &request.board {
+        base_excluded.insert(card);
+    }
+    for &card in &request.dead_cards {
+        base_excluded.insert(card);
+    }
+
+    // Build distributions for each player
+    let mut distributions: Vec<Vec<(Card, Card)>> = Vec::with_capacity(num_players);
+    let mut hand_descriptions: Vec<String> = Vec::with_capacity(num_players);
+    let mut combo_counts: Vec<usize> = Vec::with_capacity(num_players);
+
+    for player in &request.players {
+        match player {
+            RangePlayer::Specific(c1, c2) => {
+                distributions.push(vec![(*c1, *c2)]);
+                hand_descriptions.push(format!("{}{}", c1, c2));
+                combo_counts.push(1);
+            }
+            RangePlayer::Random => {
+                // Random will be handled specially during simulation
+                distributions.push(vec![]); // Empty marker
+                hand_descriptions.push("Random".to_string());
+                combo_counts.push(1326);
+            }
+            RangePlayer::Range(dist) => {
+                // Filter by base excluded cards
+                let filtered = dist.filter_excluding(&base_excluded);
+                hand_descriptions.push(format!("{} combos", filtered.len()));
+                combo_counts.push(filtered.len());
+                distributions.push(filtered.hands().to_vec());
+            }
+        }
+    }
+
+    // Check if any range player has no combos
+    for (i, dist) in distributions.iter().enumerate() {
+        if dist.is_empty() && !matches!(request.players[i], RangePlayer::Random) {
+            return Err(HoldemError::InvalidCardCount {
+                expected: "at least 1 combo",
+                got: 0,
+            });
+        }
+    }
+
+    // Identify random players
+    let random_player_indices: Vec<usize> = request
+        .players
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| matches!(p, RangePlayer::Random))
+        .map(|(i, _)| i)
+        .collect();
+
+    // Build odometer extents (use 1 for random players)
+    let extents: Vec<usize> = distributions
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            if random_player_indices.contains(&i) {
+                1 // Random players have single "virtual" combo
+            } else {
+                d.len()
+            }
+        })
+        .collect();
+
+    // Initialize accumulators
+    let mut total_equity: Vec<f64> = vec![0.0; num_players];
+    let mut total_wins: Vec<f64> = vec![0.0; num_players];
+    let mut total_ties: Vec<f64> = vec![0.0; num_players];
+    let mut total_weight: f64 = 0.0;
+    let mut total_combinations: u64 = 0;
+    let mut total_simulations: u64 = 0;
+
+    // Initialize RNG
+    let mut rng = match request.seed {
+        Some(seed) => StdRng::seed_from_u64(seed),
+        None => StdRng::from_os_rng(),
+    };
+
+    let cards_needed_board = 5 - request.board.len();
+
+    // Iterate through all combinations
+    let odometer = Odometer::new(extents);
+
+    for indices in odometer {
+        // Build current hands for this combination
+        let mut current_hands: Vec<(Card, Card)> = Vec::with_capacity(num_players);
+        let mut skip = false;
+
+        for (player_idx, &combo_idx) in indices.iter().enumerate() {
+            if random_player_indices.contains(&player_idx) {
+                // Random player - will be dealt during simulation, use placeholder
+                // Placeholder cards that won't conflict (index 0 = Ace of Clubs)
+                let placeholder = Card::from_index(0).unwrap();
+                current_hands.push((placeholder, placeholder)); // Placeholder, not used
+            } else {
+                current_hands.push(distributions[player_idx][combo_idx]);
+            }
+        }
+
+        // Check for card conflicts (only for non-random players)
+        let non_random_hands: Vec<(Card, Card)> = current_hands
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !random_player_indices.contains(i))
+            .map(|(_, h)| *h)
+            .collect();
+
+        if !hands_are_disjoint(&non_random_hands) {
+            continue; // Skip conflicting combinations
+        }
+
+        // Also check against board/dead cards
+        let mut all_used = base_excluded.clone();
+        for &(c1, c2) in &non_random_hands {
+            if all_used.contains(&c1) || all_used.contains(&c2) {
+                skip = true;
+                break;
+            }
+            all_used.insert(c1);
+            all_used.insert(c2);
+        }
+        if skip {
+            continue;
+        }
+
+        total_combinations += 1;
+
+        // Build remaining deck for this combination
+        let remaining: Vec<Card> = FULL_DECK
+            .iter()
+            .filter(|c| !all_used.contains(c))
+            .copied()
+            .collect();
+
+        // Run simulations for this combination
+        let mut combo_wins = vec![0u64; num_players];
+        let mut combo_ties = vec![0u64; num_players];
+        let mut combo_equity = vec![0.0f64; num_players];
+        let mut deck_remaining = remaining.clone();
+
+        for _ in 0..request.num_simulations {
+            deck_remaining.shuffle(&mut rng);
+
+            let mut deck_idx = 0;
+            let mut sim_hole_cards: Vec<Vec<Card>> = Vec::with_capacity(num_players);
+
+            for (i, &(c1, c2)) in current_hands.iter().enumerate() {
+                if random_player_indices.contains(&i) {
+                    // Deal random cards
+                    sim_hole_cards.push(vec![deck_remaining[deck_idx], deck_remaining[deck_idx + 1]]);
+                    deck_idx += 2;
+                } else {
+                    sim_hole_cards.push(vec![c1, c2]);
+                }
+            }
+
+            // Deal community cards
+            let runout: Vec<Card> = deck_remaining[deck_idx..deck_idx + cards_needed_board].to_vec();
+
+            // Build complete board
+            let mut full_board = request.board.clone();
+            full_board.extend(runout);
+
+            // Build complete hands
+            let hands: Vec<Vec<Card>> = sim_hole_cards
+                .into_iter()
+                .map(|mut hole| {
+                    hole.extend(full_board.iter().copied());
+                    hole
+                })
+                .collect();
+
+            // Find winners
+            let winners = find_winners(&hands).unwrap();
+
+            // Record results
+            if winners.len() == 1 {
+                let winner = winners[0];
+                combo_wins[winner] += 1;
+                combo_equity[winner] += 1.0;
+            } else {
+                let share = 1.0 / winners.len() as f64;
+                for &idx in &winners {
+                    combo_ties[idx] += 1;
+                    combo_equity[idx] += share;
+                }
+            }
+        }
+
+        total_simulations += request.num_simulations as u64;
+
+        // Weight = 1.0 for now (could add hand weights later)
+        let weight = 1.0;
+        total_weight += weight;
+
+        for i in 0..num_players {
+            let sim_count = request.num_simulations as f64;
+            total_equity[i] += (combo_equity[i] / sim_count) * weight;
+            total_wins[i] += (combo_wins[i] as f64 / sim_count) * weight;
+            total_ties[i] += (combo_ties[i] as f64 / sim_count) * weight;
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    #[cfg(target_arch = "wasm32")]
+    let elapsed_ms = 0.0;
+
+    // Normalize results
+    let players: Vec<RangePlayerEquity> = (0..num_players)
+        .map(|i| {
+            let equity = if total_weight > 0.0 {
+                total_equity[i] / total_weight
+            } else {
+                0.0
+            };
+            let win_rate = if total_weight > 0.0 {
+                total_wins[i] / total_weight
+            } else {
+                0.0
+            };
+            let tie_rate = if total_weight > 0.0 {
+                total_ties[i] / total_weight
+            } else {
+                0.0
+            };
+
+            RangePlayerEquity {
+                index: i,
+                equity,
+                win_rate,
+                tie_rate,
+                combos: combo_counts[i],
+                hand_description: hand_descriptions[i].clone(),
+            }
+        })
+        .collect();
+
+    Ok(RangeEquityResult {
+        players,
+        total_combinations,
+        total_simulations,
+        elapsed_ms,
+    })
+}
+
 /// Convenience function: calculate equity of hole cards vs random opponents
 ///
 /// # Errors
@@ -668,5 +1053,178 @@ mod tests {
         // AK vs 2 random should be ~47-50% equity
         assert!(result.players[0].equity > 0.40);
         assert!(result.players[0].equity < 0.55);
+    }
+
+    // =========================================================================
+    // Range-based equity tests
+    // =========================================================================
+
+    #[test]
+    fn test_range_vs_specific_aa_vs_kk() {
+        use crate::CardDistribution;
+
+        // AA (6 combos) vs specific KK
+        let aa_dist = CardDistribution::from_range(&["AA".to_string()], &[]).unwrap();
+        let kh = Card::parse("Kh").unwrap();
+        let ks = Card::parse("Ks").unwrap();
+
+        let request = RangeEquityRequest::new(
+            vec![
+                RangePlayer::range(aa_dist),
+                RangePlayer::specific(kh, ks),
+            ],
+            vec![],
+        )
+        .with_simulations(1_000)
+        .with_seed(42);
+
+        let result = calculate_equity_with_ranges(&request).unwrap();
+
+        assert_eq!(result.players.len(), 2);
+        // AA should have ~82% equity vs KK
+        assert!(result.players[0].equity > 0.75, "AA equity {} too low", result.players[0].equity);
+        assert!(result.players[0].equity < 0.90, "AA equity {} too high", result.players[0].equity);
+        // 6 combos for AA, 1 for specific KK
+        assert_eq!(result.players[0].combos, 6);
+        assert_eq!(result.players[1].combos, 1);
+        // Should have evaluated 6 combinations (AA combos)
+        assert_eq!(result.total_combinations, 6);
+    }
+
+    #[test]
+    fn test_range_vs_range() {
+        use crate::CardDistribution;
+
+        // AA vs KK (both ranges)
+        let aa_dist = CardDistribution::from_range(&["AA".to_string()], &[]).unwrap();
+        let kk_dist = CardDistribution::from_range(&["KK".to_string()], &[]).unwrap();
+
+        let request = RangeEquityRequest::new(
+            vec![
+                RangePlayer::range(aa_dist),
+                RangePlayer::range(kk_dist),
+            ],
+            vec![],
+        )
+        .with_simulations(500)
+        .with_seed(42);
+
+        let result = calculate_equity_with_ranges(&request).unwrap();
+
+        assert_eq!(result.players.len(), 2);
+        // AA should have ~82% equity vs KK
+        assert!(result.players[0].equity > 0.75, "AA equity {} too low", result.players[0].equity);
+        assert!(result.players[0].equity < 0.90, "AA equity {} too high", result.players[0].equity);
+        // 6 combos each
+        assert_eq!(result.players[0].combos, 6);
+        assert_eq!(result.players[1].combos, 6);
+        // 6 * 6 = 36 total combinations, but some will conflict
+        // AA and KK don't share cards, so all 36 should be valid
+        assert_eq!(result.total_combinations, 36);
+    }
+
+    #[test]
+    fn test_range_equity_sums_to_one() {
+        use crate::CardDistribution;
+
+        let aa_dist = CardDistribution::from_range(&["AA".to_string()], &[]).unwrap();
+        let kk_dist = CardDistribution::from_range(&["KK".to_string()], &[]).unwrap();
+
+        let request = RangeEquityRequest::new(
+            vec![
+                RangePlayer::range(aa_dist),
+                RangePlayer::range(kk_dist),
+            ],
+            vec![],
+        )
+        .with_simulations(500)
+        .with_seed(42);
+
+        let result = calculate_equity_with_ranges(&request).unwrap();
+
+        let total: f64 = result.players.iter().map(|p| p.equity).sum();
+        assert!((total - 1.0).abs() < 0.02, "Total equity {} should be ~1.0", total);
+    }
+
+    #[test]
+    fn test_range_with_card_conflicts() {
+        use crate::CardDistribution;
+
+        // AKs vs AQs - they share the Ace of each suit
+        let aks_dist = CardDistribution::from_range(&["AKs".to_string()], &[]).unwrap();
+        let aqs_dist = CardDistribution::from_range(&["AQs".to_string()], &[]).unwrap();
+
+        let request = RangeEquityRequest::new(
+            vec![
+                RangePlayer::range(aks_dist),
+                RangePlayer::range(aqs_dist),
+            ],
+            vec![],
+        )
+        .with_simulations(500)
+        .with_seed(42);
+
+        let result = calculate_equity_with_ranges(&request).unwrap();
+
+        // 4 combos each, but each AKs combo conflicts with one AQs combo (same suit Ace)
+        // So we expect 4 * 4 - 4 = 12 valid combinations
+        assert_eq!(result.total_combinations, 12);
+        // AKs should be favored over AQs
+        assert!(result.players[0].equity > 0.65, "AKs equity {} too low", result.players[0].equity);
+    }
+
+    #[test]
+    fn test_range_vs_random() {
+        use crate::CardDistribution;
+
+        let aa_dist = CardDistribution::from_range(&["AA".to_string()], &[]).unwrap();
+
+        let request = RangeEquityRequest::new(
+            vec![
+                RangePlayer::range(aa_dist),
+                RangePlayer::random(),
+            ],
+            vec![],
+        )
+        .with_simulations(500)
+        .with_seed(42);
+
+        let result = calculate_equity_with_ranges(&request).unwrap();
+
+        // AA vs random should be ~85%
+        assert!(result.players[0].equity > 0.80, "AA equity {} too low", result.players[0].equity);
+        assert!(result.players[0].equity < 0.90, "AA equity {} too high", result.players[0].equity);
+    }
+
+    #[test]
+    fn test_multiple_hands_in_range() {
+        use crate::CardDistribution;
+
+        // AA+KK (12 combos total) vs QQ (6 combos)
+        let aa_kk = CardDistribution::from_range(
+            &["AA".to_string(), "KK".to_string()],
+            &[],
+        ).unwrap();
+        let qq = CardDistribution::from_range(&["QQ".to_string()], &[]).unwrap();
+
+        assert_eq!(aa_kk.len(), 12);
+        assert_eq!(qq.len(), 6);
+
+        let request = RangeEquityRequest::new(
+            vec![
+                RangePlayer::range(aa_kk),
+                RangePlayer::range(qq),
+            ],
+            vec![],
+        )
+        .with_simulations(200)
+        .with_seed(42);
+
+        let result = calculate_equity_with_ranges(&request).unwrap();
+
+        assert_eq!(result.players[0].combos, 12);
+        assert_eq!(result.players[1].combos, 6);
+        // AA+KK vs QQ should be heavily favored
+        assert!(result.players[0].equity > 0.70, "AA+KK equity {} too low", result.players[0].equity);
     }
 }

@@ -4,8 +4,9 @@ use holdem_core::{
     canonize::{self, CanonicalHand},
     card::{self, Card, Suit},
     draws::{self, DrawType},
-    equity::{self, PlayerHand},
+    equity::{self, PlayerHand, RangeEquityRequest, RangePlayer},
     evaluator,
+    CardDistribution,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,19 +73,105 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
     // Parse dead cards
     let dead_cards = parse_card_strings(&request.dead_cards)?;
 
-    // First pass: collect all specific cards from players
-    let mut specific_cards: Vec<Card> = Vec::new();
-    for player_input in &request.players {
+    // Check if any player has a range
+    let has_range_player = request.players.iter().any(|p| p.range.is_some());
+
+    if has_range_player {
+        // Use range-based calculation with enumeration
+        calculate_equity_with_ranges_impl(&request, board, dead_cards)
+    } else {
+        // Use original calculation for specific cards and random only
+        calculate_equity_simple_impl(&request, board, dead_cards)
+    }
+}
+
+/// Calculate equity using the new range enumeration algorithm
+fn calculate_equity_with_ranges_impl(
+    request: &EquityRequestInput,
+    board: Vec<Card>,
+    dead_cards: Vec<Card>,
+) -> Result<EquityResultOutput, String> {
+    let mut range_players: Vec<RangePlayer> = Vec::new();
+    let mut hand_descriptions: Vec<String> = Vec::new();
+
+    // Build excluded cards (board + dead)
+    let mut excluded: Vec<Card> = dead_cards.clone();
+    excluded.extend(board.iter().cloned());
+
+    for (i, player_input) in request.players.iter().enumerate() {
         if let Some(cards) = &player_input.cards {
             if !cards.is_empty() {
-                if let Ok(parsed) = parse_card_strings(cards) {
-                    specific_cards.extend(parsed);
+                let parsed = parse_card_strings(cards)?;
+                if parsed.len() != 2 {
+                    return Err(format!(
+                        "Player {} must have exactly 2 cards, got {}",
+                        i + 1,
+                        parsed.len()
+                    ));
                 }
+                hand_descriptions.push(format!("{}{}", parsed[0], parsed[1]));
+                range_players.push(RangePlayer::specific(parsed[0], parsed[1]));
             }
+        } else if let Some(range) = &player_input.range {
+            if range.is_empty() {
+                return Err(format!("Player {} has empty range", i + 1));
+            }
+
+            // Create CardDistribution from the range
+            let distribution = CardDistribution::from_range(range, &excluded)
+                .map_err(|e| format!("Player {} range error: {}", i + 1, e))?;
+
+            hand_descriptions.push(range.join(", "));
+            range_players.push(RangePlayer::range(distribution));
+        } else if player_input.random {
+            hand_descriptions.push("Random".to_string());
+            range_players.push(RangePlayer::random());
+        } else {
+            return Err(format!(
+                "Player {} has no cards, range, or random specified",
+                i + 1
+            ));
         }
     }
 
-    // Parse players
+    if range_players.len() < 2 {
+        return Err("Need at least 2 players".to_string());
+    }
+
+    // Build range equity request
+    let eq_request = RangeEquityRequest::new(range_players, board)
+        .with_simulations(request.num_simulations)
+        .with_dead_cards(dead_cards);
+
+    let result = equity::calculate_equity_with_ranges(&eq_request)
+        .map_err(|e| e.to_string())?;
+
+    // Convert to output format
+    Ok(EquityResultOutput {
+        players: result
+            .players
+            .iter()
+            .enumerate()
+            .map(|(i, p)| PlayerEquityOutput {
+                index: p.index,
+                hand_description: hand_descriptions.get(i).cloned().unwrap_or_default(),
+                equity: p.equity,
+                win_rate: p.win_rate,
+                tie_rate: p.tie_rate,
+                combos: p.combos,
+            })
+            .collect(),
+        total_simulations: result.total_simulations,
+        elapsed_ms: result.elapsed_ms,
+    })
+}
+
+/// Calculate equity using the original algorithm (specific cards and random only)
+fn calculate_equity_simple_impl(
+    request: &EquityRequestInput,
+    board: Vec<Card>,
+    dead_cards: Vec<Card>,
+) -> Result<EquityResultOutput, String> {
     let mut players: Vec<PlayerHand> = Vec::new();
     let mut hand_descriptions: Vec<String> = Vec::new();
     let mut combo_counts: Vec<usize> = Vec::new();
@@ -104,44 +191,15 @@ pub fn calculate_equity(request: EquityRequestInput) -> Result<EquityResultOutpu
                 combo_counts.push(1);
                 players.push(PlayerHand::new(parsed));
             }
-        } else if let Some(range) = &player_input.range {
-            // For range-based players, we need to expand the range
-            // For now, just take the first combo of the first hand in range
-            // TODO: Implement proper range vs range calculation
-            if range.is_empty() {
-                return Err(format!("Player {} has empty range", i + 1));
-            }
-
-            let canonical = canonize::CanonicalHand::parse(&range[0])
-                .map_err(|e| format!("Invalid range '{}': {}", range[0], e))?;
-
-            // Combine dead cards, board cards, and specific cards from other players
-            let mut excluded: Vec<Card> = dead_cards.clone();
-            excluded.extend(board.iter().cloned());
-            excluded.extend(specific_cards.iter().cloned());
-
-            let combos = canonize::get_combos_excluding(&canonical, &excluded);
-            if combos.is_empty() {
-                return Err(format!(
-                    "No valid combos for player {} range '{}'",
-                    i + 1,
-                    range[0]
-                ));
-            }
-
-            hand_descriptions.push(range.join(", "));
-            combo_counts.push(combos.len());
-
-            // Use first available combo
-            let (c1, c2) = combos[0];
-            players.push(PlayerHand::new(vec![c1, c2]));
         } else if player_input.random {
-            // Random player - sampled each simulation
             hand_descriptions.push("Random".to_string());
-            combo_counts.push(1326); // C(52,2) total possible hands
+            combo_counts.push(1326);
             players.push(PlayerHand::random());
         } else {
-            return Err(format!("Player {} has no cards, range, or random specified", i + 1));
+            return Err(format!(
+                "Player {} has no cards, range, or random specified",
+                i + 1
+            ));
         }
     }
 

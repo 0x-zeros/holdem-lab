@@ -1,93 +1,80 @@
 # Equity Calculator Web Application
 
-A web-based Texas Hold'em equity calculator built with FastAPI and React.
+A web-based Texas Hold'em equity calculator built with React and WebAssembly.
 
 ## Architecture
 
 ```
 web/
-├── backend/          # FastAPI backend
-│   ├── app/
-│   │   ├── api/      # API routes
-│   │   ├── schemas/  # Pydantic models
-│   │   └── services/ # Business logic (wraps holdem_lab)
-│   └── tests/
-├── frontend/         # React frontend
-│   ├── src/
-│   │   ├── api/      # API client
-│   │   ├── components/
-│   │   └── store/    # Zustand state
-│   └── ...
-└── docker-compose.yml
+└── frontend/         # React frontend
+    ├── src/
+    │   ├── api/      # API abstraction layer
+    │   │   ├── client.ts   # Unified API client
+    │   │   ├── wasm.ts     # WASM implementation
+    │   │   ├── tauri.ts    # Tauri IPC implementation
+    │   │   └── types.ts    # Shared types
+    │   ├── components/
+    │   ├── store/    # Zustand state
+    │   └── wasm/     # Compiled WASM module
+    └── ...
 ```
+
+## Deployment Modes
+
+| Mode | Description | Command |
+|------|-------------|---------|
+| Web (WASM) | Pure frontend, static hosting | `npm run build` |
+| Desktop (Tauri) | Native app with Rust backend | `npm run tauri:build` |
 
 ## Quick Start
 
-### Development (Local)
+### Prerequisites
 
-1. **Start Backend**
-   ```bash
-   cd web/backend
-   uv pip install -e "../../holdem-core" -e ".[dev]"
-   uv run uvicorn app.main:app --reload --port 8000
-   ```
-
-2. **Start Frontend**
-   ```bash
-   cd web/frontend
-   npm install
-   npm run dev
-   ```
-
-3. Open http://localhost:5173
-
-### Development (Docker)
-
+Build the WASM module first:
 ```bash
-cd web
-docker compose -f docker-compose.dev.yml up --build
+cd rust/holdem-wasm
+wasm-pack build --target web --out-dir ../../web/frontend/src/wasm
 ```
 
-### Production (Docker)
+### Development
 
 ```bash
-cd web
-docker compose up --build
+cd web/frontend
+npm install
+npm run dev
 ```
 
-Access at http://localhost
+Open http://localhost:5173
 
-## API Endpoints
+### Production Build
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Health check |
-| `/api/canonical` | GET | Get 169 canonical hands |
-| `/api/parse-cards` | POST | Parse card notation |
-| `/api/equity` | POST | Calculate equity |
-| `/api/draws` | POST | Analyze draws |
+```bash
+cd web/frontend
+npm run build
+```
+
+The static files in `dist/` can be deployed to any static hosting service.
 
 ## Tech Stack
 
-**Backend:**
-- Python 3.12
-- FastAPI
-- Pydantic v2
-- holdem-lab (core library)
+**Computation:**
+- Rust (holdem-core library)
+- WebAssembly (browser)
+- Tauri (desktop)
 
 **Frontend:**
 - React 18
 - TypeScript
 - Tailwind CSS 4
 - Zustand (state)
-- TanStack Query (server state)
+- TanStack Query (async state)
 
 ## Testing
 
 ```bash
-# Backend tests
-cd web/backend
-uv run pytest
+# Rust core tests
+cd rust/holdem-core
+cargo test
 
 # Frontend type check
 cd web/frontend

@@ -5,8 +5,8 @@
 基于 holdem-lab 的 Web 端德州扑克 Equity 计算器，参考 PokerStove 设计。
 
 **目标用户**: 德州扑克学习者和研究者
-**平台**: Web 应用 (可内嵌或独立部署)
-**后端**: holdem-lab Python 库
+**平台**: Web 应用 (WASM) / 桌面应用 (Tauri)
+**计算引擎**: holdem-core Rust 库
 
 ---
 

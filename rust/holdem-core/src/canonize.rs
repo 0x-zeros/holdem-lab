@@ -183,7 +183,7 @@ impl FromStr for CanonicalHand {
 }
 
 /// Error when parsing or creating canonical hands
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum CanonizeError {
     #[error("invalid format: {0}")]
     InvalidFormat(String),
