@@ -4,140 +4,72 @@
 
 ```
 holdem-lab/
-├── holdem-core/          # Python 核心库
-│   ├── src/holdem_lab/   # 概率计算、手牌评估、游戏引擎
-│   └── tests/
-│
-├── web/                  # Web 应用
-│   ├── backend/          # FastAPI 后端 (Python)
-│   └── frontend/         # React 前端 (TypeScript)
-│
-├── rust/                 # Rust 版本
-│   ├── holdem-core/      # Rust 核心库
+├── rust/                 # Rust 实现
+│   ├── holdem-core/      # 核心库 (概率计算、手牌评估)
+│   ├── holdem-wasm/      # WASM 绑定 (Web 版)
 │   └── holdem-app/       # Tauri 桌面应用
 │
-├── analysis/             # Jupyter 分析 notebooks
-└── design/               # 设计文件
+└── web/
+    └── frontend/         # React 前端 (TypeScript)
 ```
 
 ---
 
 ## 快速开始
 
-### Python 核心库
+### Rust 核心库
 
 ```bash
-cd holdem-core
-uv pip install -e ".[dev]"
+cd rust/holdem-core
+cargo build
+cargo test
 ```
 
-```python
-from holdem_lab import (
-    parse_cards,
-    EquityRequest, PlayerHand, calculate_equity,
-    GameState,
-)
-
-# 计算 AA vs KK 胜率
-request = EquityRequest(
-    players=[
-        PlayerHand(hole_cards=tuple(parse_cards("Ah Ad"))),
-        PlayerHand(hole_cards=tuple(parse_cards("Kh Kd"))),
-    ],
-    num_simulations=10000,
-)
-result = calculate_equity(request)
-print(f"AA: {result.players[0].equity:.1%}")
-print(f"KK: {result.players[1].equity:.1%}")
-
-# 运行完整牌局
-game = GameState(num_players=2, seed=42)
-result = game.run_to_showdown()
-print(f"赢家: 玩家 {result.winners[0]}")
-```
-
-### 分析 Notebooks
+### Web 前端 (WASM 模式)
 
 ```bash
-uv pip install -e ".[analysis]"
-uv run jupyter lab analysis/
-```
+# 1. 构建 WASM
+cd rust/holdem-wasm
+wasm-pack build --target web --out-dir ../../web/frontend/src/wasm
 
----
-
-## Web 应用开发
-
-### 启动开发服务
-
-```bash
-# 后端 (Python/FastAPI)
-cd web/backend
-pip install -e "../../holdem-core" -e ".[dev]"
-python run.py              # → localhost:8000
-
-# 前端 (React/Vite)
-cd web/frontend
+# 2. 启动前端
+cd ../../web/frontend
 npm install
 npm run dev                # → localhost:5173
 ```
 
-### 端口配置
-
-默认端口：
-- Frontend: `5173`
-- Backend: `8000`
-
-**端口冲突时**，使用环境变量：
-
-```bash
-# 方法 1: 修改 .env 文件
-# web/frontend/.env
-VITE_FRONTEND_PORT=3000
-VITE_BACKEND_PORT=9000
-
-# 方法 2: 命令行环境变量
-VITE_FRONTEND_PORT=3000 npm run dev
-EQUITY_PORT=9000 python run.py
-```
-
-### 环境变量参考
-
-| 变量 | 服务 | 默认值 | 说明 |
-|------|------|--------|------|
-| `VITE_FRONTEND_PORT` | Frontend | 5173 | Vite 开发服务器端口 |
-| `VITE_BACKEND_PORT` | Frontend | 8000 | API 代理目标端口 |
-| `EQUITY_PORT` | Backend | 8000 | FastAPI 服务端口 |
-| `EQUITY_FRONTEND_PORT` | Backend | 5173 | CORS 允许的前端端口 |
-
-### Docker 开发
-
-```bash
-cd web
-
-# 默认端口
-docker compose -f docker-compose.dev.yml up
-
-# 自定义端口
-FRONTEND_PORT=3000 BACKEND_PORT=9000 docker compose -f docker-compose.dev.yml up
-```
-
----
-
-## Tauri 桌面应用
-
-Tauri 应用复用 `web/frontend` 前端，使用 Rust 实现后端。
-
-### 开发模式
+### Tauri 桌面应用
 
 ```bash
 cd rust/holdem-app
 npm install
-npm run tauri:dev
+npm run tauri:dev          # 开发模式
+npm run tauri:build        # 构建发布包
 ```
 
-### 构建发布包
+---
+
+## 部署模式
+
+| 模式 | 说明 | 后端 |
+|------|------|------|
+| Web (WASM) | 纯前端静态部署 | 无需后端，浏览器内计算 |
+| Desktop (Tauri) | 原生桌面应用 | Rust 本地运行 |
+
+### Web (WASM) 部署
+
+适合静态托管 (GitHub Pages, Vercel, Netlify)：
 
 ```bash
+cd web/frontend
+npm run build
+# 部署 dist/ 目录
+```
+
+### Tauri 桌面发布
+
+```bash
+cd rust/holdem-app
 npm run tauri:build
 ```
 
@@ -145,29 +77,11 @@ npm run tauri:build
 - Windows: `rust/holdem-app/src-tauri/target/release/bundle/msi/`
 - macOS: `rust/holdem-app/src-tauri/target/release/bundle/dmg/`
 
-### 运行已编译的程序
-
-```bash
-# Windows
-./rust/holdem-app/src-tauri/target/release/holdem-app.exe
-
-# macOS/Linux
-./rust/holdem-app/src-tauri/target/release/holdem-app
-```
-
 ---
 
 ## 测试
 
 ```bash
-# Python 核心库
-cd holdem-core
-uv run pytest
-
-# Web 后端
-cd web/backend
-uv run pytest
-
 # Rust 核心库
 cd rust/holdem-core
 cargo test
@@ -179,44 +93,25 @@ npm run typecheck
 
 ---
 
-## 发布
+## 环境变量
 
-### Web 应用 (Docker)
-
-```bash
-cd web
-docker compose up -d
-```
-
-访问地址：
-- Frontend: http://localhost (Nginx 反向代理)
-- API: http://localhost/api
-
-### Tauri 桌面应用
-
-```bash
-cd rust/holdem-app
-npm run tauri:build
-```
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `VITE_FRONTEND_PORT` | 5173 | Vite 开发服务器端口 |
+| `BASE_URL` | / | 静态资源基础路径 (GitHub Pages 用) |
 
 ---
 
 ## 技术栈
 
-### Python 核心库
+### Rust 核心库
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| Python | 3.12+ | 运行时 |
-| pytest | 8.x | 测试 |
-
-### Web 后端
-
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| FastAPI | 0.115.x | Web 框架 |
-| Pydantic | 2.10.x | 数据验证 |
-| uvicorn | 0.34.x | ASGI 服务器 |
+| Rust | 1.75+ | 语言 |
+| serde | 1.0 | 序列化 |
+| rand | 0.9 | 随机数 |
+| wasm-bindgen | 0.2 | WASM 绑定 |
 
 ### Web 前端
 
@@ -227,13 +122,26 @@ npm run tauri:build
 | Vite | 6.x | 构建工具 |
 | Tailwind CSS | 3.x | 样式 |
 | Zustand | 5.x | 状态管理 |
-| TanStack Query | 5.x | 服务端状态 |
+| TanStack Query | 5.x | 异步状态 |
 
-### Rust / Tauri
+### Tauri 桌面
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| Rust | 1.93+ | 语言 |
 | Tauri | 2.x | 桌面框架 |
-| serde | 1.0 | 序列化 |
-| rand | 0.9 | 随机数 |
+
+---
+
+## API 客户端
+
+前端使用统一的 `apiClient` 抽象层，自动检测运行环境：
+
+- **Tauri 环境**: 使用 IPC 调用 Rust 命令
+- **Web 环境**: 使用 WASM 模块在浏览器内计算
+
+```typescript
+import { apiClient } from './api/client'
+
+// 自动选择正确的后端
+const result = await apiClient.calculateEquity(request)
+```
