@@ -4,24 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 常用命令
 
-### Python 核心库
+### Rust 核心库
 
 ```bash
-cd holdem-core
-uv pip install -e ".[dev]"
-
-# 运行所有测试
-uv run pytest
-
-# 运行单个测试文件
-uv run pytest tests/test_evaluator.py
-
-# 运行单个测试用例
-uv run pytest tests/test_evaluator.py::TestEvaluateFive::test_royal_flush -v
-
-# 安装分析依赖（Jupyter notebooks）
-uv pip install -e ".[analysis]"
-uv run jupyter lab analysis/
+cd rust/holdem-core
+cargo build
+cargo test
 ```
 
 ### Web 前端
@@ -32,24 +20,10 @@ npm install
 npm run dev          # 开发服务器 → localhost:5173
 npm run build        # 构建生产版本
 npm run typecheck    # TypeScript 类型检查
-npm run lint         # ESLint 检查
-```
 
-### Web 后端
-
-```bash
-cd web/backend
-uv pip install -e "../../holdem-core" -e ".[dev]"
-python run.py        # 开发服务器 → localhost:8000
-uv run pytest        # 运行后端测试
-```
-
-### Rust 核心库
-
-```bash
-cd rust/holdem-core
-cargo build
-cargo test
+# 本地开发需要先构建 WASM
+cd ../../rust/holdem-wasm
+wasm-pack build --target web --out-dir ../../web/frontend/src/wasm
 ```
 
 ### Tauri 桌面应用
@@ -63,60 +37,48 @@ npm run tauri:build  # 构建发布包
 
 ## 架构概览
 
-德州扑克概率计算库，采用分层架构：
+德州扑克概率计算工具，采用纯 Rust 实现：
 
 ```
-cards.py (基础层，无依赖)
-    │
-    ├── evaluator.py (手牌评估)
-    ├── draws.py (听牌分析)
-    ├── canonize.py (169 规范手牌)
-    ├── event_log.py (事件日志)
-    └── equity.py (概率计算)
-            │
-            └── game_state.py (状态机，整合所有模块)
+rust/holdem-core/        # Rust 核心库
+├── card.rs              # Card, Deck, Rank, Suit
+├── evaluator.rs         # 手牌评估 (7选5最优)
+├── equity.rs            # Monte Carlo 胜率计算
+├── draws.rs             # 听牌分析
+├── canonize.rs          # 169 规范手牌
+└── error.rs             # 错误类型
+
+rust/holdem-wasm/        # WASM 绑定
+└── src/lib.rs           # wasm-bindgen 导出
+
+web/frontend/            # React 前端 (TypeScript)
+└── src/api/             # API 抽象层 (WASM 或 Tauri)
+
+rust/holdem-app/         # Tauri 桌面应用
+└── src-tauri/           # Rust 命令
 ```
-
-### 模块依赖关系
-
-- **cards.py**: 基础模块，定义 `Card`, `Deck`, `Rank`, `Suit`，以及解析函数
-- **evaluator.py**: 依赖 cards，实现 7 选 5 最优手牌评估
-- **equity.py**: 依赖 cards + evaluator，Monte Carlo 概率计算
-- **event_log.py**: 依赖 cards，事件记录与回放
-- **game_state.py**: 整合所有模块，提供完整牌局状态机
 
 ### 关键设计
 
 - 评估器使用枚举 C(7,5)=21 组合选最优，非查表法
 - A-2-3-4-5 (wheel) 是有效顺子，顶牌为 5
-- `EventLog` 实现了 `__len__`，判断非空时需用 `is not None` 而非 truthy 检查
-- 所有 Card 对象是 frozen dataclass，可 hash
+- 所有 Card 类型是不可变的，可 hash
+- Web 版使用 WASM，无需后端服务器
+- 桌面版使用 Tauri，直接调用 Rust 代码
 
-### 重要：Python 与 Rust 代码同步
+### 部署模式
 
-核心算法在 Python (`holdem-core/`) 和 Rust (`rust/holdem-core/`) 中各有一份实现。
+| 模式 | 说明 | 命令 |
+|------|------|------|
+| Web (WASM) | 纯前端，适合静态托管 | `npm run build` |
+| Desktop (Tauri) | 原生应用 | `npm run tauri:build` |
 
-**修改算法时必须同时更新两个版本：**
+### 运行测试
 
-| Python | Rust |
-|--------|------|
-| `holdem-core/src/holdem_lab/cards.py` | `rust/holdem-core/src/card.rs` |
-| `holdem-core/src/holdem_lab/evaluator.py` | `rust/holdem-core/src/evaluator.rs` |
-| `holdem-core/src/holdem_lab/equity.py` | `rust/holdem-core/src/equity.rs` |
-| `holdem-core/src/holdem_lab/draws.py` | `rust/holdem-core/src/draws.rs` |
-| `holdem-core/src/holdem_lab/canonize.py` | `rust/holdem-core/src/canonize.rs` |
-
-**测试对应关系：**
-
-| Python | Rust |
-|--------|------|
-| `holdem-core/tests/test_*.py` | `rust/holdem-core/src/*.rs` (mod tests) |
-
-修改算法后务必运行两边的测试：
 ```bash
-# Python 测试
-cd holdem-core && uv run pytest
-
-# Rust 测试
+# Rust 核心库测试
 cd rust/holdem-core && cargo test
+
+# 前端类型检查
+cd web/frontend && npm run typecheck
 ```
