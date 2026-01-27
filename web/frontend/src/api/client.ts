@@ -6,6 +6,8 @@ import type {
   DrawsRequest,
   DrawsResponse,
   HealthResponse,
+  EvaluateRequest,
+  EvaluateResponse,
 } from './types'
 
 // Environment detection
@@ -99,6 +101,13 @@ const webClient = {
   // Draws
   analyzeDraws: (request: DrawsRequest) =>
     fetchApi<DrawsResponse>('/draws', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }),
+
+  // Evaluate
+  evaluateHand: (request: EvaluateRequest) =>
+    fetchApi<EvaluateResponse>('/evaluate', {
       method: 'POST',
       body: JSON.stringify(request),
     }),
@@ -198,6 +207,18 @@ export const apiClient = {
       return client.analyzeDraws(request)
     }
     return webClient.analyzeDraws(request)
+  },
+
+  evaluateHand: async (request: EvaluateRequest): Promise<EvaluateResponse> => {
+    if (isTauri()) {
+      const client = await getTauriClient()
+      return client.evaluateHand(request)
+    }
+    if (isWasmMode()) {
+      const client = await getWasmClient()
+      return client.evaluateHand(request)
+    }
+    return webClient.evaluateHand(request)
   },
 }
 

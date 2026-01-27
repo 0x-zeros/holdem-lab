@@ -11,6 +11,7 @@ fn main() {
             commands::analyze_draws,
             commands::get_canonical_hands,
             commands::parse_cards,
+            commands::evaluate_hand,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -8,6 +8,8 @@ import type {
   DrawsResponse,
   HealthResponse,
   CanonicalHandInfo,
+  EvaluateRequest,
+  EvaluateResponse,
 } from './types'
 
 // Tauri IPC client - calls Rust backend directly
@@ -56,6 +58,13 @@ export const tauriClient = {
       holeCards: request.hole_cards,
       board: request.board,
       deadCards: request.dead_cards,
+    })
+  },
+
+  // Evaluate
+  evaluateHand: async (request: EvaluateRequest): Promise<EvaluateResponse> => {
+    return invoke<EvaluateResponse>('evaluate_hand', {
+      cards: request.cards,
     })
   },
 }

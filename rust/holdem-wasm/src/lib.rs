@@ -10,6 +10,7 @@ use holdem_core::{
     card,
     draws,
     equity::{self, PlayerHand},
+    evaluator,
     Card,
 };
 
@@ -264,6 +265,50 @@ fn analyze_draws_impl(
         total_outs: analysis.total_outs,
         all_outs: analysis.all_outs.iter().map(ToString::to_string).collect(),
         is_combo_draw: analysis.is_combo_draw(),
+    })
+}
+
+// ============================================================================
+// Hand Evaluation
+// ============================================================================
+
+/// Evaluate 5-7 cards and return the best hand.
+///
+/// # Arguments
+/// * `cards` - JsValue array of card strings (e.g., ["Ah", "Kh", "Qh", "Jh", "Th"])
+///
+/// # Returns
+/// JsValue containing `EvaluateResponse`
+#[wasm_bindgen]
+pub fn wasm_evaluate_hand(cards: JsValue) -> Result<JsValue, JsValue> {
+    let card_strings: Vec<String> = serde_wasm_bindgen::from_value(cards)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse cards: {e}")))?;
+
+    let result = evaluate_hand_impl(card_strings)
+        .map_err(|e| JsValue::from_str(&e))?;
+
+    serde_wasm_bindgen::to_value(&result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {e}")))
+}
+
+fn evaluate_hand_impl(card_strings: Vec<String>) -> Result<types::EvaluateOutput, String> {
+    let cards = types::parse_card_strings(&card_strings)?;
+
+    if cards.len() < 5 || cards.len() > 7 {
+        return Err(format!(
+            "Need 5-7 cards for evaluation, got {}",
+            cards.len()
+        ));
+    }
+
+    let rank = evaluator::evaluate_hand(&cards)
+        .map_err(|e| e.to_string())?;
+
+    Ok(types::EvaluateOutput {
+        hand_type: rank.hand_type.name().to_string(),
+        description: rank.describe(),
+        primary_ranks: rank.primary_ranks.clone(),
+        kickers: rank.kickers.clone(),
     })
 }
 

@@ -5,6 +5,7 @@ use holdem_core::{
     card::{self, Card, Suit},
     draws::{self, DrawType},
     equity::{self, PlayerHand},
+    evaluator,
 };
 use serde::{Deserialize, Serialize};
 
@@ -327,6 +328,38 @@ pub fn get_canonical_hands() -> Vec<CanonicalHandOutput> {
         .iter()
         .map(CanonicalHandOutput::from)
         .collect()
+}
+
+/// Hand evaluation result for frontend
+#[derive(Debug, Serialize)]
+pub struct EvaluateOutput {
+    pub hand_type: String,
+    pub description: String,
+    pub primary_ranks: Vec<u8>,
+    pub kickers: Vec<u8>,
+}
+
+/// Evaluate 5-7 cards and return the best hand
+#[tauri::command]
+pub fn evaluate_hand(cards: Vec<String>) -> Result<EvaluateOutput, String> {
+    let parsed = parse_card_strings(&cards)?;
+
+    if parsed.len() < 5 || parsed.len() > 7 {
+        return Err(format!(
+            "Need 5-7 cards for evaluation, got {}",
+            parsed.len()
+        ));
+    }
+
+    let rank = evaluator::evaluate_hand(&parsed)
+        .map_err(|e| e.to_string())?;
+
+    Ok(EvaluateOutput {
+        hand_type: rank.hand_type.name().to_string(),
+        description: rank.describe(),
+        primary_ranks: rank.primary_ranks.clone(),
+        kickers: rank.kickers.clone(),
+    })
 }
 
 /// Parse cards result for frontend

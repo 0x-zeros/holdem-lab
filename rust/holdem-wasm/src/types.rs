@@ -173,6 +173,19 @@ pub struct ParseCardsOutput {
 }
 
 // ============================================================================
+// Hand Evaluation Types
+// ============================================================================
+
+/// Hand evaluation result (matches TypeScript `EvaluateResponse`)
+#[derive(Debug, Serialize)]
+pub struct EvaluateOutput {
+    pub hand_type: String,
+    pub description: String,
+    pub primary_ranks: Vec<u8>,
+    pub kickers: Vec<u8>,
+}
+
+// ============================================================================
 // Health Check
 // ============================================================================
 

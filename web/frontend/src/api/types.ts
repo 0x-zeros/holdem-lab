@@ -99,3 +99,15 @@ export interface HealthResponse {
   status: string
   version: string
 }
+
+// Evaluate types
+export interface EvaluateRequest {
+  cards: string[]
+}
+
+export interface EvaluateResponse {
+  hand_type: string
+  description: string
+  primary_ranks: number[]
+  kickers: number[]
+}

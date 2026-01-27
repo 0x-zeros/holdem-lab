@@ -52,5 +52,14 @@
     "pairs": "对子",
     "suited": "同花",
     "offsuit": "杂色"
+  },
+  "evaluator": {
+    "title": "手牌评估",
+    "cards": "张牌",
+    "evaluate": "评估",
+    "evaluating": "评估中...",
+    "clear": "清空",
+    "needMoreCards": "还需要 {{count}} 张牌",
+    "error": "评估失败"
   }
 }

@@ -52,5 +52,14 @@
     "pairs": "Pairs",
     "suited": "Suited",
     "offsuit": "Offsuit"
+  },
+  "evaluator": {
+    "title": "Hand Evaluator",
+    "cards": "cards",
+    "evaluate": "Evaluate",
+    "evaluating": "Evaluating...",
+    "clear": "Clear",
+    "needMoreCards": "Need {{count}} more card(s)",
+    "error": "Evaluation failed"
   }
 }

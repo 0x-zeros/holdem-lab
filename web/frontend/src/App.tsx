@@ -9,6 +9,7 @@ import { PlayerRow } from './components/players'
 import { ResultTable } from './components/results'
 import { HandMatrix } from './components/matrix'
 import { LanguageSwitcher } from './components/layout'
+import { HandEvaluator } from './components/evaluator/HandEvaluator'
 
 function App() {
   const { t } = useTranslation()
@@ -243,6 +244,10 @@ function App() {
               </div>
             )}
 
+            {/* Hand Evaluator */}
+            <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
+              <HandEvaluator usedCards={[]} />
+            </section>
           </div>
         </div>
       </main>

@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import health, cards, equity, draws
+from app.api.routes import health, cards, equity, draws, evaluate
 from app.config import settings
 
 app = FastAPI(
@@ -34,6 +34,7 @@ app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(cards.router, prefix="/api", tags=["cards"])
 app.include_router(equity.router, prefix="/api", tags=["equity"])
 app.include_router(draws.router, prefix="/api", tags=["draws"])
+app.include_router(evaluate.router, prefix="/api", tags=["evaluate"])
 
 
 @app.get("/")

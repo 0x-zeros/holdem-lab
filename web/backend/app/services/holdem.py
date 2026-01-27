@@ -19,6 +19,7 @@ from holdem_lab import (
     calculate_equity,
     analyze_draws,
     DrawType,
+    evaluate_hand,
 )
 
 from app.schemas.card import (
@@ -36,6 +37,7 @@ from app.schemas.draws import (
     StraightDrawInfo,
     DrawsResponse,
 )
+from app.schemas.evaluate import EvaluateResponse
 
 # Rank order for matrix positioning (A=0, K=1, ..., 2=12)
 RANK_ORDER = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"]
@@ -273,4 +275,16 @@ class HoldemService:
             total_outs=analysis.total_outs,
             all_outs=[HoldemService.card_to_info(c).notation for c in analysis.all_outs],
             is_combo_draw=analysis.is_combo_draw,
+        )
+
+    @staticmethod
+    def evaluate_hand_cards(cards: list[str]) -> EvaluateResponse:
+        """Evaluate 5-7 cards and return the best hand."""
+        parsed = parse_cards(" ".join(cards))
+        result = evaluate_hand(parsed)
+        return EvaluateResponse(
+            hand_type=str(result.hand_type),
+            description=result.describe(),
+            primary_ranks=list(result.primary_ranks),
+            kickers=list(result.kickers),
         )

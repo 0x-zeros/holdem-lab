@@ -13,6 +13,8 @@ import type {
   DrawsRequest,
   DrawsResponse,
   HealthResponse,
+  EvaluateRequest,
+  EvaluateResponse,
 } from './types'
 
 // Type for the WASM module
@@ -27,6 +29,7 @@ interface WasmModule {
   ) => DrawsResponse
   wasm_get_canonical_hands: () => CanonicalHandsResponse
   wasm_parse_cards: (input: string) => ParseCardsResponse
+  wasm_evaluate_hand: (cards: string[]) => EvaluateResponse
 }
 
 // Lazy-loaded WASM module
@@ -126,6 +129,19 @@ export const wasmClient = {
     } catch (error) {
       const errorMessage = typeof error === 'string' ? error : String(error)
       console.error('[WASM] analyzeDraws error:', errorMessage)
+      throw new Error(errorMessage)
+    }
+  },
+
+  evaluateHand: async (request: EvaluateRequest): Promise<EvaluateResponse> => {
+    const wasm = await loadWasm()
+    try {
+      // Convert to plain array - proxies/complex objects break serde_wasm_bindgen
+      const cards = JSON.parse(JSON.stringify(request.cards))
+      return wasm.wasm_evaluate_hand(cards)
+    } catch (error) {
+      const errorMessage = typeof error === 'string' ? error : String(error)
+      console.error('[WASM] evaluateHand error:', errorMessage)
       throw new Error(errorMessage)
     }
   },
