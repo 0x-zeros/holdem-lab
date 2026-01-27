@@ -528,12 +528,96 @@ pub struct RangePlayerEquity {
     pub hand_description: String,
 }
 
-/// Calculate equity with range support using pokerstove-style enumeration.
+// =============================================================================
+// Adaptive Equity Calculation Strategy
+// =============================================================================
+//
+// The calculation strategy is automatically selected based on total combo count:
+//
+// | Range Size | Combos    | Strategy   | Description                          |
+// |------------|-----------|------------|--------------------------------------|
+// | Small      | < 50      | Exhaustive | Enumerate all, more sims per combo   |
+// | Medium     | 50-500    | Hybrid     | Enumerate all, fewer sims per combo  |
+// | Large      | > 500     | Sampled    | Random sample up to MAX_SAMPLED      |
+//
+// This ensures reasonable performance across all range sizes while maintaining
+// accuracy for smaller ranges where exhaustive enumeration is feasible.
+// =============================================================================
+
+/// Threshold for small ranges: enumerate all with full simulations
+const SMALL_RANGE_THRESHOLD: usize = 50;
+
+/// Threshold for medium ranges: enumerate all with reduced simulations
+const MEDIUM_RANGE_THRESHOLD: usize = 500;
+
+/// Maximum combos to sample for large ranges
+const MAX_SAMPLED_COMBOS: usize = 200;
+
+/// Minimum simulations per combo to ensure statistical significance
+const MIN_SIMS_PER_COMBO: u32 = 100;
+
+/// Calculation strategy based on range size
+#[derive(Debug, Clone, Copy)]
+enum EquityStrategy {
+    /// Enumerate all combinations with specified simulations per combo
+    Exhaustive { sims_per_combo: u32 },
+    /// Sample a subset of combinations
+    Sampled {
+        max_combos: usize,
+        sims_per_combo: u32,
+    },
+}
+
+/// Select optimal calculation strategy based on total combo count
+fn select_strategy(total_combos: usize, requested_sims: u32) -> EquityStrategy {
+    if total_combos <= SMALL_RANGE_THRESHOLD {
+        // Small range: enumerate all, use full simulations (at least 1000)
+        EquityStrategy::Exhaustive {
+            sims_per_combo: requested_sims.max(1000),
+        }
+    } else if total_combos <= MEDIUM_RANGE_THRESHOLD {
+        // Medium range: enumerate all, reduce sims to control total time
+        // Target: roughly same total work as 50 combos × requested_sims
+        let sims = ((requested_sims as usize * SMALL_RANGE_THRESHOLD) / total_combos)
+            .max(MIN_SIMS_PER_COMBO as usize) as u32;
+        EquityStrategy::Exhaustive { sims_per_combo: sims }
+    } else {
+        // Large range: sample combos
+        EquityStrategy::Sampled {
+            max_combos: MAX_SAMPLED_COMBOS,
+            sims_per_combo: requested_sims,
+        }
+    }
+}
+
+/// Calculate equity with range support using adaptive strategy.
 ///
-/// For each combination of hands from the ranges:
-/// 1. Check for card conflicts (skip if any)
-/// 2. Run Monte Carlo simulation
-/// 3. Weight the results
+/// # Performance Optimization
+///
+/// The function automatically selects the optimal calculation strategy based on
+/// the total number of hand combinations:
+///
+/// | Range Size | Combos | Strategy | Description |
+/// |-----------|--------|----------|-------------|
+/// | Small | < 50 | Exhaustive | Enumerate all combos, more sims each |
+/// | Medium | 50-500 | Hybrid | Enumerate all, fewer sims to control time |
+/// | Large | > 500 | Sampled | Random sample up to 200 combos |
+///
+/// # Algorithm
+///
+/// 1. Build CardDistribution for each range player
+/// 2. Use Odometer to iterate Cartesian product of all ranges
+/// 3. Select strategy based on total combo count
+/// 4. For each combination (or sampled subset):
+///    - Skip if cards conflict (same card used twice)
+///    - Run Monte Carlo simulation
+///    - Weight and accumulate results
+/// 5. Return weighted average equity
+///
+/// # Complexity
+///
+/// - Time: O(C × S × P) where C = combos (or MAX_SAMPLED), S = sims, P = players
+/// - Space: O(P) for tracking equity per player
 ///
 /// # Errors
 /// Returns an error if fewer than 2 players or more than 5 board cards.
@@ -619,6 +703,20 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
         })
         .collect();
 
+    // Calculate total theoretical combinations and select strategy
+    let odometer = Odometer::new(extents.clone());
+    let total_theoretical_combos = odometer.total_combinations();
+    let strategy = select_strategy(total_theoretical_combos, request.num_simulations);
+
+    // Extract strategy parameters
+    let (should_sample, max_combos, sims_per_combo) = match strategy {
+        EquityStrategy::Exhaustive { sims_per_combo } => (false, usize::MAX, sims_per_combo),
+        EquityStrategy::Sampled {
+            max_combos,
+            sims_per_combo,
+        } => (true, max_combos, sims_per_combo),
+    };
+
     // Initialize accumulators
     let mut total_equity: Vec<f64> = vec![0.0; num_players];
     let mut total_wins: Vec<f64> = vec![0.0; num_players];
@@ -635,10 +733,28 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
 
     let cards_needed_board = 5 - request.board.len();
 
-    // Iterate through all combinations
+    // Sampling state (for large ranges)
+    let mut sampled_count: usize = 0;
+    let sample_rate = if should_sample && total_theoretical_combos > 0 {
+        max_combos as f64 / total_theoretical_combos as f64
+    } else {
+        1.0
+    };
+
+    // Iterate through combinations
     let odometer = Odometer::new(extents);
 
     for indices in odometer {
+        // For large ranges, randomly sample combinations
+        if should_sample {
+            if sampled_count >= max_combos {
+                break; // Already have enough samples
+            }
+            if rng.random::<f64>() > sample_rate {
+                continue; // Skip this combination (not sampled)
+            }
+        }
+
         // Build current hands for this combination
         let mut current_hands: Vec<(Card, Card)> = Vec::with_capacity(num_players);
         let mut skip = false;
@@ -646,9 +762,8 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
         for (player_idx, &combo_idx) in indices.iter().enumerate() {
             if random_player_indices.contains(&player_idx) {
                 // Random player - will be dealt during simulation, use placeholder
-                // Placeholder cards that won't conflict (index 0 = Ace of Clubs)
                 let placeholder = Card::from_index(0).unwrap();
-                current_hands.push((placeholder, placeholder)); // Placeholder, not used
+                current_hands.push((placeholder, placeholder));
             } else {
                 current_hands.push(distributions[player_idx][combo_idx]);
             }
@@ -681,6 +796,7 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
         }
 
         total_combinations += 1;
+        sampled_count += 1;
 
         // Build remaining deck for this combination
         let remaining: Vec<Card> = FULL_DECK
@@ -695,7 +811,7 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
         let mut combo_equity = vec![0.0f64; num_players];
         let mut deck_remaining = remaining.clone();
 
-        for _ in 0..request.num_simulations {
+        for _ in 0..sims_per_combo {
             deck_remaining.shuffle(&mut rng);
 
             let mut deck_idx = 0;
@@ -744,14 +860,14 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
             }
         }
 
-        total_simulations += request.num_simulations as u64;
+        total_simulations += sims_per_combo as u64;
 
         // Weight = 1.0 for now (could add hand weights later)
         let weight = 1.0;
         total_weight += weight;
 
         for i in 0..num_players {
-            let sim_count = request.num_simulations as f64;
+            let sim_count = sims_per_combo as f64;
             total_equity[i] += (combo_equity[i] / sim_count) * weight;
             total_wins[i] += (combo_wins[i] as f64 / sim_count) * weight;
             total_ties[i] += (combo_ties[i] as f64 / sim_count) * weight;
@@ -1226,5 +1342,93 @@ mod tests {
         assert_eq!(result.players[1].combos, 6);
         // AA+KK vs QQ should be heavily favored
         assert!(result.players[0].equity > 0.70, "AA+KK equity {} too low", result.players[0].equity);
+    }
+
+    // =========================================================================
+    // Strategy selection tests
+    // =========================================================================
+
+    #[test]
+    fn test_strategy_selection_small_range() {
+        // Small range (<50 combos) should use Exhaustive with high sims
+        let strategy = select_strategy(30, 1000);
+        match strategy {
+            EquityStrategy::Exhaustive { sims_per_combo } => {
+                assert!(sims_per_combo >= 1000, "Small range should have at least 1000 sims");
+            }
+            EquityStrategy::Sampled { .. } => {
+                panic!("Small range should use Exhaustive strategy");
+            }
+        }
+    }
+
+    #[test]
+    fn test_strategy_selection_medium_range() {
+        // Medium range (50-500 combos) should use Exhaustive with reduced sims
+        let strategy = select_strategy(200, 10000);
+        match strategy {
+            EquityStrategy::Exhaustive { sims_per_combo } => {
+                // Should reduce sims to control time: 10000 * 50 / 200 = 2500
+                assert!(sims_per_combo < 10000, "Medium range should reduce sims");
+                assert!(sims_per_combo >= MIN_SIMS_PER_COMBO, "Should not go below minimum");
+            }
+            EquityStrategy::Sampled { .. } => {
+                panic!("Medium range should use Exhaustive strategy");
+            }
+        }
+    }
+
+    #[test]
+    fn test_strategy_selection_large_range() {
+        // Large range (>500 combos) should use Sampled
+        let strategy = select_strategy(1000, 5000);
+        match strategy {
+            EquityStrategy::Exhaustive { .. } => {
+                panic!("Large range should use Sampled strategy");
+            }
+            EquityStrategy::Sampled { max_combos, sims_per_combo } => {
+                assert_eq!(max_combos, MAX_SAMPLED_COMBOS);
+                assert_eq!(sims_per_combo, 5000);
+            }
+        }
+    }
+
+    #[test]
+    fn test_large_range_uses_sampling() {
+        use crate::CardDistribution;
+
+        // All pairs vs all pairs: 13 * 6 = 78 combos each
+        // 78 * 78 = 6084 total combinations - should use sampling
+        let pairs = [
+            "AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "55", "44", "33", "22",
+        ];
+        let pair_range: Vec<String> = pairs.iter().map(|s| s.to_string()).collect();
+
+        let dist1 = CardDistribution::from_range(&pair_range, &[]).unwrap();
+        let dist2 = CardDistribution::from_range(&pair_range, &[]).unwrap();
+
+        assert_eq!(dist1.len(), 78);
+        assert_eq!(dist2.len(), 78);
+
+        let request = RangeEquityRequest::new(
+            vec![
+                RangePlayer::range(dist1),
+                RangePlayer::range(dist2),
+            ],
+            vec![],
+        )
+        .with_simulations(100)
+        .with_seed(42);
+
+        let result = calculate_equity_with_ranges(&request).unwrap();
+
+        // Should complete without timeout and return reasonable results
+        assert_eq!(result.players.len(), 2);
+        // With same ranges, equity should be close to 50/50
+        assert!(result.players[0].equity > 0.40, "P1 equity {} too low", result.players[0].equity);
+        assert!(result.players[0].equity < 0.60, "P1 equity {} too high", result.players[0].equity);
+        // Due to sampling, total_combinations should be much less than 78*78
+        // Actually evaluated combos depend on sampling and conflict
+        assert!(result.total_combinations > 0);
     }
 }
