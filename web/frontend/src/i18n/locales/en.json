@@ -1,6 +1,11 @@
 {
   "app": {
-    "title": "Equity Calculator"
+    "title": "Holdem Lab"
+  },
+  "tabs": {
+    "equity": "Equity Calculator",
+    "evaluate": "Hand Evaluator",
+    "preflop": "Preflop Chart"
   },
   "board": {
     "title": "Board",
@@ -61,5 +66,14 @@
     "clear": "Clear",
     "needMoreCards": "Need {{count}} more card(s)",
     "error": "Evaluation failed"
+  },
+  "preflop": {
+    "title": "Preflop Hand Equity",
+    "players": "Players",
+    "description": "Shows equity of each starting hand vs random opponents",
+    "legend": "Equity",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
   }
 }

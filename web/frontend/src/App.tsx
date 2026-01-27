@@ -8,12 +8,22 @@ import { BoardInput } from './components/cards'
 import { PlayerRow } from './components/players'
 import { ResultTable } from './components/results'
 import { HandMatrix } from './components/matrix'
-import { LanguageSwitcher } from './components/layout'
+import { LanguageSwitcher, TabNav } from './components/layout'
 import { HandEvaluator } from './components/evaluator/HandEvaluator'
+import { PreflopMatrix } from './components/preflop'
+
+type TabId = 'equity' | 'evaluate' | 'preflop'
 
 function App() {
   const { t } = useTranslation()
+  const [activeTab, setActiveTab] = useState<TabId>('equity')
   const [showRangeDialog, setShowRangeDialog] = useState(false)
+
+  const tabs = [
+    { id: 'equity' as const, labelKey: 'tabs.equity' },
+    { id: 'evaluate' as const, labelKey: 'tabs.evaluate' },
+    { id: 'preflop' as const, labelKey: 'tabs.preflop' },
+  ]
 
   const {
     players,
@@ -152,104 +162,123 @@ function App() {
       </header>
 
       <main className="container mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Panel - Input */}
-          <div className="space-y-6">
-            {/* Board Input */}
-            <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
-              <BoardInput
-                cards={board}
-                onCardsChange={setBoard}
-                onClear={clearBoard}
-                usedCards={usedCardsForBoard}
-              />
-            </section>
+        {/* Tab Navigation */}
+        <TabNav tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as TabId)} />
 
-            {/* Total Players Selector */}
-            <section className="flex items-center gap-4 py-2">
-              <span className="text-sm font-medium">{t('settings.totalPlayers')}</span>
-              <div className="flex gap-1">
-                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setTotalPlayers(n)}
-                    className={`px-2 py-1 text-xs rounded-[var(--radius-sm)] ${
-                      totalPlayers === n
-                        ? 'bg-[var(--primary)] text-white'
-                        : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--border)]'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            {/* Players */}
-            <section className="space-y-4">
-              {players.map((player) => (
-                <PlayerRow
-                  key={player.id}
-                  index={player.id}
-                  cards={player.cards}
-                  range={player.range}
-                  mode={player.mode}
-                  onCardsChange={(cards) => updatePlayer(player.id, { cards })}
-                  onRangeClick={() => handleOpenRangeDialog(player.id)}
-                  onSetMode={(mode) => setPlayerMode(player.id, mode)}
-                  onRemove={() => removePlayer(player.id)}
-                  canRemove={players.length > 1}
-                  usedCards={getUsedCardsForPlayer(player.id)}
-                />
-              ))}
-
-              {players.length < totalPlayers && (
-                <button
-                  onClick={() => addPlayer('random')}
-                  className="w-full py-2 border-2 border-dashed border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors"
-                >
-                  {t('actions.addPlayer')}
-                </button>
-              )}
-            </section>
-
-            {/* Calculate Button */}
-            <button
-              onClick={handleCalculate}
-              disabled={!canCalculate || equityMutation.isPending}
-              className="w-full py-3 bg-[var(--primary)] text-white font-medium rounded-[var(--radius-md)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {equityMutation.isPending ? t('actions.calculating') : t('actions.evaluate')}
-            </button>
-          </div>
-
-          {/* Right Panel - Results */}
-          <div className="space-y-6">
-            {/* Results */}
-            {equityMutation.data && (
+        {/* Tab: Equity Calculator */}
+        {activeTab === 'equity' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Left Panel - Input */}
+            <div className="space-y-6">
+              {/* Board Input */}
               <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
-                <h2 className="text-lg font-medium mb-4">{t('results.title')}</h2>
-                <ResultTable
-                  players={equityMutation.data.players}
-                  totalSimulations={equityMutation.data.total_simulations}
-                  elapsedMs={equityMutation.data.elapsed_ms}
+                <BoardInput
+                  cards={board}
+                  onCardsChange={setBoard}
+                  onClear={clearBoard}
+                  usedCards={usedCardsForBoard}
                 />
               </section>
-            )}
 
-            {/* Error */}
-            {equityMutation.isError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 rounded-[var(--radius-lg)] p-4">
-                {t('results.error')}: {(equityMutation.error as Error).message}
-              </div>
-            )}
+              {/* Total Players Selector */}
+              <section className="flex items-center gap-4 py-2">
+                <span className="text-sm font-medium">{t('settings.totalPlayers')}</span>
+                <div className="flex gap-1">
+                  {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => setTotalPlayers(n)}
+                      className={`px-2 py-1 text-xs rounded-[var(--radius-sm)] ${
+                        totalPlayers === n
+                          ? 'bg-[var(--primary)] text-white'
+                          : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--border)]'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </section>
 
-            {/* Hand Evaluator */}
+              {/* Players */}
+              <section className="space-y-4">
+                {players.map((player) => (
+                  <PlayerRow
+                    key={player.id}
+                    index={player.id}
+                    cards={player.cards}
+                    range={player.range}
+                    mode={player.mode}
+                    onCardsChange={(cards) => updatePlayer(player.id, { cards })}
+                    onRangeClick={() => handleOpenRangeDialog(player.id)}
+                    onSetMode={(mode) => setPlayerMode(player.id, mode)}
+                    onRemove={() => removePlayer(player.id)}
+                    canRemove={players.length > 1}
+                    usedCards={getUsedCardsForPlayer(player.id)}
+                  />
+                ))}
+
+                {players.length < totalPlayers && (
+                  <button
+                    onClick={() => addPlayer('random')}
+                    className="w-full py-2 border-2 border-dashed border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors"
+                  >
+                    {t('actions.addPlayer')}
+                  </button>
+                )}
+              </section>
+
+              {/* Calculate Button */}
+              <button
+                onClick={handleCalculate}
+                disabled={!canCalculate || equityMutation.isPending}
+                className="w-full py-3 bg-[var(--primary)] text-white font-medium rounded-[var(--radius-md)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {equityMutation.isPending ? t('actions.calculating') : t('actions.evaluate')}
+              </button>
+            </div>
+
+            {/* Right Panel - Results */}
+            <div className="space-y-6">
+              {/* Results */}
+              {equityMutation.data && (
+                <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
+                  <h2 className="text-lg font-medium mb-4">{t('results.title')}</h2>
+                  <ResultTable
+                    players={equityMutation.data.players}
+                    totalSimulations={equityMutation.data.total_simulations}
+                    elapsedMs={equityMutation.data.elapsed_ms}
+                  />
+                </section>
+              )}
+
+              {/* Error */}
+              {equityMutation.isError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-[var(--radius-lg)] p-4">
+                  {t('results.error')}: {(equityMutation.error as Error).message}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Hand Evaluator */}
+        {activeTab === 'evaluate' && (
+          <div className="max-w-2xl mx-auto">
             <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
               <HandEvaluator usedCards={[]} />
             </section>
           </div>
-        </div>
+        )}
+
+        {/* Tab: Preflop Chart */}
+        {activeTab === 'preflop' && (
+          <div className="max-w-4xl mx-auto">
+            <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
+              <PreflopMatrix hands={canonicalHands} />
+            </section>
+          </div>
+        )}
       </main>
 
       {/* Range Selection Dialog */}

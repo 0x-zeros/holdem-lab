@@ -1,6 +1,11 @@
 {
   "app": {
-    "title": "胜率计算器"
+    "title": "德州扑克实验室"
+  },
+  "tabs": {
+    "equity": "胜率计算",
+    "evaluate": "手牌评估",
+    "preflop": "起手牌表"
   },
   "board": {
     "title": "公共牌",
@@ -61,5 +66,14 @@
     "clear": "清空",
     "needMoreCards": "还需要 {{count}} 张牌",
     "error": "评估失败"
+  },
+  "preflop": {
+    "title": "起手牌胜率表",
+    "players": "玩家数",
+    "description": "显示每种起手牌对抗随机对手的胜率",
+    "legend": "胜率",
+    "high": "高",
+    "medium": "中",
+    "low": "低"
   }
 }

@@ -5,14 +5,29 @@ import { apiClient } from '../../api/client'
 import type { EvaluateResponse } from '../../api/types'
 import { CardPicker } from '../cards/CardPicker'
 
+// Hand type translations for Chinese display
+const handTypeTranslations: Record<string, string> = {
+  'Royal Flush': '皇家同花顺',
+  'Straight Flush': '同花顺',
+  'Four of a Kind': '四条',
+  'Full House': '葫芦',
+  'Flush': '同花',
+  'Straight': '顺子',
+  'Three of a Kind': '三条',
+  'Two Pair': '两对',
+  'One Pair': '一对',
+  'High Card': '高牌',
+}
+
 interface HandEvaluatorProps {
   usedCards: string[]
 }
 
 export function HandEvaluator({ usedCards }: HandEvaluatorProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [selectedCards, setSelectedCards] = useState<string[]>([])
   const [result, setResult] = useState<EvaluateResponse | null>(null)
+  const isChinese = i18n.language.startsWith('zh')
 
   const evaluateMutation = useMutation({
     mutationFn: (cards: string[]) => apiClient.evaluateHand({ cards }),
@@ -130,6 +145,11 @@ export function HandEvaluator({ usedCards }: HandEvaluatorProps) {
             <div className="text-2xl font-bold text-[var(--primary)]">
               {result.hand_type}
             </div>
+            {isChinese && (
+              <div className="text-lg text-[var(--primary)] opacity-80">
+                {handTypeTranslations[result.hand_type] || result.hand_type}
+              </div>
+            )}
             <div className="mt-1 text-[var(--muted-foreground)]">
               {result.description}
             </div>
