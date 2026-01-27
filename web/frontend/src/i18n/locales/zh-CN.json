@@ -23,7 +23,10 @@
     "randomHand": "随机手牌（每次模拟随机采样）"
   },
   "settings": {
-    "totalPlayers": "总玩家数"
+    "totalPlayers": "总玩家数",
+    "title": "设置",
+    "realTimeSimulations": "实时计算次数",
+    "close": "关闭"
   },
   "actions": {
     "evaluate": "计算",

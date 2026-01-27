@@ -8,7 +8,8 @@ import { BoardInput } from './components/cards'
 import { PlayerRow } from './components/players'
 import { ResultTable } from './components/results'
 import { HandMatrix } from './components/matrix'
-import { LanguageSwitcher, TabNav } from './components/layout'
+import { LanguageSwitcher, TabNav, SettingsDialog } from './components/layout'
+import { Settings } from 'lucide-react'
 import { HandEvaluator } from './components/evaluator/HandEvaluator'
 import { PreflopMatrix } from './components/preflop'
 
@@ -18,6 +19,7 @@ function App() {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<TabId>('equity')
   const [showRangeDialog, setShowRangeDialog] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
 
   const tabs = [
     { id: 'equity' as const, labelKey: 'tabs.equity' },
@@ -158,7 +160,16 @@ function App() {
         <h1 className="text-xl font-semibold text-[var(--foreground)]">
           {t('app.title')}
         </h1>
-        <LanguageSwitcher />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-2 hover:bg-[var(--muted)] rounded-[var(--radius-sm)] transition-colors"
+            title={t('settings.title')}
+          >
+            <Settings size={20} />
+          </button>
+          <LanguageSwitcher />
+        </div>
       </header>
 
       <main className="container mx-auto px-6 py-8">
@@ -280,6 +291,9 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* Settings Dialog */}
+      <SettingsDialog isOpen={showSettings} onClose={() => setShowSettings(false)} />
 
       {/* Range Selection Dialog */}
       {showRangeDialog && activeRangePlayer !== null && (

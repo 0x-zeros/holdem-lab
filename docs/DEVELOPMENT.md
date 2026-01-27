@@ -49,6 +49,75 @@ npm run tauri:build        # 构建发布包
 
 ---
 
+## 预计算工具
+
+### Preflop Equity 预计算
+
+计算 169 种规范起手牌的翻前胜率，生成 JSON 数据文件：
+
+```bash
+cd rust/holdem-core
+
+# 快速测试 (10万次模拟，仅2人桌)
+cargo run --release --bin precompute -- -s 100000 -p 2
+
+# 完整预计算 (100万次模拟，2-10人桌全部)
+cargo run --release --bin precompute -- -o preflop-equity.json
+
+# 指定模拟次数和输出路径
+cargo run --release --bin precompute -- -s 500000 -o ../data/equity.json
+```
+
+### 参数说明
+
+| 参数 | 简写 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--simulations` | `-s` | 1,000,000 | 每手牌模拟次数 |
+| `--players` | `-p` | 2-10 全部 | 只计算指定玩家数 |
+| `--output` | `-o` | stdout | 输出文件路径 |
+| `--help` | `-h` | - | 显示帮助信息 |
+
+### 进度输出示例
+
+```
+========================================
+Preflop Equity Precompute
+Simulations per hand: 1,000,000
+Players: 2-10 (all)
+========================================
+
+[2 players]
+[  1/169] AA   ...  85.2%  (1.2s)
+[  2/169] KK   ...  82.1%  (1.1s)
+...
+[169/169] 32o  ...  31.2%  (1.0s)
+Subtotal: 3m 12s
+
+[3 players]
+[  1/169] AA   ...  73.1%  (1.3s)
+...
+
+========================================
+Done! Total time: 28m 48s
+Output: preflop-equity.json
+========================================
+```
+
+### 输出 JSON 格式
+
+```json
+{
+  "2": { "AA": 85.2, "KK": 82.1, "QQ": 79.9, ... },
+  "3": { "AA": 73.1, "KK": 68.5, "QQ": 65.2, ... },
+  ...
+  "10": { "AA": 31.1, "KK": 26.0, ... }
+}
+```
+
+胜率值为百分比，精确到小数点后一位。
+
+---
+
 ## 部署模式
 
 | 模式 | 说明 | 后端 |

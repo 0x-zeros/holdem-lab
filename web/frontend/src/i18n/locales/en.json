@@ -23,7 +23,10 @@
     "randomHand": "Random hand (sampled each simulation)"
   },
   "settings": {
-    "totalPlayers": "Total Players"
+    "totalPlayers": "Total Players",
+    "title": "Settings",
+    "realTimeSimulations": "Real-time Simulations",
+    "close": "Close"
   },
   "actions": {
     "evaluate": "Evaluate",
