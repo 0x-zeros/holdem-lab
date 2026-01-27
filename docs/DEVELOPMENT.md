@@ -53,19 +53,21 @@ npm run tauri:build        # 构建发布包
 
 ### Preflop Equity 预计算
 
-计算 169 种规范起手牌的翻前胜率，生成 JSON 数据文件：
+计算 169 种规范起手牌的翻前胜率，按玩家数生成独立 JSON 文件。
+
+**默认启用并行模式**，自动利用所有 CPU 核心 (~10-17x 加速)。
 
 ```bash
 cd rust/holdem-core
 
-# 快速测试 (10万次模拟，仅2人桌)
+# 快速测试 (仅2人桌)
 cargo run --release --bin precompute -- -s 100000 -p 2
 
-# 完整预计算 (100万次模拟，2-10人桌全部)
-cargo run --release --bin precompute -- -o preflop-equity.json
+# 完整预计算 (2-10人桌全部)
+cargo run --release --bin precompute
 
-# 指定模拟次数和输出路径
-cargo run --release --bin precompute -- -s 500000 -o ../data/equity.json
+# 自定义输出目录
+cargo run --release --bin precompute -- -o ./output
 ```
 
 ### 参数说明
@@ -74,43 +76,52 @@ cargo run --release --bin precompute -- -s 500000 -o ../data/equity.json
 |------|------|--------|------|
 | `--simulations` | `-s` | 1,000,000 | 每手牌模拟次数 |
 | `--players` | `-p` | 2-10 全部 | 只计算指定玩家数 |
-| `--output` | `-o` | stdout | 输出文件路径 |
+| `--output` | `-o` | `../../web/frontend/src/data` | 输出目录 |
 | `--help` | `-h` | - | 显示帮助信息 |
+
+### 输出文件
+
+每个玩家数生成独立文件：
+
+```
+web/frontend/src/data/
+├── preflop-equity-2.json
+├── preflop-equity-3.json
+├── ...
+└── preflop-equity-10.json
+```
 
 ### 进度输出示例
 
 ```
 ========================================
 Preflop Equity Precompute
-Simulations per hand: 1,000,000
+Simulations per hand: 100,000
 Players: 2-10 (all)
+Output: ../../web/frontend/src/data/preflop-equity-{N}.json
+Mode: Parallel (using all CPU cores)
 ========================================
 
 [2 players]
-[  1/169] AA   ...  85.2%  (1.2s)
-[  2/169] KK   ...  82.1%  (1.1s)
-...
-[169/169] 32o  ...  31.2%  (1.0s)
-Subtotal: 3m 12s
+Completed in 1m 17s → Saved: ../../web/frontend/src/data/preflop-equity-2.json
 
 [3 players]
-[  1/169] AA   ...  73.1%  (1.3s)
+Completed in 1m 45s → Saved: ../../web/frontend/src/data/preflop-equity-3.json
 ...
 
 ========================================
-Done! Total time: 28m 48s
-Output: preflop-equity.json
+Done! Total time: 15m 30s
 ========================================
 ```
 
-### 输出 JSON 格式
+### JSON 格式 (每个文件)
 
 ```json
 {
-  "2": { "AA": 85.2, "KK": 82.1, "QQ": 79.9, ... },
-  "3": { "AA": 73.1, "KK": 68.5, "QQ": 65.2, ... },
+  "AA": 85.2,
+  "KK": 82.4,
+  "AKs": 67.0,
   ...
-  "10": { "AA": 31.1, "KK": 26.0, ... }
 }
 ```
 

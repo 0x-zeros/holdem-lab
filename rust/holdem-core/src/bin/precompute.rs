@@ -6,7 +6,6 @@
 
 use holdem_core::canonize::{get_all_canonical_hands, get_all_combos, CanonicalHand};
 use holdem_core::equity::{calculate_equity, EquityRequest, PlayerHand};
-use serde_json::json;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -15,13 +14,16 @@ use std::time::Instant;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+/// Default output directory (relative to rust/holdem-core)
+const DEFAULT_OUTPUT_DIR: &str = "../../web/frontend/src/data";
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     // Parse arguments
     let mut simulations: u32 = 1_000_000;
     let mut players: Option<usize> = None;
-    let mut output_path: Option<String> = None;
+    let mut output_dir: Option<String> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -40,7 +42,7 @@ fn main() {
             }
             "--output" | "-o" => {
                 if i + 1 < args.len() {
-                    output_path = Some(args[i + 1].clone());
+                    output_dir = Some(args[i + 1].clone());
                     i += 1;
                 }
             }
@@ -52,6 +54,9 @@ fn main() {
         }
         i += 1;
     }
+
+    // Use default output directory if not specified
+    let output_dir = output_dir.unwrap_or_else(|| DEFAULT_OUTPUT_DIR.to_string());
 
     // Get all canonical hands
     let hands = get_all_canonical_hands();
@@ -71,6 +76,7 @@ fn main() {
     } else {
         println!("Players: 2-10 (all)");
     }
+    println!("Output: {}/preflop-equity-{{N}}.json", output_dir);
     #[cfg(feature = "parallel")]
     println!("Mode: Parallel (using all CPU cores)");
     #[cfg(not(feature = "parallel"))]
@@ -79,7 +85,6 @@ fn main() {
     println!();
 
     let total_start = Instant::now();
-    let mut results: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
 
     for &num_players in &player_counts {
         println!("[{} players]", num_players);
@@ -123,47 +128,32 @@ fn main() {
                 .collect()
         };
 
-        // Sort by index and print results (for parallel mode)
-        #[cfg(feature = "parallel")]
-        {
-            let mut sorted_results = hand_results.clone();
-            sorted_results.sort_by_key(|(idx, _, _)| *idx);
-            for (idx, notation, equity_pct) in &sorted_results {
-                println!("[{:>3}/169] {:<4} ... {:>5.1}%", idx + 1, notation, equity_pct);
-            }
-        }
-
-        // Build player results map
+        // Build player results map (flat structure)
         let mut player_results: BTreeMap<String, f64> = BTreeMap::new();
-        for (_, notation, equity_pct) in hand_results {
-            player_results.insert(notation, equity_pct);
+        for (_, notation, equity_pct) in &hand_results {
+            player_results.insert(notation.clone(), *equity_pct);
         }
 
         let subtotal_elapsed = subtotal_start.elapsed();
-        println!("Subtotal: {}", format_duration(subtotal_elapsed.as_secs()));
-        println!();
 
-        results.insert(num_players.to_string(), player_results);
+        // Save to file
+        let filename = format!("{}/preflop-equity-{}.json", output_dir, num_players);
+        let json = serde_json::to_string_pretty(&player_results).expect("Failed to serialize JSON");
+        fs::write(&filename, &json).expect("Failed to write output file");
+
+        println!(
+            "Completed in {} → Saved: {}",
+            format_duration(subtotal_elapsed.as_secs()),
+            filename
+        );
+        println!();
     }
 
     let total_elapsed = total_start.elapsed();
 
-    // Output JSON
-    let json = serde_json::to_string_pretty(&json!(results)).unwrap();
-
-    if let Some(path) = &output_path {
-        fs::write(path, &json).expect("Failed to write output file");
-        println!("========================================");
-        println!("Done! Total time: {}", format_duration(total_elapsed.as_secs()));
-        println!("Output: {}", path);
-        println!("========================================");
-    } else {
-        println!("========================================");
-        println!("Done! Total time: {}", format_duration(total_elapsed.as_secs()));
-        println!("========================================");
-        println!();
-        println!("{}", json);
-    }
+    println!("========================================");
+    println!("Done! Total time: {}", format_duration(total_elapsed.as_secs()));
+    println!("========================================");
 }
 
 #[cfg(feature = "parallel")]
@@ -278,13 +268,18 @@ fn print_help() {
     println!("Options:");
     println!("  -s, --simulations N    Simulations per hand (default: 1,000,000)");
     println!("  -p, --players N        Only compute for N players (default: 2-10 all)");
-    println!("  -o, --output PATH      Output file path (default: stdout)");
+    println!("  -o, --output DIR       Output directory (default: {})", DEFAULT_OUTPUT_DIR);
     println!("  -h, --help             Show this help");
+    println!();
+    println!("Output files: preflop-equity-{{N}}.json (one per player count)");
     println!();
     println!("Examples:");
     println!("  # Quick test (100k sims, 2 players only)");
     println!("  cargo run --release --bin precompute -- -s 100000 -p 2");
     println!();
-    println!("  # Full precompute with output file");
-    println!("  cargo run --release --bin precompute -- -o preflop-equity.json");
+    println!("  # Full precompute (2-10 players)");
+    println!("  cargo run --release --bin precompute");
+    println!();
+    println!("  # Custom output directory");
+    println!("  cargo run --release --bin precompute -- -o ./output");
 }

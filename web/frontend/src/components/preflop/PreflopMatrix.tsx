@@ -1,7 +1,30 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CanonicalHandInfo } from '../../api/types'
-import preflopData from '../../data/preflop-equity.json'
+
+// Import split preflop equity files (one per player count)
+import equity2 from '../../data/preflop-equity-2.json'
+import equity3 from '../../data/preflop-equity-3.json'
+import equity4 from '../../data/preflop-equity-4.json'
+import equity5 from '../../data/preflop-equity-5.json'
+import equity6 from '../../data/preflop-equity-6.json'
+import equity7 from '../../data/preflop-equity-7.json'
+import equity8 from '../../data/preflop-equity-8.json'
+import equity9 from '../../data/preflop-equity-9.json'
+import equity10 from '../../data/preflop-equity-10.json'
+
+// Map player count to equity data
+const equityDataMap: Record<number, Record<string, number>> = {
+  2: equity2,
+  3: equity3,
+  4: equity4,
+  5: equity5,
+  6: equity6,
+  7: equity7,
+  8: equity8,
+  9: equity9,
+  10: equity10,
+}
 
 interface PreflopMatrixProps {
   hands: CanonicalHandInfo[]
@@ -32,7 +55,7 @@ export function PreflopMatrix({ hands }: PreflopMatrixProps) {
   const [numPlayers, setNumPlayers] = useState(2)
 
   // Get equity data for current player count
-  const equityData = (preflopData as Record<string, Record<string, number>>)[String(numPlayers)] || {}
+  const equityData = equityDataMap[numPlayers] || {}
 
   // Build matrix grid
   const matrix = useMemo(() => {
