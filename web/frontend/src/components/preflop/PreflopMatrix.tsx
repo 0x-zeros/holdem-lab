@@ -7,29 +7,25 @@ interface PreflopMatrixProps {
   hands: CanonicalHandInfo[]
 }
 
-// Calculate background color based on equity (green=high, yellow=mid, red=low)
+// Calculate background color based on equity (soft blue-green gradient)
 const getEquityColor = (equity: number): string => {
   // Normalize to 0-1 range (assume equity ranges from ~5% to ~85%)
   const normalized = Math.max(0, Math.min(1, (equity - 5) / 80))
 
-  if (normalized > 0.5) {
-    // Green to Yellow: high equity
-    const ratio = (normalized - 0.5) * 2
-    const r = Math.round(255 * (1 - ratio * 0.5))
-    const g = Math.round(180 + 40 * ratio)
-    return `rgb(${r}, ${g}, 80)`
-  } else {
-    // Yellow to Red: low equity
-    const ratio = normalized * 2
-    const g = Math.round(80 + 100 * ratio)
-    return `rgb(255, ${g}, 80)`
-  }
+  // Use soft blue-to-green gradient
+  // Low equity: soft blue-gray, High equity: soft teal-green
+  const hue = 200 - normalized * 50        // 200 (blue) -> 150 (teal-green)
+  const saturation = 25 + normalized * 30  // 25% -> 55%
+  const lightness = 82 - normalized * 22   // 82% -> 60%
+
+  return `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
 }
 
 // Get text color based on background brightness
 const getTextColor = (equity: number): string => {
   const normalized = (equity - 5) / 80
-  return normalized > 0.3 ? '#1a1a1a' : '#ffffff'
+  // Dark text for all since we're using light backgrounds
+  return normalized > 0.6 ? '#1a1a1a' : '#374151'
 }
 
 export function PreflopMatrix({ hands }: PreflopMatrixProps) {
@@ -91,7 +87,7 @@ export function PreflopMatrix({ hands }: PreflopMatrixProps) {
       </p>
 
       {/* Matrix Grid */}
-      <div className="inline-grid gap-[2px]" style={{ gridTemplateColumns: 'repeat(13, 42px)' }}>
+      <div className="inline-grid gap-1.5" style={{ gridTemplateColumns: 'repeat(13, 42px)' }}>
         {matrix.map((row, rowIdx) =>
           row.map((hand, colIdx) => {
             const equity = hand ? equityData[hand.notation] : null
@@ -99,8 +95,8 @@ export function PreflopMatrix({ hands }: PreflopMatrixProps) {
             return (
               <div
                 key={`${rowIdx}-${colIdx}`}
-                className={`w-[42px] h-[42px] flex flex-col items-center justify-center rounded-[var(--radius-sm)] text-xs cursor-pointer transition-transform ${
-                  isHovered ? 'ring-2 ring-[var(--primary)] scale-105 z-10' : ''
+                className={`w-[42px] h-[42px] flex flex-col items-center justify-center rounded-[var(--radius-sm)] text-xs cursor-pointer transition-all ${
+                  isHovered ? 'ring-2 ring-[var(--primary)] z-10' : ''
                 }`}
                 style={{
                   backgroundColor: equity != null ? getEquityColor(equity) : 'var(--muted)',

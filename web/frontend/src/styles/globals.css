@@ -65,9 +65,9 @@ body {
   transition: all 0.15s ease;
 }
 
-.matrix-cell:hover {
-  transform: scale(1.05);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+.matrix-cell:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px var(--primary);
+  z-index: 1;
 }
 
 .matrix-cell.selected {

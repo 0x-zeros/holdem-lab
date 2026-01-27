@@ -67,7 +67,7 @@ export function HandMatrix({
       </div>
 
       {/* Matrix Grid - fixed 36px cells (w-9) to prevent shrinking */}
-      <div className="inline-grid gap-[2px]" style={{ gridTemplateColumns: 'repeat(13, 36px)' }}>
+      <div className="inline-grid gap-2" style={{ gridTemplateColumns: 'repeat(13, 36px)' }}>
         {matrix.map((row, rowIdx) =>
           row.map((hand, colIdx) => {
             const isSelected = hand ? selectedHands.has(hand.notation) : false
