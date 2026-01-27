@@ -7,18 +7,17 @@ interface PreflopMatrixProps {
   hands: CanonicalHandInfo[]
 }
 
-// Calculate background color based on equity (soft blue-green gradient)
+// Calculate background color based on equity (blue gradient matching HandMatrix)
 const getEquityColor = (equity: number): string => {
-  // Normalize to 0-1 range (assume equity ranges from ~5% to ~85%)
   const normalized = Math.max(0, Math.min(1, (equity - 5) / 80))
 
-  // Use soft blue-to-green gradient
-  // Low equity: soft blue-gray, High equity: soft teal-green
-  const hue = 200 - normalized * 50        // 200 (blue) -> 150 (teal-green)
-  const saturation = 25 + normalized * 30  // 25% -> 55%
-  const lightness = 82 - normalized * 22   // 82% -> 60%
+  // 使用蓝色系渐变，与 HandMatrix 统一
+  // 低胜率: 浅灰 (#F3F4F6), 高胜率: 蓝色 (#DBEAFE → 更深)
+  const hue = 214                            // 蓝色色相
+  const saturation = 10 + normalized * 70    // 10% → 80%
+  const lightness = 96 - normalized * 18     // 96% → 78%
 
-  return `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`
 }
 
 // Get text color based on background brightness
@@ -31,7 +30,6 @@ const getTextColor = (equity: number): string => {
 export function PreflopMatrix({ hands }: PreflopMatrixProps) {
   const { t } = useTranslation()
   const [numPlayers, setNumPlayers] = useState(2)
-  const [hoveredHand, setHoveredHand] = useState<string | null>(null)
 
   // Get equity data for current player count
   const equityData = (preflopData as Record<string, Record<string, number>>)[String(numPlayers)] || {}
@@ -47,14 +45,6 @@ export function PreflopMatrix({ hands }: PreflopMatrixProps) {
     }
     return grid
   }, [hands])
-
-  // Get hovered hand info
-  const hoveredInfo = useMemo(() => {
-    if (!hoveredHand) return null
-    const hand = hands.find((h) => h.notation === hoveredHand)
-    const equity = equityData[hoveredHand]
-    return { hand, equity }
-  }, [hoveredHand, hands, equityData])
 
   return (
     <div className="space-y-6">
@@ -91,47 +81,34 @@ export function PreflopMatrix({ hands }: PreflopMatrixProps) {
         {matrix.map((row, rowIdx) =>
           row.map((hand, colIdx) => {
             const equity = hand ? equityData[hand.notation] : null
-            const isHovered = hand?.notation === hoveredHand
             return (
               <div
                 key={`${rowIdx}-${colIdx}`}
-                className={`w-[42px] h-[42px] flex flex-col items-center justify-center rounded-[var(--radius-sm)] text-xs cursor-pointer transition-all ${
-                  isHovered ? 'ring-2 ring-[var(--primary)] z-10' : ''
-                }`}
-                style={{
-                  backgroundColor: equity != null ? getEquityColor(equity) : 'var(--muted)',
-                  color: equity != null ? getTextColor(equity) : 'var(--muted-foreground)',
-                }}
-                onMouseEnter={() => hand && setHoveredHand(hand.notation)}
-                onMouseLeave={() => setHoveredHand(null)}
-                title={hand ? `${hand.notation}: ${equity ?? '-'}%` : ''}
+                className="relative group"
               >
-                <span className="font-medium leading-none">{hand?.notation || ''}</span>
-                {equity != null && (
-                  <span className="text-[10px] leading-none opacity-90">{equity}%</span>
+                <div
+                  className="w-[42px] h-[42px] flex flex-col items-center justify-center rounded-[var(--radius-sm)] text-xs cursor-default"
+                  style={{
+                    backgroundColor: equity != null ? getEquityColor(equity) : 'var(--muted)',
+                    color: equity != null ? getTextColor(equity) : 'var(--muted-foreground)',
+                  }}
+                >
+                  <span className="font-medium leading-none">{hand?.notation || ''}</span>
+                  {equity != null && (
+                    <span className="text-[10px] leading-none opacity-90">{equity}%</span>
+                  )}
+                </div>
+                {/* Tooltip */}
+                {hand && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-[var(--foreground)] text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-20">
+                    {hand.notation} · {equity ?? '-'}% · {hand.num_combos} {t('results.combos', { count: hand.num_combos })}
+                  </div>
                 )}
               </div>
             )
           })
         )}
       </div>
-
-      {/* Hovered hand details */}
-      {hoveredInfo && hoveredInfo.hand && (
-        <div className="p-3 bg-[var(--muted)] rounded-[var(--radius-md)]">
-          <div className="flex items-center gap-4">
-            <div className="text-2xl font-bold text-[var(--primary)]">
-              {hoveredInfo.hand.notation}
-            </div>
-            <div className="text-lg">
-              {hoveredInfo.equity != null ? `${hoveredInfo.equity}%` : '-'}
-            </div>
-            <div className="text-sm text-[var(--muted-foreground)]">
-              {hoveredInfo.hand.num_combos} {t('results.combos', { count: hoveredInfo.hand.num_combos })}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs">
