@@ -12,6 +12,9 @@ use std::env;
 use std::fs;
 use std::time::Instant;
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -68,6 +71,10 @@ fn main() {
     } else {
         println!("Players: 2-10 (all)");
     }
+    #[cfg(feature = "parallel")]
+    println!("Mode: Parallel (using all CPU cores)");
+    #[cfg(not(feature = "parallel"))]
+    println!("Mode: Sequential");
     println!("========================================");
     println!();
 
@@ -78,25 +85,58 @@ fn main() {
         println!("[{} players]", num_players);
 
         let subtotal_start = Instant::now();
+
+        // Parallel version: compute all hands in parallel
+        #[cfg(feature = "parallel")]
+        let hand_results: Vec<_> = {
+            hands
+                .par_iter()
+                .enumerate()
+                .map(|(idx, hand)| {
+                    let equity = compute_hand_equity(hand, num_players, simulations);
+                    let equity_pct = (equity * 1000.0).round() / 10.0;
+                    (idx, hand.notation(), equity_pct)
+                })
+                .collect()
+        };
+
+        // Sequential version: compute hands one by one with progress
+        #[cfg(not(feature = "parallel"))]
+        let hand_results: Vec<_> = {
+            hands
+                .iter()
+                .enumerate()
+                .map(|(idx, hand)| {
+                    let hand_start = Instant::now();
+                    let equity = compute_hand_equity(hand, num_players, simulations);
+                    let equity_pct = (equity * 1000.0).round() / 10.0;
+                    let elapsed = hand_start.elapsed().as_secs_f64();
+                    println!(
+                        "[{:>3}/169] {:<4} ... {:>5.1}%  ({:.1}s)",
+                        idx + 1,
+                        hand.notation(),
+                        equity_pct,
+                        elapsed
+                    );
+                    (idx, hand.notation(), equity_pct)
+                })
+                .collect()
+        };
+
+        // Sort by index and print results (for parallel mode)
+        #[cfg(feature = "parallel")]
+        {
+            let mut sorted_results = hand_results.clone();
+            sorted_results.sort_by_key(|(idx, _, _)| *idx);
+            for (idx, notation, equity_pct) in &sorted_results {
+                println!("[{:>3}/169] {:<4} ... {:>5.1}%", idx + 1, notation, equity_pct);
+            }
+        }
+
+        // Build player results map
         let mut player_results: BTreeMap<String, f64> = BTreeMap::new();
-
-        for (idx, hand) in hands.iter().enumerate() {
-            let hand_start = Instant::now();
-
-            let equity = compute_hand_equity(hand, num_players, simulations);
-            let equity_pct = (equity * 1000.0).round() / 10.0; // Round to 1 decimal
-
-            let elapsed = hand_start.elapsed().as_secs_f64();
-
-            println!(
-                "[{:>3}/169] {:<4} ... {:>5.1}%  ({:.1}s)",
-                idx + 1,
-                hand.notation(),
-                equity_pct,
-                elapsed
-            );
-
-            player_results.insert(hand.notation(), equity_pct);
+        for (_, notation, equity_pct) in hand_results {
+            player_results.insert(notation, equity_pct);
         }
 
         let subtotal_elapsed = subtotal_start.elapsed();
@@ -126,6 +166,51 @@ fn main() {
     }
 }
 
+#[cfg(feature = "parallel")]
+fn compute_hand_equity(hand: &CanonicalHand, num_players: usize, simulations: u32) -> f64 {
+    use rayon::prelude::*;
+
+    // Get all actual card combinations for this hand
+    let combos = get_all_combos(hand);
+
+    if combos.is_empty() {
+        return 0.0;
+    }
+
+    let sims_per_combo = simulations / combos.len() as u32;
+
+    // Parallelize across combos within each hand
+    let total_equity: f64 = combos
+        .par_iter()
+        .map(|(card1, card2)| {
+            // Build player hands: hero + (num_players - 1) random opponents
+            let mut players = vec![PlayerHand::new(vec![*card1, *card2])];
+            for _ in 1..num_players {
+                players.push(PlayerHand::random());
+            }
+
+            let request = EquityRequest::new(players, vec![]).with_simulations(sims_per_combo);
+
+            match calculate_equity(&request) {
+                Ok(result) => {
+                    if !result.players.is_empty() {
+                        result.players[0].equity
+                    } else {
+                        0.0
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error computing {}: {}", hand.notation(), e);
+                    0.0
+                }
+            }
+        })
+        .sum();
+
+    total_equity / combos.len() as f64
+}
+
+#[cfg(not(feature = "parallel"))]
 fn compute_hand_equity(hand: &CanonicalHand, num_players: usize, simulations: u32) -> f64 {
     // Get all actual card combinations for this hand
     let combos = get_all_combos(hand);
@@ -145,8 +230,7 @@ fn compute_hand_equity(hand: &CanonicalHand, num_players: usize, simulations: u3
             players.push(PlayerHand::random());
         }
 
-        let request = EquityRequest::new(players, vec![])
-            .with_simulations(sims_per_combo);
+        let request = EquityRequest::new(players, vec![]).with_simulations(sims_per_combo);
 
         match calculate_equity(&request) {
             Ok(result) => {
