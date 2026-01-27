@@ -53,6 +53,10 @@ pub enum HoldemError {
     /// Need at least one opponent
     #[error("Need at least {0} opponent(s)")]
     NotEnoughOpponents(usize),
+
+    /// All hand combinations have card conflicts, no valid matchups
+    #[error("No valid hand combinations: all matchups have card conflicts")]
+    NoValidCombinations,
 }
 
 /// Result type alias for holdem-core operations.
