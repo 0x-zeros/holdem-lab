@@ -39,6 +39,10 @@ export function ColorProfileEditor({ profile, onSave, onClose }: ColorProfileEdi
     })
   }
 
+  const handleReset = () => {
+    setRules([...DEFAULT_CUSTOM_PROFILE.rules])
+  }
+
   const handleSave = () => {
     // Sort rules by maxEquity and ensure last one is 100
     const sortedRules = [...rules].sort((a, b) => a.maxEquity - b.maxEquity)
@@ -128,12 +132,18 @@ export function ColorProfileEditor({ profile, onSave, onClose }: ColorProfileEdi
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-[var(--border)] flex gap-3">
+        <div className="px-4 py-3 border-t border-[var(--border)] flex gap-2 sm:gap-3">
           <button
             onClick={onClose}
             className="flex-1 py-2.5 border border-[var(--border)] rounded-[var(--radius-md)] hover:bg-[var(--muted)] transition-colors touch-manipulation text-sm"
           >
             {t('preflop.profile.cancel')}
+          </button>
+          <button
+            onClick={handleReset}
+            className="flex-1 py-2.5 border border-[var(--border)] rounded-[var(--radius-md)] hover:bg-[var(--muted)] transition-colors touch-manipulation text-sm text-[var(--muted-foreground)]"
+          >
+            {t('preflop.profile.reset')}
           </button>
           <button
             onClick={handleSave}

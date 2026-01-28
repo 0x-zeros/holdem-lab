@@ -96,7 +96,8 @@
       "instruction": "Set background colors for different equity ranges. Threshold is the max equity for each color.",
       "previewHint": "Save to preview changes in the preflop chart",
       "save": "Save",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "reset": "Reset"
     }
   },
   "camera": {

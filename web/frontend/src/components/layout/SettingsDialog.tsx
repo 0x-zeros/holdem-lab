@@ -1,17 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, Eye, EyeOff, Trash2 } from 'lucide-react'
-import { useEquityStore } from '../../store'
 import { apiKeyStorage, maskApiKey } from '../../utils/storage'
 
 interface SettingsDialogProps {
   isOpen: boolean
   onClose: () => void
-}
-
-// Format number with commas
-const formatNumber = (n: number): string => {
-  return n.toLocaleString()
 }
 
 // API Key input component
@@ -71,7 +65,6 @@ function ApiKeyInput({ label, value, onChange, onClear, placeholder }: ApiKeyInp
 
 export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const { t } = useTranslation()
-  const { numSimulations, setNumSimulations } = useEquityStore()
 
   // API Key states
   const [qwenApiKey, setQwenApiKey] = useState('')
@@ -128,29 +121,6 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
         {/* Content */}
         <div className="p-4 space-y-6 max-h-[60vh] overflow-y-auto">
-          {/* Real-time simulations */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              {t('settings.realTimeSimulations')}: {formatNumber(numSimulations)}
-            </label>
-            <input
-              type="range"
-              min={10000}
-              max={100000}
-              step={10000}
-              value={numSimulations}
-              onChange={(e) => setNumSimulations(Number(e.target.value))}
-              className="w-full h-2 bg-[var(--muted)] rounded-lg appearance-none cursor-pointer accent-[var(--primary)] touch-manipulation"
-            />
-            <div className="flex justify-between text-xs text-[var(--muted-foreground)]">
-              <span>10,000</span>
-              <span>100,000</span>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-[var(--border)]" />
-
           {/* API Keys Section */}
           <div className="space-y-4">
             <div>
