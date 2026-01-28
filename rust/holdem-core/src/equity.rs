@@ -550,6 +550,9 @@ const SMALL_RANGE_THRESHOLD: usize = 50;
 /// Threshold for medium ranges: enumerate all with reduced simulations
 const MEDIUM_RANGE_THRESHOLD: usize = 500;
 
+/// Threshold for huge ranges: use biased but fast sampling
+const HUGE_RANGE_THRESHOLD: usize = 10_000;
+
 /// Maximum combos to sample for large ranges
 const MAX_SAMPLED_COMBOS: usize = 200;
 
@@ -561,8 +564,13 @@ const MIN_SIMS_PER_COMBO: u32 = 100;
 enum EquityStrategy {
     /// Enumerate all combinations with specified simulations per combo
     Exhaustive { sims_per_combo: u32 },
-    /// Sample a subset of combinations
-    Sampled {
+    /// Unbiased reservoir sampling - iterates all combos but only simulates sampled ones
+    ReservoirSampled {
+        max_combos: usize,
+        sims_per_combo: u32,
+    },
+    /// Biased but fast sampling - breaks early once enough samples collected
+    BiasedSampled {
         max_combos: usize,
         sims_per_combo: u32,
     },
@@ -581,9 +589,15 @@ fn select_strategy(total_combos: usize, requested_sims: u32) -> EquityStrategy {
         let sims = ((requested_sims as usize * SMALL_RANGE_THRESHOLD) / total_combos)
             .max(MIN_SIMS_PER_COMBO as usize) as u32;
         EquityStrategy::Exhaustive { sims_per_combo: sims }
+    } else if total_combos <= HUGE_RANGE_THRESHOLD {
+        // Large range: unbiased reservoir sampling
+        EquityStrategy::ReservoirSampled {
+            max_combos: MAX_SAMPLED_COMBOS,
+            sims_per_combo: requested_sims,
+        }
     } else {
-        // Large range: sample combos
-        EquityStrategy::Sampled {
+        // Huge range (>10k combos): biased but fast sampling
+        EquityStrategy::BiasedSampled {
             max_combos: MAX_SAMPLED_COMBOS,
             sims_per_combo: requested_sims,
         }
@@ -600,19 +614,21 @@ fn select_strategy(total_combos: usize, requested_sims: u32) -> EquityStrategy {
 /// | Range Size | Combos | Strategy | Description |
 /// |-----------|--------|----------|-------------|
 /// | Small | < 50 | Exhaustive | Enumerate all combos, more sims each |
-/// | Medium | 50-500 | Hybrid | Enumerate all, fewer sims to control time |
-/// | Large | > 500 | Sampled | Random sample up to 200 combos |
+/// | Medium | 50-500 | Exhaustive | Enumerate all, fewer sims to control time |
+/// | Large | 500-10k | ReservoirSampled | Unbiased sampling, iterates all combos |
+/// | Huge | > 10k | BiasedSampled | Fast but biased toward front of odometer |
 ///
 /// # Algorithm
 ///
-/// 1. Build CardDistribution for each range player
-/// 2. Use Odometer to iterate Cartesian product of all ranges
-/// 3. Select strategy based on total combo count
-/// 4. For each combination (or sampled subset):
+/// 1. Validate inputs (board/dead duplicates, player card conflicts)
+/// 2. Build CardDistribution for each range player
+/// 3. Use Odometer to iterate Cartesian product of all ranges
+/// 4. Select strategy based on total combo count
+/// 5. For each combination (or sampled subset):
 ///    - Skip if cards conflict (same card used twice)
 ///    - Run Monte Carlo simulation
 ///    - Weight and accumulate results
-/// 5. Return weighted average equity
+/// 6. Return weighted average equity
 ///
 /// # Complexity
 ///
@@ -620,7 +636,8 @@ fn select_strategy(total_combos: usize, requested_sims: u32) -> EquityStrategy {
 /// - Space: O(P) for tracking equity per player
 ///
 /// # Errors
-/// Returns an error if fewer than 2 players or more than 5 board cards.
+/// Returns an error if fewer than 2 players, more than 5 board cards,
+/// duplicate cards in board/dead, or no valid combinations exist.
 pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResult<RangeEquityResult> {
     if request.players.len() < 2 {
         return Err(HoldemError::NotEnoughPlayers(2));
@@ -634,13 +651,17 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
 
     let num_players = request.players.len();
 
-    // Build base excluded cards (board + dead)
+    // Build base excluded cards (board + dead) with duplicate detection
     let mut base_excluded: HashSet<Card> = HashSet::new();
     for &card in &request.board {
-        base_excluded.insert(card);
+        if !base_excluded.insert(card) {
+            return Err(HoldemError::DuplicateCard(card.to_string()));
+        }
     }
     for &card in &request.dead_cards {
-        base_excluded.insert(card);
+        if !base_excluded.insert(card) {
+            return Err(HoldemError::DuplicateCard(card.to_string()));
+        }
     }
 
     // Build distributions for each player
@@ -731,13 +752,11 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
     let total_theoretical_combos = odometer.total_combinations();
     let strategy = select_strategy(total_theoretical_combos, request.num_simulations);
 
-    // Extract strategy parameters
-    let (should_sample, max_combos, sims_per_combo) = match strategy {
-        EquityStrategy::Exhaustive { sims_per_combo } => (false, usize::MAX, sims_per_combo),
-        EquityStrategy::Sampled {
-            max_combos,
-            sims_per_combo,
-        } => (true, max_combos, sims_per_combo),
+    // Extract sims_per_combo (common to all strategies)
+    let sims_per_combo = match strategy {
+        EquityStrategy::Exhaustive { sims_per_combo } => sims_per_combo,
+        EquityStrategy::ReservoirSampled { sims_per_combo, .. } => sims_per_combo,
+        EquityStrategy::BiasedSampled { sims_per_combo, .. } => sims_per_combo,
     };
 
     // Initialize accumulators
@@ -864,67 +883,72 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
         (combo_wins, combo_ties, combo_equity)
     };
 
-    if should_sample {
-        // =====================================================================
-        // SAMPLING MODE: Use reservoir sampling (Algorithm R) for unbiased selection
-        // =====================================================================
-        // This ensures each valid combination has equal probability of being selected,
-        // regardless of its position in the odometer iteration.
+    match strategy {
+        EquityStrategy::Exhaustive { .. } => {
+            // =================================================================
+            // EXHAUSTIVE MODE: Process all combinations inline
+            // =================================================================
 
-        // Reservoir stores: (current_hands, remaining_deck)
-        let mut reservoir: Vec<(Vec<(Card, Card)>, Vec<Card>)> = Vec::with_capacity(max_combos);
-        let mut valid_count: usize = 0;
+            let odometer = Odometer::new(extents);
+            for indices in odometer {
+                if let Some((current_hands, remaining)) = is_valid_combination(&indices) {
+                    total_combinations += 1;
 
-        // Phase 1: Collect samples using reservoir sampling
-        let odometer = Odometer::new(extents);
-        for indices in odometer {
-            if let Some((hands, remaining)) = is_valid_combination(&indices) {
-                valid_count += 1;
+                    let (combo_wins, combo_ties, combo_equity) =
+                        run_simulation(&current_hands, &remaining, &mut rng);
 
-                if reservoir.len() < max_combos {
-                    // Fill the reservoir with first k valid combinations
-                    reservoir.push((hands, remaining));
-                } else {
-                    // Reservoir sampling: replace element j with probability k/n
-                    // where k = max_combos, n = valid_count
-                    let j = rng.random_range(0..valid_count);
-                    if j < max_combos {
-                        reservoir[j] = (hands, remaining);
+                    total_simulations += sims_per_combo as u64;
+
+                    let weight = 1.0;
+                    total_weight += weight;
+
+                    for i in 0..num_players {
+                        let sim_count = sims_per_combo as f64;
+                        total_equity[i] += (combo_equity[i] / sim_count) * weight;
+                        total_wins[i] += (combo_wins[i] as f64 / sim_count) * weight;
+                        total_ties[i] += (combo_ties[i] as f64 / sim_count) * weight;
                     }
                 }
             }
         }
 
-        total_combinations = valid_count as u64;
+        EquityStrategy::ReservoirSampled { max_combos, .. } => {
+            // =================================================================
+            // RESERVOIR SAMPLING: Unbiased selection (iterates all combos)
+            // =================================================================
+            // This ensures each valid combination has equal probability of being
+            // selected, regardless of its position in the odometer iteration.
+            // Trade-off: Must iterate all combinations, slower for huge ranges.
 
-        // Phase 2: Run simulations on reservoir samples
-        for (hands, remaining) in &reservoir {
-            let (combo_wins, combo_ties, combo_equity) = run_simulation(hands, remaining, &mut rng);
+            let mut reservoir: Vec<(Vec<(Card, Card)>, Vec<Card>)> =
+                Vec::with_capacity(max_combos);
+            let mut valid_count: usize = 0;
 
-            total_simulations += sims_per_combo as u64;
+            // Phase 1: Collect samples using reservoir sampling (Algorithm R)
+            let odometer = Odometer::new(extents.clone());
+            for indices in odometer {
+                if let Some((hands, remaining)) = is_valid_combination(&indices) {
+                    valid_count += 1;
 
-            let weight = 1.0;
-            total_weight += weight;
-
-            for i in 0..num_players {
-                let sim_count = sims_per_combo as f64;
-                total_equity[i] += (combo_equity[i] / sim_count) * weight;
-                total_wins[i] += (combo_wins[i] as f64 / sim_count) * weight;
-                total_ties[i] += (combo_ties[i] as f64 / sim_count) * weight;
+                    if reservoir.len() < max_combos {
+                        // Fill the reservoir with first k valid combinations
+                        reservoir.push((hands, remaining));
+                    } else {
+                        // Reservoir sampling: replace element j with probability k/n
+                        let j = rng.random_range(0..valid_count);
+                        if j < max_combos {
+                            reservoir[j] = (hands, remaining);
+                        }
+                    }
+                }
             }
-        }
-    } else {
-        // =====================================================================
-        // EXHAUSTIVE MODE: Process all combinations inline
-        // =====================================================================
 
-        let odometer = Odometer::new(extents);
-        for indices in odometer {
-            if let Some((current_hands, remaining)) = is_valid_combination(&indices) {
-                total_combinations += 1;
+            total_combinations = valid_count as u64;
 
+            // Phase 2: Run simulations on reservoir samples
+            for (hands, remaining) in &reservoir {
                 let (combo_wins, combo_ties, combo_equity) =
-                    run_simulation(&current_hands, &remaining, &mut rng);
+                    run_simulation(hands, remaining, &mut rng);
 
                 total_simulations += sims_per_combo as u64;
 
@@ -936,6 +960,51 @@ pub fn calculate_equity_with_ranges(request: &RangeEquityRequest) -> HoldemResul
                     total_equity[i] += (combo_equity[i] / sim_count) * weight;
                     total_wins[i] += (combo_wins[i] as f64 / sim_count) * weight;
                     total_ties[i] += (combo_ties[i] as f64 / sim_count) * weight;
+                }
+            }
+        }
+
+        EquityStrategy::BiasedSampled { max_combos, .. } => {
+            // =================================================================
+            // BIASED SAMPLING: Fast but biased toward front of odometer
+            // =================================================================
+            // Used for huge ranges (>10k combos) where reservoir sampling would
+            // be too slow. Trade-off: Results may be biased toward combinations
+            // that appear earlier in the odometer iteration order.
+
+            let sample_rate = max_combos as f64 / total_theoretical_combos as f64;
+            let mut sampled_count: usize = 0;
+
+            let odometer = Odometer::new(extents);
+            for indices in odometer {
+                // Early exit once we have enough samples
+                if sampled_count >= max_combos {
+                    break;
+                }
+
+                // Probabilistic skip based on sample rate
+                if rng.random::<f64>() > sample_rate {
+                    continue;
+                }
+
+                if let Some((current_hands, remaining)) = is_valid_combination(&indices) {
+                    total_combinations += 1;
+                    sampled_count += 1;
+
+                    let (combo_wins, combo_ties, combo_equity) =
+                        run_simulation(&current_hands, &remaining, &mut rng);
+
+                    total_simulations += sims_per_combo as u64;
+
+                    let weight = 1.0;
+                    total_weight += weight;
+
+                    for i in 0..num_players {
+                        let sim_count = sims_per_combo as f64;
+                        total_equity[i] += (combo_equity[i] / sim_count) * weight;
+                        total_wins[i] += (combo_wins[i] as f64 / sim_count) * weight;
+                        total_ties[i] += (combo_ties[i] as f64 / sim_count) * weight;
+                    }
                 }
             }
         }
@@ -1428,7 +1497,7 @@ mod tests {
             EquityStrategy::Exhaustive { sims_per_combo } => {
                 assert!(sims_per_combo >= 1000, "Small range should have at least 1000 sims");
             }
-            EquityStrategy::Sampled { .. } => {
+            EquityStrategy::ReservoirSampled { .. } | EquityStrategy::BiasedSampled { .. } => {
                 panic!("Small range should use Exhaustive strategy");
             }
         }
@@ -1444,7 +1513,7 @@ mod tests {
                 assert!(sims_per_combo < 10000, "Medium range should reduce sims");
                 assert!(sims_per_combo >= MIN_SIMS_PER_COMBO, "Should not go below minimum");
             }
-            EquityStrategy::Sampled { .. } => {
+            EquityStrategy::ReservoirSampled { .. } | EquityStrategy::BiasedSampled { .. } => {
                 panic!("Medium range should use Exhaustive strategy");
             }
         }
@@ -1452,15 +1521,18 @@ mod tests {
 
     #[test]
     fn test_strategy_selection_large_range() {
-        // Large range (>500 combos) should use Sampled
+        // Large range (500-10000 combos) should use ReservoirSampled (unbiased)
         let strategy = select_strategy(1000, 5000);
         match strategy {
             EquityStrategy::Exhaustive { .. } => {
-                panic!("Large range should use Sampled strategy");
+                panic!("Large range should use ReservoirSampled strategy");
             }
-            EquityStrategy::Sampled { max_combos, sims_per_combo } => {
+            EquityStrategy::ReservoirSampled { max_combos, sims_per_combo } => {
                 assert_eq!(max_combos, MAX_SAMPLED_COMBOS);
                 assert_eq!(sims_per_combo, 5000);
+            }
+            EquityStrategy::BiasedSampled { .. } => {
+                panic!("Medium-large range should use ReservoirSampled, not BiasedSampled");
             }
         }
     }
@@ -1604,18 +1676,30 @@ mod tests {
         use crate::CardDistribution;
 
         // Test that reservoir sampling produces valid results for large ranges
-        // We can't easily test "unbiasedness" directly, but we can verify:
-        // 1. Results are reasonable
-        // 2. Different seeds produce different (but valid) results
+        // Must use ranges large enough to trigger sampling (>500 combos)
+        //
+        // Using: 10 pairs (60 combos) × 10 broadway (120 combos) = 7200 combos
+        // This should trigger ReservoirSampled mode
 
-        let pairs = ["AA", "KK", "QQ", "JJ", "TT"];
-        let broadway = ["AKs", "AQs", "AJs", "KQs"];
+        let pairs = ["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "55"];
+        let broadway = [
+            "AKs", "AQs", "AJs", "ATs", "KQs", "KJs", "KTs", "QJs", "QTs", "JTs",
+        ];
 
         let range1: Vec<String> = pairs.iter().map(|s| s.to_string()).collect();
         let range2: Vec<String> = broadway.iter().map(|s| s.to_string()).collect();
 
         let dist1 = CardDistribution::from_range(&range1, &[]).unwrap();
         let dist2 = CardDistribution::from_range(&range2, &[]).unwrap();
+
+        // Verify we exceed the sampling threshold
+        let total_combos = dist1.len() * dist2.len();
+        assert!(
+            total_combos > MEDIUM_RANGE_THRESHOLD,
+            "Test setup error: combos {} should exceed threshold {}",
+            total_combos,
+            MEDIUM_RANGE_THRESHOLD
+        );
 
         // Run with seed 1
         let request1 = RangeEquityRequest::new(
@@ -1647,7 +1731,7 @@ mod tests {
         assert!(result1.players[0].equity > 0.0);
         assert!(result2.players[0].equity > 0.0);
 
-        // Pairs vs broadway - pairs should be favored (~55-65%)
+        // Pairs vs broadway suited - pairs should be favored (~55-65%)
         assert!(
             result1.players[0].equity > 0.45,
             "Pairs equity {} too low",
@@ -1657,6 +1741,88 @@ mod tests {
             result1.players[0].equity < 0.75,
             "Pairs equity {} too high",
             result1.players[0].equity
+        );
+    }
+
+    // =========================================================================
+    // Board/Dead duplicate validation tests
+    // =========================================================================
+
+    #[test]
+    fn test_board_duplicate_cards_error() {
+        // Board has duplicate cards - should error
+        let ah = Card::parse("Ah").unwrap();
+        let kh = Card::parse("Kh").unwrap();
+
+        let request = RangeEquityRequest::new(
+            vec![RangePlayer::random(), RangePlayer::random()],
+            vec![ah, kh, ah], // Duplicate Ah in board
+        );
+
+        let result = calculate_equity_with_ranges(&request);
+        assert!(result.is_err(), "Should error when board has duplicate cards");
+        assert!(matches!(result.unwrap_err(), HoldemError::DuplicateCard(_)));
+    }
+
+    #[test]
+    fn test_dead_cards_duplicate_error() {
+        // Dead cards have duplicate - should error
+        let ah = Card::parse("Ah").unwrap();
+
+        let request = RangeEquityRequest::new(
+            vec![RangePlayer::random(), RangePlayer::random()],
+            vec![],
+        )
+        .with_dead_cards(vec![ah, ah]); // Duplicate Ah in dead cards
+
+        let result = calculate_equity_with_ranges(&request);
+        assert!(
+            result.is_err(),
+            "Should error when dead cards have duplicates"
+        );
+        assert!(matches!(result.unwrap_err(), HoldemError::DuplicateCard(_)));
+    }
+
+    #[test]
+    fn test_board_and_dead_overlap_error() {
+        // Board and dead cards share a card - should error
+        let ah = Card::parse("Ah").unwrap();
+        let kh = Card::parse("Kh").unwrap();
+        let qh = Card::parse("Qh").unwrap();
+
+        let request = RangeEquityRequest::new(
+            vec![RangePlayer::random(), RangePlayer::random()],
+            vec![ah, kh], // Board
+        )
+        .with_dead_cards(vec![ah, qh]); // Ah overlaps with board
+
+        let result = calculate_equity_with_ranges(&request);
+        assert!(
+            result.is_err(),
+            "Should error when board and dead cards overlap"
+        );
+        assert!(matches!(result.unwrap_err(), HoldemError::DuplicateCard(_)));
+    }
+
+    #[test]
+    fn test_huge_range_uses_biased_sampling() {
+        // Huge range (>10k combos) should use BiasedSampled strategy
+        let strategy = select_strategy(15_000, 1000);
+        assert!(
+            matches!(strategy, EquityStrategy::BiasedSampled { .. }),
+            "Huge range should use BiasedSampled, got {:?}",
+            strategy
+        );
+    }
+
+    #[test]
+    fn test_medium_large_range_uses_reservoir_sampling() {
+        // Large range (500-10k combos) should use ReservoirSampled strategy
+        let strategy = select_strategy(5_000, 1000);
+        assert!(
+            matches!(strategy, EquityStrategy::ReservoirSampled { .. }),
+            "Large range should use ReservoirSampled, got {:?}",
+            strategy
         );
     }
 }
