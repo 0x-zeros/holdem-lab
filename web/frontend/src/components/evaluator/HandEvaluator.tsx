@@ -1,9 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import type { EvaluateResponse } from '../../api/types'
 import { CardPicker } from '../cards/CardPicker'
+import { CameraButton } from '../camera'
+import { recognizeCards } from '../../api/vision'
 
 // Hand type translations for Chinese display
 const handTypeTranslations: Record<string, string> = {
@@ -27,6 +29,7 @@ export function HandEvaluator({ usedCards }: HandEvaluatorProps) {
   const { t, i18n } = useTranslation()
   const [selectedCards, setSelectedCards] = useState<string[]>([])
   const [result, setResult] = useState<EvaluateResponse | null>(null)
+  const [isRecognizing, setIsRecognizing] = useState(false)
   const isChinese = i18n.language.startsWith('zh')
 
   const evaluateMutation = useMutation({
@@ -34,6 +37,34 @@ export function HandEvaluator({ usedCards }: HandEvaluatorProps) {
     onSuccess: (data) => setResult(data),
     onError: () => setResult(null),
   })
+
+  // Handle camera capture for hand evaluation
+  const handleCameraCapture = useCallback(async (blob: Blob) => {
+    setIsRecognizing(true)
+    try {
+      const recognitionResult = await recognizeCards(blob)
+
+      console.log('[HandEvaluator] Recognition result:', {
+        holeCards: recognitionResult.holeCards,
+        boardCards: recognitionResult.boardCards,
+        confidence: recognitionResult.confidence,
+      })
+
+      // Combine first player's hole cards and board cards for evaluation (max 7)
+      const allCards = [
+        ...(recognitionResult.holeCards[0] || []),
+        ...recognitionResult.boardCards,
+      ].slice(0, 7)
+
+      // Clear previous selection and set new cards
+      setSelectedCards(allCards)
+      setResult(null)
+    } catch (err) {
+      console.error('[HandEvaluator] Recognition error:', err)
+    } finally {
+      setIsRecognizing(false)
+    }
+  }, [])
 
   const handleCardClick = (card: string) => {
     setSelectedCards((prev) => {
@@ -73,9 +104,12 @@ export function HandEvaluator({ usedCards }: HandEvaluatorProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">{t('evaluator.title')}</h3>
-        <span className="text-sm text-[var(--muted-foreground)]">
-          {cardCountText} {t('evaluator.cards')}
-        </span>
+        <div className="flex items-center gap-3">
+          <CameraButton onCapture={handleCameraCapture} disabled={isRecognizing} />
+          <span className="text-sm text-[var(--muted-foreground)]">
+            {cardCountText} {t('evaluator.cards')}
+          </span>
+        </div>
       </div>
 
       {/* Card Picker */}

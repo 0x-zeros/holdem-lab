@@ -26,7 +26,12 @@
     "totalPlayers": "Total Players",
     "title": "Settings",
     "realTimeSimulations": "Real-time Simulations",
-    "close": "Close"
+    "close": "Close",
+    "apiKeys": "AI Card Recognition",
+    "qwenApiKey": "Qwen-VL API Key",
+    "doubaoApiKey": "Doubao API Key",
+    "apiKeyPlaceholder": "Enter your API key",
+    "apiKeyHint": "Recommended: Set usage limits on the API platform to control costs"
   },
   "actions": {
     "evaluate": "Evaluate",
@@ -78,5 +83,17 @@
     "high": "High",
     "medium": "Medium",
     "low": "Low"
+  },
+  "camera": {
+    "capture": "Scan Cards",
+    "switchCamera": "Switch Camera",
+    "takePhoto": "Take Photo",
+    "recognizing": "Recognizing...",
+    "recognized": "Cards recognized",
+    "failed": "Recognition failed",
+    "permissionDenied": "Camera permission denied",
+    "notFound": "Camera not found",
+    "starting": "Starting camera...",
+    "retry": "Retry"
   }
 }

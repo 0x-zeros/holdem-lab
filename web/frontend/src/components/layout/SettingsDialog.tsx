@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X } from 'lucide-react'
+import { X, Eye, EyeOff, Trash2 } from 'lucide-react'
 import { useEquityStore } from '../../store'
+import { apiKeyStorage, maskApiKey } from '../../utils/storage'
 
 interface SettingsDialogProps {
   isOpen: boolean
@@ -12,9 +14,101 @@ const formatNumber = (n: number): string => {
   return n.toLocaleString()
 }
 
+// API Key input component
+interface ApiKeyInputProps {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  onClear: () => void
+  placeholder?: string
+}
+
+function ApiKeyInput({ label, value, onChange, onClear, placeholder }: ApiKeyInputProps) {
+  const [showKey, setShowKey] = useState(false)
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium">{label}</label>
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <input
+            type={showKey ? 'text' : 'password'}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            className="w-full px-3 py-2 pr-10 border border-[var(--border)] rounded-[var(--radius-md)] text-sm bg-[var(--background)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-opacity-50"
+          />
+          {value && (
+            <button
+              type="button"
+              onClick={() => setShowKey(!showKey)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-[var(--muted)] rounded transition-colors"
+              title={showKey ? 'Hide' : 'Show'}
+            >
+              {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          )}
+        </div>
+        {value && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="p-2 hover:bg-[var(--muted)] rounded-[var(--radius-md)] transition-colors text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            title="Clear"
+          >
+            <Trash2 size={18} />
+          </button>
+        )}
+      </div>
+      {value && !showKey && (
+        <p className="text-xs text-[var(--muted-foreground)]">
+          {maskApiKey(value)}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const { t } = useTranslation()
   const { numSimulations, setNumSimulations } = useEquityStore()
+
+  // API Key states
+  const [qwenApiKey, setQwenApiKey] = useState('')
+  const [doubaoApiKey, setDoubaoApiKey] = useState('')
+
+  // Load API keys from localStorage on mount
+  useEffect(() => {
+    if (isOpen) {
+      setQwenApiKey(apiKeyStorage.getQwenApiKey() || '')
+      setDoubaoApiKey(apiKeyStorage.getDoubaoApiKey() || '')
+    }
+  }, [isOpen])
+
+  // Save API keys to localStorage
+  const handleQwenApiKeyChange = (value: string) => {
+    setQwenApiKey(value)
+    if (value.trim()) {
+      apiKeyStorage.setQwenApiKey(value)
+    }
+  }
+
+  const handleDoubaoApiKeyChange = (value: string) => {
+    setDoubaoApiKey(value)
+    if (value.trim()) {
+      apiKeyStorage.setDoubaoApiKey(value)
+    }
+  }
+
+  const handleClearQwenApiKey = () => {
+    setQwenApiKey('')
+    apiKeyStorage.clearQwenApiKey()
+  }
+
+  const handleClearDoubaoApiKey = () => {
+    setDoubaoApiKey('')
+    apiKeyStorage.clearDoubaoApiKey()
+  }
 
   if (!isOpen) return null
 
@@ -33,7 +127,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         </div>
 
         {/* Content */}
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-6 max-h-[60vh] overflow-y-auto">
           {/* Real-time simulations */}
           <div className="space-y-2">
             <label className="text-sm font-medium">
@@ -52,6 +146,35 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
               <span>10,000</span>
               <span>100,000</span>
             </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-[var(--border)]" />
+
+          {/* API Keys Section */}
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold mb-1">{t('settings.apiKeys')}</h3>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {t('settings.apiKeyHint')}
+              </p>
+            </div>
+
+            <ApiKeyInput
+              label={t('settings.qwenApiKey')}
+              value={qwenApiKey}
+              onChange={handleQwenApiKeyChange}
+              onClear={handleClearQwenApiKey}
+              placeholder={t('settings.apiKeyPlaceholder')}
+            />
+
+            <ApiKeyInput
+              label={t('settings.doubaoApiKey')}
+              value={doubaoApiKey}
+              onChange={handleDoubaoApiKeyChange}
+              onClear={handleClearDoubaoApiKey}
+              placeholder={t('settings.apiKeyPlaceholder')}
+            />
           </div>
         </div>
 

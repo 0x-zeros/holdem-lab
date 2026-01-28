@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { EquityResponse, CanonicalHandInfo } from '../api/types'
+import type { ParsedCardResult } from '../api/vision-types'
 
 export type PlayerMode = 'cards' | 'range' | 'random'
 
@@ -56,6 +57,9 @@ interface EquityStore {
   selectAllHands: () => void
   clearSelectedHands: () => void
   applyRangeSelection: () => void
+
+  // Vision recognition
+  applyRecognizedCards: (result: ParsedCardResult) => void
 
   // Reset
   reset: () => void
@@ -176,6 +180,60 @@ export const useEquityStore = create<EquityStore>((set, get) => ({
       ),
       activeRangePlayer: null,
       selectedRangeHands: new Set(),
+    })
+  },
+
+  // Vision recognition - apply recognized cards to state
+  applyRecognizedCards: (result) => {
+    const { players } = get()
+
+    // Log the recognition result
+    console.log('[Store] Applying recognized cards:', {
+      holeCards: result.holeCards,
+      boardCards: result.boardCards,
+      confidence: result.confidence,
+    })
+
+    // Clear and set board cards
+    const newBoard = result.boardCards.slice(0, 5) // Max 5 board cards
+
+    // Update players with recognized hole cards
+    const updatedPlayers = players.map((player, index) => {
+      const holeCards = result.holeCards[index]
+      if (holeCards && holeCards.length > 0) {
+        // Only take first 2 cards for hole cards
+        return {
+          ...player,
+          cards: holeCards.slice(0, 2),
+          mode: 'cards' as PlayerMode,
+          range: [], // Clear range when setting specific cards
+        }
+      }
+      // Clear existing cards if no recognized cards for this player
+      return {
+        ...player,
+        cards: [],
+        range: [],
+      }
+    })
+
+    // If we have more hole cards than players, add new players
+    const additionalPlayers: Player[] = []
+    for (let i = players.length; i < result.holeCards.length; i++) {
+      const holeCards = result.holeCards[i]
+      if (holeCards && holeCards.length > 0) {
+        additionalPlayers.push({
+          ...createDefaultPlayer(i),
+          cards: holeCards.slice(0, 2),
+          mode: 'cards' as PlayerMode,
+        })
+      }
+    }
+
+    set({
+      board: newBoard,
+      players: [...updatedPlayers, ...additionalPlayers],
+      result: null, // Clear previous calculation result
     })
   },
 

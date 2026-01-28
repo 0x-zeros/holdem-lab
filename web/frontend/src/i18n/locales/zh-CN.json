@@ -26,7 +26,12 @@
     "totalPlayers": "总玩家数",
     "title": "设置",
     "realTimeSimulations": "实时计算次数",
-    "close": "关闭"
+    "close": "关闭",
+    "apiKeys": "AI 识牌设置",
+    "qwenApiKey": "通义千问 API Key",
+    "doubaoApiKey": "豆包 API Key",
+    "apiKeyPlaceholder": "输入您的 API 密钥",
+    "apiKeyHint": "建议在 API 平台设置用量上限以控制费用"
   },
   "actions": {
     "evaluate": "计算",
@@ -78,5 +83,17 @@
     "high": "高",
     "medium": "中",
     "low": "低"
+  },
+  "camera": {
+    "capture": "拍照识牌",
+    "switchCamera": "切换摄像头",
+    "takePhoto": "拍照",
+    "recognizing": "识别中...",
+    "recognized": "识牌成功",
+    "failed": "识别失败",
+    "permissionDenied": "相机权限被拒绝",
+    "notFound": "未找到摄像头",
+    "starting": "启动相机...",
+    "retry": "重试"
   }
 }

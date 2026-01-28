@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Card } from './Card'
 import { CardPickerDialog } from './CardPickerDialog'
+import { CameraButton } from '../camera'
+import { useCardRecognition } from '../../hooks/useCardRecognition'
 
 interface BoardInputProps {
   cards: string[]
@@ -13,6 +15,12 @@ interface BoardInputProps {
 export function BoardInput({ cards, onCardsChange, onClear, usedCards = [] }: BoardInputProps) {
   const { t } = useTranslation()
   const [showPicker, setShowPicker] = useState(false)
+  const { recognize, isRecognizing } = useCardRecognition()
+
+  const handleCameraCapture = async (blob: Blob) => {
+    await recognize(blob)
+    // Cards will be automatically applied to store via useCardRecognition
+  }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
@@ -36,14 +44,17 @@ export function BoardInput({ cards, onCardsChange, onClear, usedCards = [] }: Bo
     <div className="space-y-2 sm:space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm sm:text-base font-medium">{t('board.title')}</h3>
-        {cards.length > 0 && (
-          <button
-            onClick={onClear}
-            className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] touch-manipulation"
-          >
-            {t('board.clear')}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <CameraButton onCapture={handleCameraCapture} disabled={isRecognizing} />
+          {cards.length > 0 && (
+            <button
+              onClick={onClear}
+              className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] touch-manipulation"
+            >
+              {t('board.clear')}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Card slots */}
