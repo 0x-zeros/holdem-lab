@@ -68,14 +68,14 @@ export function HandMatrix({
 
       {/* Matrix Grid - responsive with horizontal scroll on mobile */}
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-2">
-        <div className="inline-grid gap-1 sm:gap-2" style={{ gridTemplateColumns: 'repeat(13, minmax(26px, 36px))' }}>
+        <div className="inline-grid gap-1 sm:gap-2" style={{ gridTemplateColumns: 'repeat(13, minmax(32px, 36px))' }}>
           {matrix.map((row, rowIdx) =>
             row.map((hand, colIdx) => {
               const isSelected = hand ? selectedHands.has(hand.notation) : false
               return (
                 <button
                   key={`${rowIdx}-${colIdx}`}
-                  className={`matrix-cell w-[26px] h-[26px] sm:w-9 sm:h-9 text-[10px] sm:text-xs font-medium rounded-[var(--radius-sm)] ${getCellStyle(
+                  className={`matrix-cell w-8 h-8 sm:w-9 sm:h-9 text-[10px] sm:text-xs font-medium rounded-[var(--radius-sm)] ${getCellStyle(
                     hand,
                     isSelected
                   )} flex items-center justify-center touch-manipulation`}

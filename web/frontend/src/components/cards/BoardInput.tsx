@@ -73,7 +73,7 @@ export function BoardInput({ cards, onCardsChange, onClear, usedCards = [] }: Bo
         placeholder={t('board.placeholder')}
         value={cards.join(' ')}
         onChange={handleInputChange}
-        className="w-full px-3 py-2.5 border border-[var(--border)] rounded-[var(--radius-md)] text-sm"
+        className="w-full px-3 py-2.5 border border-[var(--border)] rounded-[var(--radius-md)]"
       />
 
       <div className="text-[10px] sm:text-xs text-[var(--muted-foreground)]">

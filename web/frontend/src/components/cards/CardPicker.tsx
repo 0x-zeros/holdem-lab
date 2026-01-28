@@ -52,7 +52,7 @@ export function CardPicker({ selectedCards, usedCards, onCardClick }: CardPicker
                 onClick={() => !isUsed && onCardClick(card)}
                 disabled={isUsed}
                 className={`
-                  w-7 h-7 sm:w-9 sm:h-9 rounded flex flex-col items-center justify-center
+                  w-8 h-8 sm:w-9 sm:h-9 rounded flex flex-col items-center justify-center
                   text-[10px] sm:text-xs font-semibold transition-all touch-manipulation
                   ${isSelected
                     ? 'bg-[var(--primary)] text-white border-2 border-[var(--primary)]'
