@@ -225,3 +225,57 @@ import { apiClient } from './api/client'
 // 自动选择正确的后端
 const result = await apiClient.calculateEquity(request)
 ```
+
+
+---
+
+## 预计算时间
+
+****************************************
+Preflop Equity Precompute
+Simulations per hand: 1,000,000
+Players: 2-10 (all)
+Output: ../../web/frontend/src/data/preflop-equity-{N}.json
+Mode: Parallel (using all CPU cores)
+****************************************
+
+[2 players]
+Completed in 12m 29s → Saved: ../../web/frontend/src/data/preflop-equity-2.json
+
+[3 players]
+Completed in 19m 18s → Saved: ../../web/frontend/src/data/preflop-equity-3.json
+
+[4 players]
+Completed in 24m 17s → Saved: ../../web/frontend/src/data/preflop-equity-4.json
+Completed in 19m 18s → Saved: ../../web/frontend/src/data/preflop-equity-3.json
+
+[4 players]
+Completed in 24m 17s → Saved: ../../web/frontend/src/data/preflop-equity-4.json
+
+[4 players]
+Completed in 24m 17s → Saved: ../../web/frontend/src/data/preflop-equity-4.json
+[4 players]
+Completed in 24m 17s → Saved: ../../web/frontend/src/data/preflop-equity-4.json
+Completed in 24m 17s → Saved: ../../web/frontend/src/data/preflop-equity-4.json
+
+[5 players]
+Completed in 29m 48s → Saved: ../../web/frontend/src/data/preflop-equity-5.json
+
+[6 players]
+Completed in 34m 31s → Saved: ../../web/frontend/src/data/preflop-equity-6.json
+
+[7 players]
+Completed in 39m 56s → Saved: ../../web/frontend/src/data/preflop-equity-7.json
+
+[8 players]
+Completed in 46m 1s → Saved: ../../web/frontend/src/data/preflop-equity-8.json
+
+[9 players]
+Completed in 53m 49s → Saved: ../../web/frontend/src/data/preflop-equity-9.json
+
+[10 players]
+Completed in 1h 4m 44s → Saved: ../../web/frontend/src/data/preflop-equity-10.json
+
+****************************************
+Done! Total time: 5h 24m 57s
+****************************************
