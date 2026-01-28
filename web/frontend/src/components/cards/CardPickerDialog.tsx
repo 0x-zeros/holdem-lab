@@ -73,30 +73,32 @@ export function CardPickerDialog({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-[var(--radius-lg)] shadow-xl max-w-[620px] w-full mx-4 overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
+      <div className="bg-white rounded-t-[var(--radius-lg)] sm:rounded-[var(--radius-lg)] shadow-xl w-full sm:max-w-[620px] sm:mx-4 max-h-[85vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-4 h-12 border-b border-[var(--border)]">
           <h2 className="font-semibold text-[var(--foreground)]">{title}</h2>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] hover:bg-[var(--muted)] transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--muted)] transition-colors touch-manipulation"
           >
-            <X className="w-4 h-4 text-[var(--muted-foreground)]" />
+            <X className="w-5 h-5 text-[var(--muted-foreground)]" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-4 overflow-y-auto max-h-[calc(85vh-120px)]">
           {/* Card Grid */}
-          <CardPicker
-            selectedCards={selectedCards}
-            usedCards={usedCards}
-            onCardClick={handleCardClick}
-          />
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <CardPicker
+              selectedCards={selectedCards}
+              usedCards={usedCards}
+              onCardClick={handleCardClick}
+            />
+          </div>
 
           {/* Selected Cards Preview + Actions */}
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-[var(--border)]">
             <div className="flex items-center gap-2">
               <span className="text-sm text-[var(--muted-foreground)]">
                 {t('cardPicker.selected')}:
@@ -118,16 +120,16 @@ export function CardPickerDialog({
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full sm:w-auto">
               <button
                 onClick={handleClear}
-                className="px-4 py-2 text-sm border border-[var(--border)] rounded-[var(--radius-md)] hover:bg-[var(--muted)] transition-colors"
+                className="flex-1 sm:flex-none px-4 py-2.5 text-sm border border-[var(--border)] rounded-[var(--radius-md)] hover:bg-[var(--muted)] transition-colors touch-manipulation"
               >
                 {t('actions.clear')}
               </button>
               <button
                 onClick={handleDone}
-                className="px-4 py-2 text-sm bg-[var(--primary)] text-white rounded-[var(--radius-md)] hover:opacity-90 transition-opacity"
+                className="flex-1 sm:flex-none px-4 py-2.5 text-sm bg-[var(--primary)] text-white rounded-[var(--radius-md)] hover:opacity-90 transition-opacity touch-manipulation"
               >
                 {t('actions.done')}
               </button>

@@ -28,16 +28,16 @@ export function CardPicker({ selectedCards, usedCards, onCardClick }: CardPicker
   const selectedSet = useMemo(() => new Set(selectedCards), [selectedCards])
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-0.5 sm:gap-1">
       {SUITS.map((suit) => (
-        <div key={suit} className="flex items-center gap-1">
+        <div key={suit} className="flex items-center gap-0.5 sm:gap-1">
           {/* Suit label with symbol and letter */}
           <div
-            className="w-10 flex items-center justify-center gap-0.5 text-lg font-bold"
+            className="w-6 sm:w-10 flex items-center justify-center gap-0.5 text-base sm:text-lg font-bold flex-shrink-0"
             style={{ color: SUIT_COLORS[suit] }}
           >
             <span>{SUIT_SYMBOLS[suit]}</span>
-            <span className="text-xs opacity-70">{suit}</span>
+            <span className="hidden sm:inline text-xs opacity-70">{suit}</span>
           </div>
 
           {/* Cards in this suit */}
@@ -52,13 +52,13 @@ export function CardPicker({ selectedCards, usedCards, onCardClick }: CardPicker
                 onClick={() => !isUsed && onCardClick(card)}
                 disabled={isUsed}
                 className={`
-                  w-9 h-9 rounded flex flex-col items-center justify-center
-                  text-xs font-semibold transition-all
+                  w-7 h-7 sm:w-9 sm:h-9 rounded flex flex-col items-center justify-center
+                  text-[10px] sm:text-xs font-semibold transition-all touch-manipulation
                   ${isSelected
                     ? 'bg-[var(--primary)] text-white border-2 border-[var(--primary)]'
                     : isUsed
                       ? 'bg-[var(--muted)] border border-[var(--border)] opacity-40 cursor-not-allowed'
-                      : 'bg-white border border-[var(--border)] hover:border-[var(--primary)] hover:shadow-sm cursor-pointer'
+                      : 'bg-white border border-[var(--border)] hover:border-[var(--primary)] active:scale-95 cursor-pointer'
                   }
                 `}
               >
@@ -69,7 +69,7 @@ export function CardPicker({ selectedCards, usedCards, onCardClick }: CardPicker
                   {rank}
                 </span>
                 <span
-                  className="text-[10px] leading-none -mt-0.5"
+                  className="text-[8px] sm:text-[10px] leading-none -mt-0.5"
                   style={{ color: isSelected ? 'white' : isUsed ? 'var(--muted-foreground)' : SUIT_COLORS[suit] }}
                 >
                   {SUIT_SYMBOLS[suit]}

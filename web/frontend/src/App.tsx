@@ -156,14 +156,14 @@ function App() {
   return (
     <div className="min-h-screen bg-[var(--background)]">
       {/* Header */}
-      <header className="border-b border-[var(--border)] px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-[var(--foreground)]">
+      <header className="border-b border-[var(--border)] px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
+        <h1 className="text-lg sm:text-xl font-semibold text-[var(--foreground)]">
           {t('app.title')}
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           <button
             onClick={() => setShowSettings(true)}
-            className="p-2 hover:bg-[var(--muted)] rounded-[var(--radius-sm)] transition-colors"
+            className="p-2 hover:bg-[var(--muted)] rounded-[var(--radius-sm)] transition-colors touch-manipulation"
             title={t('settings.title')}
           >
             <Settings size={20} />
@@ -172,17 +172,17 @@ function App() {
         </div>
       </header>
 
-      <main className="container mx-auto px-6 py-8">
+      <main className="container mx-auto px-4 sm:px-6 py-4 sm:py-8">
         {/* Tab Navigation */}
         <TabNav tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as TabId)} />
 
         {/* Tab: Equity Calculator */}
         {activeTab === 'equity' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
             {/* Left Panel - Input */}
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               {/* Board Input */}
-              <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
+              <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-4 sm:p-6">
                 <BoardInput
                   cards={board}
                   onCardsChange={setBoard}
@@ -192,14 +192,14 @@ function App() {
               </section>
 
               {/* Total Players Selector */}
-              <section className="flex items-center gap-4 py-2">
+              <section className="flex flex-wrap items-center gap-2 sm:gap-4 py-2">
                 <span className="text-sm font-medium">{t('settings.totalPlayers')}</span>
-                <div className="flex gap-1">
+                <div className="flex gap-1 overflow-x-auto pb-1">
                   {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
                     <button
                       key={n}
                       onClick={() => setTotalPlayers(n)}
-                      className={`px-2 py-1 text-xs rounded-[var(--radius-sm)] ${
+                      className={`flex-shrink-0 px-2 py-1 text-xs rounded-[var(--radius-sm)] touch-manipulation ${
                         totalPlayers === n
                           ? 'bg-[var(--primary)] text-white'
                           : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--border)]'
@@ -212,7 +212,7 @@ function App() {
               </section>
 
               {/* Players */}
-              <section className="space-y-4">
+              <section className="space-y-3 sm:space-y-4">
                 {players.map((player) => (
                   <PlayerRow
                     key={player.id}
@@ -232,7 +232,7 @@ function App() {
                 {players.length < totalPlayers && (
                   <button
                     onClick={() => addPlayer('random')}
-                    className="w-full py-2 border-2 border-dashed border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors"
+                    className="w-full py-2 border-2 border-dashed border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors touch-manipulation"
                   >
                     {t('actions.addPlayer')}
                   </button>
@@ -243,17 +243,17 @@ function App() {
               <button
                 onClick={handleCalculate}
                 disabled={!canCalculate || equityMutation.isPending}
-                className="w-full py-3 bg-[var(--primary)] text-white font-medium rounded-[var(--radius-md)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 bg-[var(--primary)] text-white font-medium rounded-[var(--radius-md)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
               >
                 {equityMutation.isPending ? t('actions.calculating') : t('actions.evaluate')}
               </button>
             </div>
 
             {/* Right Panel - Results */}
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               {/* Results */}
               {equityMutation.data && (
-                <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
+                <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-4 sm:p-6">
                   <h2 className="text-lg font-medium mb-4">{t('results.title')}</h2>
                   <ResultTable
                     players={equityMutation.data.players}
@@ -265,7 +265,7 @@ function App() {
 
               {/* Error */}
               {equityMutation.isError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-[var(--radius-lg)] p-4">
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-[var(--radius-lg)] p-4 text-sm">
                   {t('results.error')}: {(equityMutation.error as Error).message}
                 </div>
               )}
@@ -276,7 +276,7 @@ function App() {
         {/* Tab: Hand Evaluator */}
         {activeTab === 'evaluate' && (
           <div className="max-w-2xl mx-auto">
-            <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
+            <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-4 sm:p-6">
               <HandEvaluator usedCards={[]} />
             </section>
           </div>
@@ -285,7 +285,7 @@ function App() {
         {/* Tab: Preflop Chart */}
         {activeTab === 'preflop' && (
           <div className="max-w-4xl mx-auto">
-            <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-6">
+            <section className="bg-[var(--muted)] rounded-[var(--radius-lg)] p-4 sm:p-6">
               <PreflopMatrix hands={canonicalHands} />
             </section>
           </div>
@@ -297,10 +297,10 @@ function App() {
 
       {/* Range Selection Dialog */}
       {showRangeDialog && activeRangePlayer !== null && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-[var(--radius-lg)] p-6 w-fit max-w-[95vw] mx-4 max-h-[90vh] overflow-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
+          <div className="bg-white rounded-t-[var(--radius-lg)] sm:rounded-[var(--radius-lg)] p-4 sm:p-6 w-full sm:w-fit sm:max-w-[95vw] max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-medium">
+              <h2 className="text-base sm:text-lg font-medium">
                 {t('matrix.selectRange', { index: activeRangePlayer + 1 })}
               </h2>
               <button
@@ -308,7 +308,7 @@ function App() {
                   setShowRangeDialog(false)
                   setActiveRangePlayer(null)
                 }}
-                className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                className="w-8 h-8 flex items-center justify-center text-xl text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] rounded-full touch-manipulation"
               >
                 ×
               </button>
@@ -328,13 +328,13 @@ function App() {
                   setShowRangeDialog(false)
                   setActiveRangePlayer(null)
                 }}
-                className="flex-1 py-2 border border-[var(--border)] rounded-[var(--radius-md)] hover:bg-[var(--muted)]"
+                className="flex-1 py-2.5 border border-[var(--border)] rounded-[var(--radius-md)] hover:bg-[var(--muted)] touch-manipulation"
               >
                 {t('actions.cancel')}
               </button>
               <button
                 onClick={handleApplyRange}
-                className="flex-1 py-2 bg-[var(--primary)] text-white rounded-[var(--radius-md)] hover:opacity-90"
+                className="flex-1 py-2.5 bg-[var(--primary)] text-white rounded-[var(--radius-md)] hover:opacity-90 touch-manipulation"
               >
                 {t('actions.apply', { count: selectedRangeHands.size })}
               </button>

@@ -70,18 +70,18 @@ export function PreflopMatrix({ hands }: PreflopMatrixProps) {
   }, [hands])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header and player selector */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{t('preflop.title')}</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h2 className="text-base sm:text-lg font-semibold">{t('preflop.title')}</h2>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-[var(--muted-foreground)]">{t('preflop.players')}</span>
-          <div className="flex gap-1">
+          <span className="text-xs sm:text-sm text-[var(--muted-foreground)]">{t('preflop.players')}</span>
+          <div className="flex gap-1 overflow-x-auto pb-1">
             {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
               <button
                 key={n}
                 onClick={() => setNumPlayers(n)}
-                className={`px-2 py-1 text-xs rounded-[var(--radius-sm)] transition-colors ${
+                className={`flex-shrink-0 px-2 py-1 text-xs rounded-[var(--radius-sm)] transition-colors touch-manipulation ${
                   numPlayers === n
                     ? 'bg-[var(--primary)] text-white'
                     : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--border)]'
@@ -95,57 +95,59 @@ export function PreflopMatrix({ hands }: PreflopMatrixProps) {
       </div>
 
       {/* Description */}
-      <p className="text-sm text-[var(--muted-foreground)]">
+      <p className="text-xs sm:text-sm text-[var(--muted-foreground)]">
         {t('preflop.description')}
       </p>
 
-      {/* Matrix Grid */}
-      <div className="inline-grid gap-1.5" style={{ gridTemplateColumns: 'repeat(13, 42px)' }}>
-        {matrix.map((row, rowIdx) =>
-          row.map((hand, colIdx) => {
-            const equity = hand ? equityData[hand.notation] : null
-            return (
-              <div
-                key={`${rowIdx}-${colIdx}`}
-                className="relative group"
-              >
+      {/* Matrix Grid - responsive with horizontal scroll on mobile */}
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-2">
+        <div className="inline-grid gap-1 sm:gap-1.5" style={{ gridTemplateColumns: 'repeat(13, minmax(28px, 42px))' }}>
+          {matrix.map((row, rowIdx) =>
+            row.map((hand, colIdx) => {
+              const equity = hand ? equityData[hand.notation] : null
+              return (
                 <div
-                  className="w-[42px] h-[42px] flex flex-col items-center justify-center rounded-[var(--radius-sm)] text-xs cursor-default"
-                  style={{
-                    backgroundColor: equity != null ? getEquityColor(equity) : 'var(--muted)',
-                    color: equity != null ? getTextColor(equity) : 'var(--muted-foreground)',
-                  }}
+                  key={`${rowIdx}-${colIdx}`}
+                  className="relative group"
                 >
-                  <span className="font-medium leading-none">{hand?.notation || ''}</span>
-                  {equity != null && (
-                    <span className="text-[10px] leading-none opacity-90">{equity}%</span>
+                  <div
+                    className="w-[28px] h-[28px] sm:w-[42px] sm:h-[42px] flex flex-col items-center justify-center rounded-[var(--radius-sm)] text-[9px] sm:text-xs cursor-default"
+                    style={{
+                      backgroundColor: equity != null ? getEquityColor(equity) : 'var(--muted)',
+                      color: equity != null ? getTextColor(equity) : 'var(--muted-foreground)',
+                    }}
+                  >
+                    <span className="font-medium leading-none">{hand?.notation || ''}</span>
+                    {equity != null && (
+                      <span className="text-[7px] sm:text-[10px] leading-none opacity-90">{equity}%</span>
+                    )}
+                  </div>
+                  {/* Tooltip - hide on mobile */}
+                  {hand && (
+                    <div className="hidden sm:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-[var(--foreground)] text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-20">
+                      {hand.notation} · {equity ?? '-'}% · {hand.num_combos} {t('results.combos', { count: hand.num_combos })}
+                    </div>
                   )}
                 </div>
-                {/* Tooltip */}
-                {hand && (
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-[var(--foreground)] text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-20">
-                    {hand.notation} · {equity ?? '-'}% · {hand.num_combos} {t('results.combos', { count: hand.num_combos })}
-                  </div>
-                )}
-              </div>
-            )
-          })
-        )}
+              )
+            })
+          )}
+        </div>
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 text-xs">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-[10px] sm:text-xs">
         <span className="text-[var(--muted-foreground)]">{t('preflop.legend')}:</span>
         <div className="flex items-center gap-1">
-          <div className="w-4 h-4 rounded-[var(--radius-sm)]" style={{ backgroundColor: getEquityColor(80) }} />
+          <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-[var(--radius-sm)]" style={{ backgroundColor: getEquityColor(80) }} />
           <span>{t('preflop.high')}</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-4 h-4 rounded-[var(--radius-sm)]" style={{ backgroundColor: getEquityColor(45) }} />
+          <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-[var(--radius-sm)]" style={{ backgroundColor: getEquityColor(45) }} />
           <span>{t('preflop.medium')}</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-4 h-4 rounded-[var(--radius-sm)]" style={{ backgroundColor: getEquityColor(10) }} />
+          <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-[var(--radius-sm)]" style={{ backgroundColor: getEquityColor(10) }} />
           <span>{t('preflop.low')}</span>
         </div>
       </div>

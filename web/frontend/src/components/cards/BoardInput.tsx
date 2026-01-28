@@ -33,13 +33,13 @@ export function BoardInput({ cards, onCardsChange, onClear, usedCards = [] }: Bo
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2 sm:space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-medium">{t('board.title')}</h3>
+        <h3 className="text-sm sm:text-base font-medium">{t('board.title')}</h3>
         {cards.length > 0 && (
           <button
             onClick={onClear}
-            className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] touch-manipulation"
           >
             {t('board.clear')}
           </button>
@@ -47,11 +47,11 @@ export function BoardInput({ cards, onCardsChange, onClear, usedCards = [] }: Bo
       </div>
 
       {/* Card slots */}
-      <div className="flex gap-2">
+      <div className="flex gap-1 sm:gap-2">
         {[0, 1, 2].map((i) => (
           <Card key={i} notation={cards[i]} empty={!cards[i]} size="md" onClick={handleCardClick} />
         ))}
-        <div className="w-px bg-[var(--border)] mx-1" />
+        <div className="w-px bg-[var(--border)] mx-0.5 sm:mx-1" />
         <Card notation={cards[3]} empty={!cards[3]} size="md" onClick={handleCardClick} />
         <Card notation={cards[4]} empty={!cards[4]} size="md" onClick={handleCardClick} />
       </div>
@@ -62,10 +62,10 @@ export function BoardInput({ cards, onCardsChange, onClear, usedCards = [] }: Bo
         placeholder={t('board.placeholder')}
         value={cards.join(' ')}
         onChange={handleInputChange}
-        className="w-full px-3 py-2 border border-[var(--border)] rounded-[var(--radius-md)] text-sm"
+        className="w-full px-3 py-2.5 border border-[var(--border)] rounded-[var(--radius-md)] text-sm"
       />
 
-      <div className="text-xs text-[var(--muted-foreground)]">
+      <div className="text-[10px] sm:text-xs text-[var(--muted-foreground)]">
         {t('board.stages')}
       </div>
 
