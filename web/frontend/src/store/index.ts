@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { EquityResponse, CanonicalHandInfo } from '../api/types'
 import type { ParsedCardResult } from '../api/vision-types'
+import type { ColorProfile } from '../data/colorProfiles'
+import { loadCustomProfile, saveCustomProfile } from '../data/colorProfiles'
 
 export type PlayerMode = 'cards' | 'range' | 'random'
 
@@ -60,6 +62,12 @@ interface EquityStore {
 
   // Vision recognition
   applyRecognizedCards: (result: ParsedCardResult) => void
+
+  // Color profile
+  colorProfileId: string
+  setColorProfileId: (id: string) => void
+  customColorProfile: ColorProfile | null
+  setCustomColorProfile: (profile: ColorProfile) => void
 
   // Reset
   reset: () => void
@@ -235,6 +243,15 @@ export const useEquityStore = create<EquityStore>((set, get) => ({
       players: [...updatedPlayers, ...additionalPlayers],
       result: null, // Clear previous calculation result
     })
+  },
+
+  // Color profile
+  colorProfileId: 'gradient',
+  setColorProfileId: (colorProfileId) => set({ colorProfileId }),
+  customColorProfile: loadCustomProfile(),
+  setCustomColorProfile: (profile) => {
+    saveCustomProfile(profile)
+    set({ customColorProfile: profile })
   },
 
   // Reset

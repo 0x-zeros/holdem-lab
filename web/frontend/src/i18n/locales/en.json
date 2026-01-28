@@ -82,7 +82,22 @@
     "legend": "Equity",
     "high": "High",
     "medium": "Medium",
-    "low": "Low"
+    "low": "Low",
+    "colorProfile": "Colors",
+    "profile": {
+      "gradient": "Blue Gradient",
+      "trafficLight": "Traffic Light",
+      "headsUp": "Heads Up",
+      "custom": "Custom",
+      "customTitle": "Custom Colors",
+      "edit": "Edit",
+      "threshold": "Threshold",
+      "bgColor": "Background",
+      "instruction": "Set background colors for different equity ranges. Threshold is the max equity for each color.",
+      "previewHint": "Save to preview changes in the preflop chart",
+      "save": "Save",
+      "cancel": "Cancel"
+    }
   },
   "camera": {
     "capture": "Scan Cards",

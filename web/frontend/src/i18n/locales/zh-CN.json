@@ -82,7 +82,22 @@
     "legend": "胜率",
     "high": "高",
     "medium": "中",
-    "low": "低"
+    "low": "低",
+    "colorProfile": "配色",
+    "profile": {
+      "gradient": "蓝色渐变",
+      "trafficLight": "信号灯",
+      "headsUp": "双人桌",
+      "custom": "自定义",
+      "customTitle": "自定义配色",
+      "edit": "编辑",
+      "threshold": "阈值",
+      "bgColor": "背景色",
+      "instruction": "设置不同胜率区间对应的背景颜色，阈值表示该颜色适用的胜率上限",
+      "previewHint": "保存后可在起手牌表中预览效果",
+      "save": "保存",
+      "cancel": "取消"
+    }
   },
   "camera": {
     "capture": "拍照识牌",
