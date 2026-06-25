@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> 本项目的**规范化主规则**见 `AGENTS.md`（与 Codex 共享）；下方 `@AGENTS.md` 会自动 inline 到
+> Claude Code。规则类内容统一写进 `AGENTS.md`，本文件只保留项目信息（命令/架构）。
+
+@AGENTS.md
+
 ## 常用命令
 
 ### Rust 核心库

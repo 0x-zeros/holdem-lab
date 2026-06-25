@@ -1,0 +1,51 @@
+{
+  "name": "holdem-lab",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TZ": "${localEnv:TZ:Asia/Shanghai}",
+      "CLAUDE_CODE_VERSION": "latest",
+      "CODEX_VERSION": "latest",
+      "GIT_DELTA_VERSION": "0.18.2"
+    }
+  },
+  "runArgs": ["--cpus=8", "--memory=24g", "--memory-swap=28g", "--shm-size=2g"],
+  "hostRequirements": { "cpus": 4, "memory": "8gb", "storage": "16gb" },
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code", "ms-python.python", "charliermarsh.ruff"],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "python.defaultInterpreterPath": "/workspace/.venv-docker/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  },
+  "remoteUser": "node",
+  // Create the host-side persisted homes (gitignored) before the container mounts them.
+  "initializeCommand": "mkdir -p \"${localWorkspaceFolder}/.local/devcontainer-home/claude\" \"${localWorkspaceFolder}/.local/devcontainer-home/codex\" \"${localWorkspaceFolder}/.local/ssh\"",
+  "mounts": [
+    "source=holdem-lab-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    // .claude / .codex persisted to host .local/devcontainer-home (survives rebuilds, visible in Finder).
+    "source=${localWorkspaceFolder}/.local/devcontainer-home/claude,target=/home/node/.claude,type=bind,consistency=delegated",
+    "source=${localWorkspaceFolder}/.local/devcontainer-home/codex,target=/home/node/.codex,type=bind,consistency=delegated",
+    // drop your git ssh keys into .local/ssh to push from inside the container.
+    "source=${localWorkspaceFolder}/.local/ssh,target=/home/node/.ssh,type=bind,consistency=delegated"
+  ],
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=8192",
+    "CLAUDE_CONFIG_DIR": "/home/node/.claude",
+    "CODEX_HOME": "/home/node/.codex",
+    // uv writes the project venv here (the "docker" venv; host uses .venv-mac). UV_LINK_MODE=copy
+    // avoids hardlink warnings across the bind mount.
+    "UV_PROJECT_ENVIRONMENT": "/workspace/.venv-docker",
+    "UV_LINK_MODE": "copy",
+    "PYTHON_VENV_DIR": "/workspace/.venv-docker"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "postCreateCommand": "bash .devcontainer/setup-dev-env.sh"
+}

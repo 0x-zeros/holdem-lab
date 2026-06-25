@@ -1,0 +1,30 @@
+[project]
+name = "holdem-lab"
+version = "0.0.0"
+description = "Texas Hold'em game + poker AI + Steam CV bot (Python monorepo)"
+requires-python = ">=3.12"
+dependencies = []
+
+# Repo root is a non-package: uv manages one shared venv but does not try to build this dir.
+# The member packages (common/ engine/ ai/ game/ bot/) will be wired up as a uv workspace
+# when they are created. See the plan: ~/.claude/plans/ai-ai-steam-ai-jaunty-stonebraker.md
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "pytest>=8",
+    "mypy>=1.11",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true

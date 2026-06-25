@@ -22,9 +22,18 @@ wheels/
 
 # Virtual environments
 .venv/
+.venv-docker/
+.venv-mac/
 venv/
 ENV/
 env/
+
+# Dev container persisted home + ssh (bind-mounted)
+.local/
+
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
 
 # IDE
 .idea/
