@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Canonical Python entrypoint: runs the per-platform venv's python so no script
+# or agent hardcodes a venv path (e.g. .venv-docker/bin/python). The venv is
+# resolved by scripts/dev/venv-dir.sh (UV_PROJECT_ENVIRONMENT > PYTHON_VENV_DIR
+# > OS default).
+#
+# Usage:
+#   scripts/dev/py -c 'import sys; print(sys.version)'
+#   scripts/dev/py -m pytest
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+venv_dir="$(bash "${script_dir}/venv-dir.sh")"
+pybin="${venv_dir}/bin/python"
+
+if [ ! -x "${pybin}" ]; then
+  printf 'error: no runnable Python at %s\n  run scripts/dev/setup-dev-env.sh first\n' "${pybin}" >&2
+  exit 1
+fi
+
+exec "${pybin}" "$@"

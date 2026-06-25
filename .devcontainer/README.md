@@ -17,7 +17,8 @@ passwordless `sudo`, so later sessions can `sudo apt-get install` CV/OCR/GUI lib
 image rebuild.
 
 - Project venv: `/workspace/.venv-docker` (host side uses a separate `.venv-mac`).
-- `postCreateCommand` runs `setup-dev-env.sh` → `uv sync`.
+- `postCreateCommand` runs `scripts/dev/setup-dev-env.sh` → `uv sync`. The dev
+  helper scripts live in [`scripts/dev/`](../scripts/dev/README.md).
 - Heavy deps (pokerkit / open_spiel / rlcard / torch / opencv) are **not** pre-installed;
   add them with `uv add` when building those modules.
 

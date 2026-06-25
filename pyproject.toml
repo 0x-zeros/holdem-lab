@@ -21,6 +21,9 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Legacy equity-calculator (rust/, web/ — to be archived under equity-calculator/)
+# is not part of the Python rebuild; keep it out of our lint/format/type checks.
+extend-exclude = ["rust", "web", "equity-calculator", ".venv-docker", ".venv-mac"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
@@ -28,3 +31,4 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+exclude = '^(rust|web|equity-calculator)/'

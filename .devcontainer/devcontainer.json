@@ -47,5 +47,5 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postCreateCommand": "bash .devcontainer/setup-dev-env.sh"
+  "postCreateCommand": "bash scripts/dev/setup-dev-env.sh"
 }
