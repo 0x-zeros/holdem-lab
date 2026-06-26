@@ -1,6 +1,7 @@
 """pygame host application package."""
 
 from holdem_game.app import HoldemGameApp, build_arg_parser, main
+from holdem_game.fixtures import build_table_annotation, write_pygame_fixture
 from holdem_game.table_view import ActionButton, TableView
 
 __all__ = [
@@ -8,5 +9,7 @@ __all__ = [
     "HoldemGameApp",
     "TableView",
     "build_arg_parser",
+    "build_table_annotation",
     "main",
+    "write_pygame_fixture",
 ]

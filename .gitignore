@@ -66,6 +66,7 @@ Thumbs.db
 
 # Project specific
 *.log
+artifacts/
 
 # Claude local settings
 .claude/settings.local.json

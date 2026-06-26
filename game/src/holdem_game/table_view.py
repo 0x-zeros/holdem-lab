@@ -28,6 +28,12 @@ BUTTON_FILL: Color = (220, 190, 92)
 BUTTON_HOVER: Color = (238, 210, 118)
 BUTTON_TEXT: Color = (25, 28, 25)
 
+BOARD_CARD_SIZE = (58, 82)
+BOARD_CARD_GAP = 12
+PLAYER_PANEL_SIZE = (190, 104)
+PLAYER_CARD_SIZE = (38, 50)
+PLAYER_CARD_GAP = 46
+
 
 @dataclass(frozen=True, slots=True)
 class ActionButton:
@@ -72,20 +78,12 @@ class TableView:
         pygame.draw.ellipse(surface, FELT_LINE, felt_rect, width=2)
 
     def _draw_board(self, surface: pygame.Surface, state: GameState) -> None:
-        width, height = self.size
-        card_width, card_height = 58, 82
-        gap = 12
-        total_width = card_width * 5 + gap * 4
-        start_x = int((width - total_width) / 2)
-        y = int(height * 0.36)
-
-        for index in range(5):
+        for index, rect in enumerate(self.board_card_rects()):
             card = state.board[index] if index < len(state.board) else None
-            rect = pygame.Rect(start_x + index * (card_width + gap), y, card_width, card_height)
             self._draw_card(surface, rect, card)
 
         pot_text = f"Pot {state.pot_total}"
-        self._draw_text(surface, pot_text, self.body_font, TEXT, (width // 2, y + card_height + 30))
+        self._draw_text(surface, pot_text, self.body_font, TEXT, self.pot_text_rect().center)
 
     def _draw_players(
         self,
@@ -94,30 +92,22 @@ class TableView:
         *,
         human_seat: int,
     ) -> None:
-        width, height = self.size
-        total = len(state.players)
-        center_x, center_y = width / 2.0, height * 0.41
-        radius_x, radius_y = width * 0.34, height * 0.29
-
         for player in state.players:
-            offset = (player.seat - human_seat) % total
-            angle = (pi / 2.0) + (2.0 * pi * offset / total)
-            x = int(center_x + cos(angle) * radius_x)
-            y = int(center_y + sin(angle) * radius_y)
-            self._draw_player(
-                surface, player, state.current_seat == player.seat, (x, y), human_seat
+            panel = self.player_panel_rect(
+                player.seat,
+                player_count=len(state.players),
+                human_seat=human_seat,
             )
+            self._draw_player(surface, player, state.current_seat == player.seat, panel, human_seat)
 
     def _draw_player(
         self,
         surface: pygame.Surface,
         player: PlayerState,
         is_current: bool,
-        center: tuple[int, int],
+        panel: pygame.Rect,
         human_seat: int,
     ) -> None:
-        panel = pygame.Rect(0, 0, 190, 104)
-        panel.center = center
         pygame.draw.rect(surface, PANEL_ACTIVE if is_current else PANEL, panel, border_radius=8)
         pygame.draw.rect(
             surface, FELT_LINE if is_current else (61, 76, 76), panel, width=2, border_radius=8
@@ -144,27 +134,24 @@ class TableView:
             (panel.centerx, panel.y + 42),
         )
 
-        card_y = panel.y + 58
-        card_x = panel.centerx - 44
         if player.hole_cards:
             for index, card in enumerate(player.hole_cards[:2]):
-                self._draw_card(surface, pygame.Rect(card_x + index * 46, card_y, 38, 50), card)
+                self._draw_card(surface, self.player_hole_card_rects(panel)[index], card)
         else:
-            for index in range(2):
+            for rect in self.player_hole_card_rects(panel):
                 self._draw_card(
                     surface,
-                    pygame.Rect(card_x + index * 46, card_y, 38, 50),
+                    rect,
                     None,
                     hidden=True,
                 )
 
     def _draw_status(self, surface: pygame.Surface, state: GameState, message: str) -> None:
-        width, height = self.size
         title = (
             f"{state.street.value.upper()}  To call {state.to_call}  Min raise {state.min_raise}"
         )
-        self._draw_text(surface, title, self.title_font, TEXT, (width // 2, 34))
-        self._draw_text(surface, message, self.body_font, MUTED, (width // 2, height - 104))
+        self._draw_text(surface, title, self.title_font, TEXT, self.title_text_rect().center)
+        self._draw_text(surface, message, self.body_font, MUTED, self.message_text_rect().center)
 
     def _draw_buttons(self, surface: pygame.Surface, buttons: Sequence[ActionButton]) -> None:
         mouse_pos = pygame.mouse.get_pos()
@@ -210,6 +197,69 @@ class TableView:
         rendered = font.render(text, True, color)
         rect = rendered.get_rect(center=center)
         surface.blit(rendered, rect)
+
+    def board_card_rects(self) -> tuple[pygame.Rect, ...]:
+        width, height = self.size
+        card_width, card_height = BOARD_CARD_SIZE
+        total_width = card_width * 5 + BOARD_CARD_GAP * 4
+        start_x = int((width - total_width) / 2)
+        y = int(height * 0.36)
+        return tuple(
+            pygame.Rect(
+                start_x + index * (card_width + BOARD_CARD_GAP),
+                y,
+                card_width,
+                card_height,
+            )
+            for index in range(5)
+        )
+
+    def player_panel_rect(
+        self,
+        seat: int,
+        *,
+        player_count: int,
+        human_seat: int,
+    ) -> pygame.Rect:
+        width, height = self.size
+        center_x, center_y = width / 2.0, height * 0.41
+        radius_x, radius_y = width * 0.34, height * 0.29
+        offset = (seat - human_seat) % player_count
+        angle = (pi / 2.0) + (2.0 * pi * offset / player_count)
+        panel = pygame.Rect(0, 0, *PLAYER_PANEL_SIZE)
+        panel.center = (
+            int(center_x + cos(angle) * radius_x),
+            int(center_y + sin(angle) * radius_y),
+        )
+        return panel
+
+    def player_hole_card_rects(self, panel: pygame.Rect) -> tuple[pygame.Rect, pygame.Rect]:
+        card_y = panel.y + 58
+        card_x = panel.centerx - 44
+        card_width, card_height = PLAYER_CARD_SIZE
+        return (
+            pygame.Rect(card_x, card_y, card_width, card_height),
+            pygame.Rect(card_x + PLAYER_CARD_GAP, card_y, card_width, card_height),
+        )
+
+    def pot_text_rect(self) -> pygame.Rect:
+        board_rect = self.board_card_rects()[0]
+        width = self.size[0]
+        rect = pygame.Rect(0, 0, 180, 30)
+        rect.center = (width // 2, board_rect.y + board_rect.height + 30)
+        return rect
+
+    def title_text_rect(self) -> pygame.Rect:
+        width = self.size[0]
+        rect = pygame.Rect(0, 0, min(720, width - 40), 42)
+        rect.center = (width // 2, 34)
+        return rect
+
+    def message_text_rect(self) -> pygame.Rect:
+        width, height = self.size
+        rect = pygame.Rect(0, 0, min(720, width - 40), 34)
+        rect.center = (width // 2, height - 104)
+        return rect
 
 
 def label_for_action(action: Action) -> str:
