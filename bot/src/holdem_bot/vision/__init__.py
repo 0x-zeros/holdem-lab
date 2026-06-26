@@ -9,6 +9,14 @@ from holdem_bot.vision.annotations import (
     TableAnnotation,
 )
 from holdem_bot.vision.evaluate import evaluate_fixture, score_to_dict
+from holdem_bot.vision.llm_annotation import (
+    LlmAnnotationManifest,
+    LlmFrameRequest,
+    LlmRoiCrop,
+    annotation_output_schema,
+    build_llm_annotation_package,
+    execute_llm_annotation_package,
+)
 from holdem_bot.vision.poker_legends_layout import (
     LayoutRegion,
     apply_poker_legends_layout,
@@ -47,6 +55,9 @@ __all__ = [
     "ExtractedFrame",
     "KeyframeSelectionManifest",
     "KeyframeSelectionRequest",
+    "LlmAnnotationManifest",
+    "LlmFrameRequest",
+    "LlmRoiCrop",
     "LayoutRegion",
     "RecognitionScore",
     "RecognizedButton",
@@ -60,10 +71,13 @@ __all__ = [
     "TableAnnotation",
     "VideoIngestManifest",
     "VideoMetadata",
+    "annotation_output_schema",
     "apply_poker_legends_layout",
+    "build_llm_annotation_package",
     "draw_layout_overlay",
     "evaluate_fixture",
     "evaluate_recognition",
+    "execute_llm_annotation_package",
     "ingest_video",
     "recognize_from_annotation",
     "score_to_dict",

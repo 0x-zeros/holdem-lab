@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 4 Poker Legends 视频 ingest + 代表帧选择）
+## 当前进度（截至 2026-06-26 阶段 4 Poker Legends 视频 + LLM 标注包）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -62,22 +62,25 @@
   写入代表帧草稿标注，并输出 overlay PNG 与 `layout_report.md`；当前
   `artifacts/poker-legends-videos/session_001_selection/annotations/` 的 20 个草稿已应用
   `poker_legends_1600w_v1`，overlay 在同目录 `layout_overlays/`。
+- 阶段 4 LLM 标注工厂：已引入 OpenAI Python SDK（官方 PyPI，锁文件记录解析版本），提供
+  `uv run holdem-bot-llm-annotate <annotations...> --image-root <dir> --out <dir>` 工具；默认只生成
+  离线请求包，`--execute` 才会调用 OpenAI Responses API。当前已为 20 个代表帧生成
+  `artifacts/poker-legends-videos/session_001_selection/llm_annotation/`，包含 20 张整图、520 个放大
+  ROI crop、`requests.jsonl`、`manifest.json` 和 `package_report.md`。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  55 tests）。
+  58 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：填写 Poker Legends 代表关键帧标注**
-- 优先填 `artifacts/poker-legends-videos/session_001_selection/annotations/keyframe_*.json` 这 20 个
-  草稿标注；处理流程说明见同目录 `selection_report.md` / `layout_report.md`，对应视觉总览见
-  `contact_sheet.jpg`，ROI 框检查见 `layout_overlays/`。
-- 对 table 帧填写座位、手牌/公共牌、筹码、底池、按钮、轮到谁行动；对 overlay/modal 帧标出
-  阻塞区域并作为 no-action 状态；之后复用 `RoiOcrRecognizer` / `evaluate_recognition()` 迭代真实
-  游戏识别。
-- 暂不把 LLM/VLM 放进主链路；后续作为低置信度兜底或冷启动标注辅助。
+**下一步：执行 LLM 候选标注**
+- 当前容器没有 `OPENAI_API_KEY`，所以已先生成离线请求包；在有 key 的环境中运行同一命令并加
+  `--execute`，即可输出 `candidate_annotations/`、`candidate_report.md`、`uncertain_report.md`。
+- LLM 先作为标注工厂主力：对 table 帧产出手牌/公共牌、筹码、底池、按钮、轮到谁行动；对
+  overlay/modal 帧产出 blocking/no-action 状态。候选标注通过冲突/低置信报告筛出少量需要复核的项。
+- 实时 bot 主链路仍先保留 CV/OCR/template；LLM 用于低置信兜底和离线标注加速。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。

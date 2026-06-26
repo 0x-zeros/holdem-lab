@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "holdem-ai",
     "holdem-common",
+    "openai>=2.0",
     "opencv-python>=4.13.0.92",
     "pytesseract>=0.3.13",
 ]
@@ -14,6 +15,7 @@ dependencies = [
 holdem-bot-apply-poker-legends-layout = "holdem_bot.vision.poker_legends_layout:main"
 holdem-bot-evaluate-fixture = "holdem_bot.vision.evaluate:main"
 holdem-bot-ingest-video = "holdem_bot.vision.video:main"
+holdem-bot-llm-annotate = "holdem_bot.vision.llm_annotation:main"
 holdem-bot-select-keyframes = "holdem_bot.vision.selection:main"
 
 [tool.uv.sources]
