@@ -87,6 +87,13 @@ from holdem_bot.vision.poker_legends_multi_templates import (
     build_and_evaluate_poker_legends_multi_templates,
     materialize_poker_legends_template_dataset,
 )
+from holdem_bot.vision.poker_legends_numbers import (
+    PokerLegendsNumberPrediction,
+    PokerLegendsNumberRecognizer,
+    build_poker_legends_number_ocr_report,
+    parse_poker_legends_chip_amount,
+    parse_poker_legends_chip_numbers,
+)
 from holdem_bot.vision.poker_legends_screen import (
     PokerLegendsRegionFeature,
     PokerLegendsScreenDetection,
@@ -183,6 +190,8 @@ __all__ = [
     "PokerLegendsRegionFeature",
     "PokerLegendsScreenDetection",
     "PokerLegendsLlmCandidate",
+    "PokerLegendsNumberPrediction",
+    "PokerLegendsNumberRecognizer",
     "PokerLegendsScreenRun",
     "PokerLegendsScreenScan",
     "PokerLegendsScreenScanRow",
@@ -217,6 +226,9 @@ __all__ = [
     "build_poker_legends_button_template_library",
     "build_and_evaluate_poker_legends_multi_templates",
     "build_poker_legends_recognition_comparison",
+    "build_poker_legends_number_ocr_report",
+    "parse_poker_legends_chip_amount",
+    "parse_poker_legends_chip_numbers",
     "build_poker_legends_screen_scan",
     "build_poker_legends_session_timeline",
     "build_poker_legends_truth_overlay",

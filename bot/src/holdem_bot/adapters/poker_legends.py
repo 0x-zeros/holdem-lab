@@ -21,6 +21,11 @@ from holdem_bot.vision.poker_legends_card_consensus import (
     PokerLegendsCardConsensusPrediction,
     PokerLegendsCardConsensusRecognizer,
 )
+from holdem_bot.vision.poker_legends_numbers import (
+    PokerLegendsNumberPrediction,
+    PokerLegendsNumberRecognizer,
+    parse_poker_legends_chip_amount,
+)
 from holdem_bot.vision.poker_legends_screen import detect_poker_legends_screen_state
 from holdem_bot.vision.poker_legends_truth import screen_state_from_poker_legends_annotation
 from holdem_bot.vision.recognition import (
@@ -68,6 +73,17 @@ class _ButtonRecognizer(Protocol):
         frame_id: str,
         exclude_frame_id: str | None = None,
     ) -> tuple[PokerLegendsButtonPrediction, ...]: ...
+
+
+class _NumberRecognizer(Protocol):
+    def recognize(
+        self,
+        image_path: str | Path,
+        annotation: Mapping[str, object],
+        *,
+        text_names: tuple[str, ...] = ("pot", "hero_stack", "right_top_stack"),
+        button_names: tuple[str, ...] = ("primary_left",),
+    ) -> tuple[PokerLegendsNumberPrediction, ...]: ...
 
 
 class PokerLegendsScreenStateRecognizer(Recognizer):
@@ -172,23 +188,29 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         *,
         card_recognizer: _CardConsensusRecognizer,
         button_recognizer: _ButtonRecognizer,
+        number_recognizer: _NumberRecognizer | None = None,
         controlled_seat: int = 0,
         small_blind: int = 5,
         big_blind: int = 10,
         min_card_confidence: float = 0.20,
         min_button_confidence: float = 0.20,
+        min_number_confidence: float = 0.70,
     ) -> None:
         if controlled_seat < 0:
             raise ValueError("controlled seat cannot be negative")
         if small_blind < 0 or big_blind <= 0:
             raise ValueError("blind amounts must be non-negative with a positive big blind")
+        if not 0.0 <= min_number_confidence <= 1.0:
+            raise ValueError("minimum number confidence must be between 0 and 1")
         self.card_recognizer = card_recognizer
         self.button_recognizer = button_recognizer
+        self.number_recognizer = number_recognizer
         self.controlled_seat = controlled_seat
         self.small_blind = small_blind
         self.big_blind = big_blind
         self.min_card_confidence = min_card_confidence
         self.min_button_confidence = min_button_confidence
+        self.min_number_confidence = min_number_confidence
 
     @classmethod
     def from_manifests(
@@ -207,6 +229,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 card_classifier_manifest=card_classifier_manifest,
             ),
             button_recognizer=PokerLegendsButtonRecognizer.from_manifest(button_manifest),
+            number_recognizer=PokerLegendsNumberRecognizer(),
             controlled_seat=controlled_seat,
         )
 
@@ -260,6 +283,25 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             context.layout_annotation,
             frame_id=context.frame_id,
         )
+        number_predictions: tuple[PokerLegendsNumberPrediction, ...] = ()
+        if self.number_recognizer is not None:
+            text_names, button_names = _number_roi_names_for_fallbacks(context.annotation)
+            try:
+                if text_names or button_names:
+                    number_predictions = self.number_recognizer.recognize(
+                        context.image_path,
+                        context.layout_annotation,
+                        text_names=text_names,
+                        button_names=button_names,
+                    )
+            except Exception as exc:
+                metadata["number_recognizer_error"] = f"{type(exc).__name__}: {exc}"
+        accepted_number_predictions = tuple(
+            prediction
+            for prediction in number_predictions
+            if prediction.normalized_number is not None
+            and prediction.confidence >= self.min_number_confidence
+        )
         table = _recognized_table_from_predictions(
             source=frame.source,
             image=str(context.image_path),
@@ -268,6 +310,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             annotation=context.annotation,
             card_predictions=card_predictions,
             button_predictions=button_predictions,
+            number_predictions=accepted_number_predictions,
             controlled_seat=self.controlled_seat,
         )
         state, block_reason = self._state_from_table(
@@ -275,8 +318,16 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             annotation=context.annotation,
             screen=screen,
             card_predictions=card_predictions,
+            number_predictions=accepted_number_predictions,
         )
         metadata["recognized_table"] = _recognized_table_to_dict(table)
+        if number_predictions:
+            metadata["number_predictions"] = [
+                prediction.to_dict() for prediction in number_predictions
+            ]
+            metadata["accepted_number_predictions"] = [
+                prediction.to_dict() for prediction in accepted_number_predictions
+            ]
         if block_reason is not None:
             metadata["state_block_reason"] = block_reason
         return RecognitionResult(
@@ -307,6 +358,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         annotation: Mapping[str, object] | None,
         screen: ScreenState,
         card_predictions: tuple[PokerLegendsCardConsensusPrediction, ...],
+        number_predictions: tuple[PokerLegendsNumberPrediction, ...],
     ) -> tuple[GameState | None, str | None]:
         if annotation is None:
             return None, "missing_table_metadata"
@@ -333,6 +385,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         legal_actions, to_call, action_block_reason = self._legal_actions(
             table.buttons,
             annotation=annotation,
+            number_predictions=number_predictions,
             hero_stack=hero.stack,
             hero_committed=hero.committed,
         )
@@ -395,6 +448,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         buttons: tuple[RecognizedButton, ...],
         *,
         annotation: Mapping[str, object],
+        number_predictions: tuple[PokerLegendsNumberPrediction, ...],
         hero_stack: int,
         hero_committed: int,
     ) -> tuple[tuple[Action, ...], int, str | None]:
@@ -409,7 +463,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             if action_type is None:
                 continue
             if action_type is ActionType.CALL:
-                amount = _button_amount(annotation, button.command)
+                amount = _button_amount(annotation, button.command, number_predictions)
                 if amount is None:
                     return (), 0, "missing_call_amount"
                 to_call = amount
@@ -465,6 +519,7 @@ def _recognized_table_from_predictions(
     annotation: Mapping[str, object] | None,
     card_predictions: tuple[PokerLegendsCardConsensusPrediction, ...],
     button_predictions: tuple[PokerLegendsButtonPrediction, ...],
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
     controlled_seat: int,
 ) -> RecognizedTable:
     board = tuple(
@@ -490,6 +545,7 @@ def _recognized_table_from_predictions(
     buttons = tuple(
         RecognizedButton(
             label=_truth_button_label(annotation, prediction.slot)
+            or _number_prediction_raw(number_predictions, "buttons", prediction.slot)
             or (prediction.action_type or ""),
             action_type=prediction.action_type,
             command=prediction.slot,
@@ -502,12 +558,18 @@ def _recognized_table_from_predictions(
         annotation,
         controlled_seat=controlled_seat,
         hero_hole_cards=hero_hole_cards,
+        number_predictions=number_predictions,
     )
     confidences = [
         screen.confidence,
         *(card.confidence for card in board if card.visible),
         *(card.confidence for card in hero_hole_cards if card.visible),
         *(button.confidence for button in buttons),
+        *(
+            prediction.confidence
+            for prediction in number_predictions
+            if prediction.visible and prediction.normalized_number is not None
+        ),
     ]
     return RecognizedTable(
         source=source,
@@ -515,7 +577,10 @@ def _recognized_table_from_predictions(
         hand_id=frame_id,
         street=_street_name_from_annotation(annotation, board),
         current_seat=controlled_seat if screen.hero_turn is True else _current_seat(seats),
-        pot=_pot_from_annotation(annotation),
+        pot=_first_number(
+            _pot_from_annotation(annotation),
+            _number_prediction_value(number_predictions, "texts", "pot"),
+        ),
         board=board,
         seats=seats,
         buttons=buttons,
@@ -528,6 +593,7 @@ def _recognized_seats_from_annotation(
     *,
     controlled_seat: int,
     hero_hole_cards: tuple[RecognizedCard, ...],
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
 ) -> tuple[RecognizedSeat, ...]:
     raw_seats = _mapping_sequence(None if annotation is None else annotation.get("seats"))
     seat_numbers = _seat_numbers(raw_seats, controlled_seat=controlled_seat)
@@ -538,6 +604,8 @@ def _recognized_seats_from_annotation(
         if seat_number is None:
             continue
         stack = _optional_int(item.get("stack"))
+        if stack is None and seat_number == controlled_seat:
+            stack = _number_prediction_value(number_predictions, "texts", "hero_stack")
         active = _optional_bool(item.get("active"))
         current = _optional_bool(item.get("current"))
         seats.append(
@@ -552,7 +620,10 @@ def _recognized_seats_from_annotation(
             )
         )
     if not seats and hero_hole_cards:
-        stack = _hero_stack_from_texts(annotation)
+        stack = _first_number(
+            _hero_stack_from_texts(annotation),
+            _number_prediction_value(number_predictions, "texts", "hero_stack"),
+        )
         if stack is not None:
             seats.append(
                 RecognizedSeat(
@@ -688,14 +759,113 @@ def _truth_button_label(annotation: Mapping[str, object] | None, slot: str) -> s
     return None
 
 
-def _button_amount(annotation: Mapping[str, object], slot: str) -> int | None:
+def _button_amount(
+    annotation: Mapping[str, object],
+    slot: str,
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+) -> int | None:
     label = _truth_button_label(annotation, slot)
-    if label is None:
+    if label is not None:
+        amount = _button_amount_from_label(label)
+        if amount is not None:
+            return amount
+    return _number_prediction_value(number_predictions, "buttons", slot)
+
+
+def _button_amount_from_label(label: str) -> int | None:
+    normalized = label.lower()
+    if "any" in normalized:
         return None
-    digits = "".join(char for char in label if char.isdigit())
-    if not digits:
-        return 0 if "check" in label.lower() else None
-    return int(digits)
+    if "check" in normalized:
+        return 0
+    return parse_poker_legends_chip_amount(label)
+
+
+def _number_roi_names_for_fallbacks(
+    annotation: Mapping[str, object] | None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    text_names: list[str] = []
+    if _pot_from_annotation(annotation) is None:
+        text_names.append("pot")
+    if _annotation_hero_stack(annotation) is None and _hero_stack_from_texts(annotation) is None:
+        text_names.append("hero_stack")
+
+    button_names: list[str] = []
+    for button in _mapping_sequence(None if annotation is None else annotation.get("buttons")):
+        if not bool(button.get("visible", True)):
+            continue
+        if str(button.get("action_type") or "") != "call":
+            continue
+        label = button.get("label")
+        if isinstance(label, str) and "any" in label.lower():
+            continue
+        if not isinstance(label, str) or _button_amount_from_label(label) is None:
+            name = str(button.get("name") or "")
+            if name:
+                button_names.append(name)
+    if annotation is None:
+        button_names.append("primary_left")
+    elif not button_names and not _has_truth_buttons(annotation):
+        button_names.append("primary_left")
+    return tuple(dict.fromkeys(text_names)), tuple(dict.fromkeys(button_names))
+
+
+def _annotation_hero_stack(annotation: Mapping[str, object] | None) -> int | None:
+    for seat in _mapping_sequence(None if annotation is None else annotation.get("seats")):
+        if str(seat.get("name") or "").lower() == "hero":
+            return _optional_int(seat.get("stack"))
+    return None
+
+
+def _has_truth_buttons(annotation: Mapping[str, object]) -> bool:
+    return any(
+        bool(button.get("visible", True)) for button in _mapping_sequence(annotation.get("buttons"))
+    )
+
+
+def _number_prediction_value(
+    predictions: tuple[PokerLegendsNumberPrediction, ...],
+    group: str,
+    name: str,
+) -> int | None:
+    prediction = _number_prediction(predictions, group, name)
+    if prediction is None:
+        return None
+    return prediction.normalized_number
+
+
+def _number_prediction_raw(
+    predictions: tuple[PokerLegendsNumberPrediction, ...],
+    group: str,
+    name: str,
+) -> str | None:
+    prediction = _number_prediction(predictions, group, name)
+    if prediction is None or not prediction.raw.strip():
+        return None
+    return prediction.raw
+
+
+def _number_prediction(
+    predictions: tuple[PokerLegendsNumberPrediction, ...],
+    group: str,
+    name: str,
+) -> PokerLegendsNumberPrediction | None:
+    for prediction in predictions:
+        if (
+            prediction.group == group
+            and prediction.name == name
+            and prediction.visible
+            and prediction.normalized_number is not None
+        ):
+            return prediction
+    return None
+
+
+def _first_number(*values: int | None) -> int | None:
+    for value in values:
+        if value is not None:
+            return value
+    return None
 
 
 def _mapping_sequence(value: object) -> list[Mapping[str, object]]:

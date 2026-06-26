@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 4 Poker Legends ScreenState + timeline v0）
+## 当前进度（截至 2026-06-27 阶段 4 Poker Legends numeric OCR fallback v1）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -199,11 +199,19 @@
   `missing_pot` 22、`missing_hero_seat` 7、`not_enough_players` 6、`missing_call_amount` 3、
   `board_count_mismatch` 3、`hero_not_current` 1 停手。产物在
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_actionable_v1/`。
+- 阶段 4 Poker Legends numeric OCR fallback v1：已新增 `PokerLegendsNumberRecognizer` 与
+  `uv run holdem-bot-evaluate-poker-legends-numbers ...`，专门识别 pot / hero stack / primary-left call
+  amount；table recognizer 仅在 reviewed truth 缺字段时才调用 OCR，并且只接受置信度达到阈值的数字，
+  低置信结果保留在 metadata/artifact 中但不进入 `GameState`。当前在同一批 57 个 actionable truth 帧上
+  扫描：OCR 尝试 23 帧、接受 20 帧；`missing_pot` 从 22 降到 3，prototype state 从 15 增到 16。
+  新暴露的后续 blocker 为 `missing_hero_seat` 13、`missing_legal_actions` 11、`not_enough_players` 7、
+  `missing_call_amount` 3、`board_count_mismatch` 3、`hero_not_current` 1。产物在
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_numeric_v1/`。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  108 tests）。
+  113 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -221,16 +229,16 @@
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前可用策略是 `actionable_table` 上 full-card template 优先，失败后要求
   rank/suit part 与 classifier consensus；该路径已接入 Poker Legends `RecognizedTable` /
-  prototype `GameState`，但仍依赖 truth 元数据里的 pot/stack/call amount。下一步优先做筹码/底池/
-  call 金额 OCR 与 seat 元数据治理，让更多真实截图能越过 `missing_pot` / `missing_hero_seat` /
-  `missing_call_amount` 这些 fail-closed blocker。
+  prototype `GameState`。numeric OCR fallback 已能消掉大多数 `missing_pot`，但低置信和歧义数字仍会
+  fail-closed。下一步优先治理 `missing_hero_seat` / `missing_legal_actions` / `missing_call_amount`，
+  再让更多真实截图越过 `RecognizedTable` → `GameState` 门槛。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
-- 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把
-  overlay 后面的数字字段继续标为 ignored。
-- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：补筹码/底池/call 金额 OCR，完善
-  hero seat 识别；只有当 screen、牌面、按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则
-  继续停在 `no_game_state` / `low_confidence`。
+- 继续校准筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，
+  低置信数字只记录不使用；overlay 后面的数字字段继续标为 ignored。
+- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：完善 hero seat 识别、current seat
+  推断、主按钮 legal action 生成与 call amount 解析；只有当 screen、牌面、按钮、筹码都超过阈值时
+  才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` / `low_confidence`。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。
