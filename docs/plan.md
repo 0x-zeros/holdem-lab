@@ -125,8 +125,8 @@
   已人工复核左侧活动/信息栏口径：`keyframe_000091`-`keyframe_000096` 按自动化安全口径标为
   `blocked_overlay`；`keyframe_000045` 已确认是底部 hero 筹码不足/买入提示 + 左下 winner 展示，也按
   `blocked_overlay` 处理。当前 `truth_overlay_v5` 为 `actionable_table` 15 / `blocked_overlay` 10 /
-  `table_observe` 1，7 帧带人工复核覆盖，ScreenState v0 达到 25/26（0.962）；唯一 mismatch 仍是
-  `keyframe_000045`，因为 v0 尚无右下买入提示信号，但该帧没有主动作按钮簇，暂不构成误点击风险。
+  `table_observe` 1，7 帧带人工复核覆盖；ScreenState v0 在补入右下买入提示 magenta 信号后达到
+  26/26（1.000），session_001 也保持 20/20（1.000）无回归。
   ROI/OCR 对 LLM candidate overall agreement 仅
   0.074，继续确认旧 OCR 不能作为 Poker Legends 主识别器。session_002 未复核牌面模板覆盖
   40/52，和 session_001 合并可达 47/52（仍缺 `2H` / `5S` / `7D` / `8S` / `QD`）。已把 truth 合成里的
@@ -150,15 +150,16 @@
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  97 tests）。
+  98 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
 **下一步：Poker Legends truth 复核与牌面/按钮/筹码识别到 GameState**
-- 保持 ScreenState v0 作为最外层安全闸门；继续用 `truth_overlay_v1` 评估，不让可疑帧进入
-  `ai.decide()`。
-- 后续补 `keyframe_000045` 这类右下买入提示检测；当前没有主动作按钮簇，不会触发点击。
+- 保持 ScreenState v0 作为最外层安全闸门；继续用 reviewed truth overlay（session_001 v1 /
+  session_002 v5）评估，不让可疑帧进入 `ai.decide()`。
+- 继续在更多样本上验证右下买入提示、左侧活动栏、中心弹窗等 blocked overlay 信号；安全口径仍是
+  可疑界面先停手。
 - 把 session timeline tracker 接到更密的关键帧识别输出上，用连续上下文稳定 hand boundary、
   overlay pause/resume 与 showdown/winner 展示，而不是只依赖单帧判断。
 - 按钮 truth 已规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /

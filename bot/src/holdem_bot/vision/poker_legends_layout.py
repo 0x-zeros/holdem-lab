@@ -225,6 +225,7 @@ def _raw_regions() -> dict[str, list[dict[str, object]]]:
             _overlay_region("center_modal", 470, 320, 660, 300).to_dict(),
             _overlay_region("left_panel", 70, 86, 430, 710).to_dict(),
             _overlay_region("right_lobby_panel", 1010, 190, 500, 520).to_dict(),
+            _overlay_region("bottom_buy_in_prompt", 1085, 780, 470, 135).to_dict(),
         ],
     }
 

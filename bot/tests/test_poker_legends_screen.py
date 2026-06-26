@@ -35,6 +35,22 @@ def test_detect_poker_legends_screen_blocks_overlay_before_buttons() -> None:
     assert "left_panel_low_mean" in detection.overlay_signals
 
 
+def test_detect_poker_legends_screen_blocks_buy_in_prompt() -> None:
+    image = table_image()
+    regions = poker_legends_layout_regions(1600, 982)
+    rect = region_rect(regions, "overlays", "bottom_buy_in_prompt")
+    image[
+        rect["y"] : rect["y"] + rect["height"],
+        rect["x"] : rect["x"] + rect["width"],
+    ] = np.array([220, 0, 180], dtype=np.uint8)
+
+    detection = detect_poker_legends_screen_state_from_image(image, regions=regions)
+
+    assert detection.screen.kind is ScreenKind.BLOCKED_OVERLAY
+    assert detection.screen.blocking_reason == "buy_in_prompt"
+    assert "bottom_buy_in_prompt_magenta" in detection.overlay_signals
+
+
 def test_evaluate_poker_legends_screen_state_writes_report(tmp_path: Path) -> None:
     regions = poker_legends_layout_regions(1600, 982)
     image = table_image()
