@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 3 最小 AI 入口）
+## 当前进度（截至 2026-06-26 阶段 2 最小 pygame 牌桌）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -25,16 +25,20 @@
   合法动作 id、动作 id → `Action` 的映射；OpenSpiel 后端验证到 `universal_poker` 可用。
 - 阶段 3 最小 AI 入口：`ai/` 已提供 `holdem_ai.decide(state) -> Action` 与确定性启发式
   `HeuristicPolicy`；当前不新增评估器/训练依赖，先让 game/bot 共用同一个决策入口。
+- 阶段 2 最小 pygame 牌桌：`game/` 已引入 pygame（官方 PyPI，锁文件记录哈希），提供
+  `uv run holdem-game` / `python -m holdem_game` 启动入口；可渲染座位、手牌/暗牌、公共牌、
+  筹码、底池与动作按钮，人类座位直连 `HoldemEnv.step()`，AI 座位调用 `holdem_ai.decide()`。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
-- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest，32 tests）。
+- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest，34 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
-  `0a79c5c`、`c93b1bd`、`d90410a`。尚未 push。
+  `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`。尚未 push。
 
-**下一步：进入阶段 2 pygame 牌桌**
-- 从官方 PyPI 添加 `pygame`，实现最小可玩的 host 牌桌：渲染座位/手牌/公共牌/筹码/底池，
-  人类按钮动作直连 `HoldemEnv.step()`，AI 座位调用 `holdem_ai.decide()`。
-- 暂缓：CFR/OpenSpiel/RLCard 训练入口、复杂动画和 Steam bot CV 管线。
+**下一步：进入阶段 4 的“先打自家 pygame 游戏”管线设计**
+- 先补 bot 抽象层骨架：`Capture` / `Recognizer` / `Automator` / `Orchestrator`，默认目标是自家
+  pygame 牌桌；容器内只做可测试的纯 Python 接口与 fixture，不碰 macOS 权限。
+- 需要决策前暂缓：是否现在添加截图/CV 依赖（如 mss/opencv/tesseract），还是先用
+  pygame/app 内部状态适配器把 bot 闭环跑通，再换真实截图识别。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。
