@@ -7,7 +7,7 @@ dependencies = []
 
 # Repo root is a non-package: uv manages one shared venv but does not try to build this dir.
 # The member packages (common/ engine/ ai/ game/ bot/) will be wired up as a uv workspace
-# when they are created. See the plan: ~/.claude/plans/ai-ai-steam-ai-jaunty-stonebraker.md
+# when they are created. See the roadmap: docs/plan.md
 [tool.uv]
 package = false
 

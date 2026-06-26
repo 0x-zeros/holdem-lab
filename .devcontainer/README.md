@@ -1,7 +1,7 @@
 # holdem-lab dev container
 
 Three-tier hybrid dev environment (see the full plan at
-`~/.claude/plans/ai-ai-steam-ai-jaunty-stonebraker.md`). **This directory is tier ① only.**
+[`docs/plan.md`](../docs/plan.md)). **This directory is tier ① only.**
 
 | Tier | What | Where it runs | Status |
 |------|------|---------------|--------|

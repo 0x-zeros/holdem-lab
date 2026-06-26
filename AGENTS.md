@@ -23,3 +23,8 @@
 > uv 取自 **astral-sh 官方 GitHub Release** 并校验 `.sha256` sidecar；Python 用 **Ubuntu 官方
 > apt**；`claude-code` / `codex` 用**官方 npm registry**。**不**使用 NodeSource 第三方 apt 源，
 > **不**使用 `curl | sh` 一键脚本。
+
+## 路线图（Roadmap）
+
+项目完整规划与分阶段实施见 `docs/plan.md`（德扑游戏 + 扑克 AI + Steam CV bot 的 Python
+重写）；**当前进度与下一步**记在该文件顶部。
