@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 holdem-bot-evaluate-fixture = "holdem_bot.vision.evaluate:main"
+holdem-bot-ingest-video = "holdem_bot.vision.video:main"
 
 [tool.uv.sources]
 holdem-ai = { workspace = true }
