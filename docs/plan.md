@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 4 Poker Legends 视频 + LLM/CV 对比）
+## 当前进度（截至 2026-06-26 阶段 4 Poker Legends truth overlay + ScreenState v0）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -85,25 +85,44 @@
   `BotOrchestrator` 现在只有在 screen 为可行动牌桌、识别置信度达标、有 `GameState`、且轮到受控座位
   时才会调用 `ai.decide()` 和 automator，其余状态一律返回停手原因。人工复核确认
   `keyframe_000124` 是“底部 hero 等待选择”的可行动帧，后续标注需要显式保留 bottom hero/current。
+- 阶段 4 Poker Legends truth overlay：已提供
+  `uv run holdem-bot-build-poker-legends-truth <candidate_annotations/*.json> --review-decisions ... --out ...`
+  工具，把 20 个 LLM candidate 与 `human_review_decisions.json` 合成为第一版可审阅真值层；输出
+  `truth_overlays/*.json`、`truth_overlay_summary.json`、`truth_overlay_report.md`。当前产物在
+  `artifacts/poker-legends-videos/session_001_selection/llm_annotation_slim/truth_overlay_v1/`：
+  20 帧、9 帧带人工复核覆盖、`actionable_table` 8 / `blocked_overlay` 6 / `table_observe` 6、
+  结构警告 0。关键人工结论已落地：`keyframe_000124` 为 bottom hero/current 可行动帧；
+  `keyframe_000132` 为 observe/showdown，普通底部手牌 ROI 被忽略；`keyframe_000145` 第三张公共牌为
+  `9S`。
+- 阶段 4 Poker Legends ScreenState recognizer v0：已提供图像版
+  `uv run holdem-bot-evaluate-poker-legends-screen-state <truth_overlays/*.json> --annotation-dir ... --image-root ... --out ...`
+  工具，基于当前 ROI layout 的按钮亮度/方差与 overlay 区域亮度信号，把真实截图先分类为
+  `actionable_table` / `table_observe` / `blocked_overlay`。当前在 20 张代表帧上相对
+  `truth_overlay_v1` 达到 20/20（1.000）screen-kind 匹配，报告在
+  `truth_overlay_v1/screen_state_eval/screen_state_report.md`。运行时
+  `PokerLegendsScreenStateRecognizer` 可消费 truth/candidate JSON 或截图路径；v0 只输出
+  `ScreenState`，`GameState` 仍为 `None`，因此现有安全闸门会在 `no_game_state` 停手，不会误点。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  60 tests）。
+  86 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：LLM 候选二次校验与 Poker Legends 识别器**
-- 不把 20 个 LLM 候选直接当真值入库；先做后处理/校验层：规范化 slot/name、清理 no-action
-  帧的无关筹码字段、对牌面花色做二次验证，并把冲突/低置信/抽检失败字段列入复核报告。
-- 把人工复核结论转成第一版可审阅 truth overlay：1/2/3/4/7/8 归为 stop 类，6 归为
-  `table_observe`，5（`keyframe_000124`）归为 bottom-hero `actionable_table`。
-- 传统 Tesseract ROI/OCR 在 Poker Legends 上只保留作对照基线；实时主链路需要走
-  template/card-crop classifier + button template/OCR + chip 专用 OCR 的组合，LLM 用于离线标注加速
-  和低置信兜底。
-- 用校验后的 Poker Legends 候选生成第一版人工可审阅标注，再实现能输出 `RecognizedTable` /
-  `GameState` 的 Poker Legends recognizer。
+**下一步：Poker Legends 牌面/按钮/筹码识别到 GameState**
+- 保持 ScreenState v0 作为最外层安全闸门；继续用 `truth_overlay_v1` 评估，不让可疑帧进入
+  `ai.decide()`。
+- 从 truth overlay 的可见牌面 crop 生成第一版 card template/classifier，先覆盖 hero 手牌与公共牌；
+  Tesseract ROI/OCR 只保留作对照基线，不作为牌面主识别器。
+- 做按钮语义识别：先用按钮区域视觉特征判断按钮存在，再用模板/轻量 OCR 解析
+  `fold/check/call/bet/raise/all_in`；遮挡/弹窗按钮如 confirm/cancel 只影响 ScreenState，不映射为扑克动作。
+- 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把
+  overlay 后面的数字字段继续标为 ignored。
+- 在 actionable truth 帧上实现 Poker Legends `RecognizedTable` → `GameState` 原型；只有当
+  screen、牌面、按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` /
+  `low_confidence`。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。

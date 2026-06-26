@@ -111,6 +111,11 @@ def draw_layout_overlay(
         raise RuntimeError(f"could not write overlay image: {output}")
 
 
+def poker_legends_layout_regions(width: int, height: int) -> dict[str, list[dict[str, object]]]:
+    """Return the first-pass scalable Poker Legends ROI layout."""
+    return _layout_regions(width, height)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Apply the first-pass Poker Legends ROI layout to draft annotations."

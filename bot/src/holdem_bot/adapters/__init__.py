@@ -5,9 +5,11 @@ from holdem_bot.adapters.in_process import (
     StateCapture,
     StateRecognizer,
 )
+from holdem_bot.adapters.poker_legends import PokerLegendsScreenStateRecognizer
 
 __all__ = [
     "ActionCallbackAutomator",
+    "PokerLegendsScreenStateRecognizer",
     "StateCapture",
     "StateRecognizer",
 ]
