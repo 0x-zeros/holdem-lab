@@ -156,6 +156,92 @@ def test_merge_applies_board_card_override() -> None:
     assert truth["board"][0]["card"] == "9S"
 
 
+def test_merge_rule_normalizes_actionable_primary_buttons() -> None:
+    candidate = {
+        "frame_id": "keyframe_000412",
+        "table_state": {
+            "is_table": True,
+            "is_actionable": True,
+            "street": "preflop",
+            "blocking_reason": "none",
+            "summary": "Hero can act.",
+            "confidence": 0.95,
+        },
+        "hero_hole_cards": [
+            {"slot": "hero_hole_0", "visible": True, "card": "QH", "confidence": 1.0}
+        ],
+        "board": [],
+        "buttons": [
+            {
+                "name": "primary_left",
+                "visible": True,
+                "label": "Call $10",
+                "action_type": "other",
+                "confidence": 0.8,
+            },
+            {
+                "name": "primary_middle",
+                "visible": True,
+                "label": "All In",
+                "action_type": "all_in",
+                "confidence": 0.8,
+            },
+            {
+                "name": "primary_right",
+                "visible": True,
+                "label": None,
+                "action_type": "other",
+                "confidence": 0.8,
+            },
+        ],
+        "texts": [],
+        "seats": [{"name": "hero", "visible": True, "current": True}],
+        "uncertain": [],
+    }
+
+    truth = cast(dict[str, Any], merge_poker_legends_truth(candidate))
+
+    assert {button["name"]: button["action_type"] for button in truth["buttons"]} == {
+        "primary_left": "call",
+        "primary_middle": "raise",
+        "primary_right": "fold",
+    }
+    assert truth["screen"]["kind"] == ScreenKind.ACTIONABLE_TABLE.value
+
+
+def test_merge_clears_poker_buttons_when_table_is_not_actionable() -> None:
+    candidate = {
+        "frame_id": "keyframe_000242",
+        "table_state": {
+            "is_table": True,
+            "is_actionable": False,
+            "street": "preflop",
+            "blocking_reason": "none",
+            "summary": "Waiting.",
+            "confidence": 0.95,
+        },
+        "hero_hole_cards": [],
+        "board": [],
+        "buttons": [
+            {
+                "name": "primary_left",
+                "visible": True,
+                "label": "Call",
+                "action_type": "call",
+                "confidence": 0.8,
+            }
+        ],
+        "texts": [],
+        "seats": [],
+        "uncertain": [],
+    }
+
+    truth = cast(dict[str, Any], merge_poker_legends_truth(candidate))
+
+    assert truth["buttons"][0]["action_type"] is None
+    assert truth["screen"]["kind"] == ScreenKind.TABLE_OBSERVE.value
+
+
 def test_screen_state_from_raw_candidate_classifies_table_observe() -> None:
     candidate = {
         "table_state": {

@@ -125,8 +125,10 @@
   ScreenState v0 对这版 candidate truth 为 19/26（0.731）；mismatch 主要是左侧活动/信息栏是否算
   hard block 的口径差异，当前 v0 走保守停手。ROI/OCR 对 LLM candidate overall agreement 仅
   0.074，继续确认旧 OCR 不能作为 Poker Legends 主识别器。session_002 未复核牌面模板覆盖
-  40/52，和 session_001 合并可达 47/52（仍缺 `2H` / `5S` / `7D` / `8S` / `QD`）；未复核按钮
-  模板 self accuracy 仅 0.643，说明按钮 truth 不能直接采用 LLM action_type，需要规则化合成或人工复核。
+  40/52，和 session_001 合并可达 47/52（仍缺 `2H` / `5S` / `7D` / `8S` / `QD`）。已把 truth 合成里的
+  主按钮 action_type 规则化：可操作桌面中 `primary_left` 只接受 `check/call`，`primary_middle`
+  映射 `raise`，`primary_right` 映射 `fold`，非可操作桌面清除扑克动作；session_002 未复核按钮模板
+  提升到 self accuracy 1.000、leave-frame precision 0.975 / coverage 1.000。
 - 阶段 4 Poker Legends rank/suit 牌面原型：已新增
   `uv run holdem-bot-build-poker-legends-card-part-templates ...`，把每张牌拆成 rank 局部模板与 suit
   局部模板，并额外输出 `leave_card` 评估（排除同一张具体牌，粗略衡量未见 rank+suit 组合的泛化）。
@@ -138,7 +140,7 @@
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  92 tests）。
+  94 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -149,7 +151,7 @@
 - 先复核 session_002 的 7 个 ScreenState mismatch：建议把左侧活动/信息栏按自动化安全口径标为
   `blocked_overlay`；`keyframe_000045` 的右下买入提示可后续补检测，因为当前没有主动作按钮簇，
   不会触发点击。
-- 按钮 truth 需要规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
+- 按钮 truth 已规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
   覆盖剩余未见牌（session_001 + session_002 未复核候选仍缺 `2H` / `5S` / `7D` / `8S` / `QD`），

@@ -132,6 +132,7 @@ def merge_poker_legends_truth(
         if isinstance(field, str) and field.startswith("board."):
             _apply_board_override(board, field, value, warnings)
 
+    buttons = _normalize_buttons_for_table_state(buttons, table_state)
     table_state, board, hero_hole_cards, texts, seats = _apply_ignored_fields(
         table_state,
         board,
@@ -336,6 +337,62 @@ def _normalize_buttons(value: object) -> list[dict[str, object]]:
             }
         )
     return buttons
+
+
+def _normalize_buttons_for_table_state(
+    buttons: Sequence[Mapping[str, object]],
+    table_state: Mapping[str, object],
+) -> list[dict[str, object]]:
+    actionable = (
+        bool(table_state.get("is_actionable"))
+        and _blocking_reason_or_none(table_state.get("blocking_reason")) is None
+    )
+    return [
+        _normalize_actionable_button(button) if actionable else _clear_poker_button_action(button)
+        for button in buttons
+    ]
+
+
+def _normalize_actionable_button(button: Mapping[str, object]) -> dict[str, object]:
+    normalized = dict(button)
+    if not bool(button.get("visible")):
+        normalized["action_type"] = None
+        return normalized
+
+    name = str(button.get("name") or "")
+    if name == "primary_left":
+        normalized["action_type"] = _primary_left_action(button)
+    elif name == "primary_middle":
+        normalized["action_type"] = "raise"
+    elif name == "primary_right":
+        normalized["action_type"] = "fold"
+    elif name.startswith("raise_shortcut"):
+        normalized["action_type"] = "raise"
+    elif button.get("action_type") not in POKER_ACTIONS:
+        normalized["action_type"] = None
+    return normalized
+
+
+def _primary_left_action(button: Mapping[str, object]) -> str | None:
+    text = " ".join(
+        value.lower()
+        for value in (
+            _string_or_none(button.get("label")),
+            _string_or_none(button.get("action_type")),
+        )
+        if value
+    )
+    for action in ("check", "call"):
+        if action in text:
+            return action
+    return None
+
+
+def _clear_poker_button_action(button: Mapping[str, object]) -> dict[str, object]:
+    normalized = dict(button)
+    if normalized.get("action_type") in POKER_ACTIONS:
+        normalized["action_type"] = None
+    return normalized
 
 
 def _normalize_texts(value: object) -> list[dict[str, object]]:
