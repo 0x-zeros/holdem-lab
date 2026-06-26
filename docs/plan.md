@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 交接）
+## 当前进度（截至 2026-06-26 阶段 1 启动）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -12,12 +12,21 @@
   `claude-shell`）已迁移并适配为 Python-at-root；`postCreate` 跑 `scripts/dev/setup-dev-env.sh`。
 - `pyproject.toml`（uv，非包；dev: ruff/pytest/mypy，已排除 legacy）、`AGENTS.md`
   （官方下载源规则）已就位。
-- 提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）。尚未 push。
+- 阶段 0 完成：`rust/` + `web/` 已整体 `git mv` 到 `equity-calculator/`；Pages workflow、
+  `.gitignore`、验证脚本路径已跟随更新；根 `pyproject.toml` 已转 uv workspace，成员为
+  `common/ engine/ ai/ game/ bot/`。
+- `common/` 已落地共享 `GameState` / `Action` / `Card` / `Street` / `PlayerState` / `Pot`
+  dataclass，作为 engine / game / ai / bot 的通用接口。
+- 阶段 1 已启动：`engine/` 已引入 PokerKit（PyPI，锁文件记录哈希），提供初版
+  `PokerKitFacade`、`HoldemEnv`、PokerKit → `GameState` 转换，以及边池/摊牌/筹码守恒测试。
+- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest）。
+- 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）。尚未 push。
 
-**下一步：阶段 0**
-- 把 `rust/` + `web/`（旧 equity 计算器）`git mv` 进 `equity-calculator/`；更新或暂停
-  `.github/workflows/deploy.yml` 的路径。
-- 建 uv workspace 成员 `common/ engine/ ai/ game/ bot/`，然后进入阶段 1（engine）。
+**下一步：阶段 1**
+- 扩展 `engine/` facade 的动作语义与观测：明确 no-limit bet/raise 的 amount 约定、补
+  旁观/单座位 censor 观察、可控发牌/固定 deck 测试入口。
+- 补齐规则测试：盲注、下注轮推进、全员弃牌、all-in runout、边池派奖、筹码守恒 property test。
+- 之后再接 OpenSpiel / RLCard 适配器；重依赖按需加。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。

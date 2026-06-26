@@ -3,13 +3,33 @@ name = "holdem-lab"
 version = "0.0.0"
 description = "Texas Hold'em game + poker AI + Steam CV bot (Python monorepo)"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "holdem-ai",
+    "holdem-bot",
+    "holdem-common",
+    "holdem-engine",
+    "holdem-game",
+]
 
 # Repo root is a non-package: uv manages one shared venv but does not try to build this dir.
-# The member packages (common/ engine/ ai/ game/ bot/) will be wired up as a uv workspace
-# when they are created. See the roadmap: docs/plan.md
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+holdem-ai = { workspace = true }
+holdem-bot = { workspace = true }
+holdem-common = { workspace = true }
+holdem-engine = { workspace = true }
+holdem-game = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "common",
+    "engine",
+    "ai",
+    "game",
+    "bot",
+]
 
 [dependency-groups]
 dev = [
@@ -21,9 +41,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# Legacy equity-calculator (rust/, web/ — to be archived under equity-calculator/)
-# is not part of the Python rebuild; keep it out of our lint/format/type checks.
-extend-exclude = ["rust", "web", "equity-calculator", ".venv-docker", ".venv-mac"]
+# Archived equity calculator is not part of the Python rebuild.
+extend-exclude = ["equity-calculator", ".local", ".venv-docker", ".venv-mac"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
@@ -31,4 +50,4 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-exclude = '^(rust|web|equity-calculator)/'
+exclude = '^(equity-calculator|\.local)/'

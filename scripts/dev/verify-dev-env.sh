@@ -19,13 +19,13 @@ bash scripts/dev/check-venv.sh
 
 [ -x "${VENV_DIR}/bin/python" ] || die "venv not found at ${VENV_DIR}; run scripts/dev/setup-dev-env.sh first"
 
-# Static checks only make sense once there is Python source (mypy/ruff error on
-# an empty tree). The skeleton has none yet (legacy rust/web is excluded), so
-# guard on it. Keep these excludes in sync with pyproject's ruff/mypy excludes.
+# Static checks only make sense once there is Python source. Keep these excludes
+# in sync with pyproject's ruff/mypy excludes.
 if find . -name '*.py' \
      -not -path '*/.venv*' \
-     -not -path './rust/*' -not -path './web/*' -not -path './equity-calculator/*' \
-     2>/dev/null | grep -q .; then
+     -not -path './equity-calculator/*' \
+     -not -path './.local/*' \
+     -print -quit 2>/dev/null | grep -q .; then
   log "ruff format --check"
   uv run ruff format --check .
   log "ruff lint"

@@ -1,0 +1,13 @@
+[project]
+name = "holdem-common"
+version = "0.0.0"
+description = "Shared Texas Hold'em state and action dataclasses"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/holdem_common"]

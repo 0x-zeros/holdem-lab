@@ -30,8 +30,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            rust/holdem-core
-            rust/holdem-wasm
+            equity-calculator/rust/holdem-core
+            equity-calculator/rust/holdem-wasm
 
       - name: Install wasm-pack
         run: cargo install wasm-pack
@@ -41,21 +41,21 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: web/frontend/package-lock.json
+          cache-dependency-path: equity-calculator/web/frontend/package-lock.json
 
       - name: Build WASM
         run: |
-          cd rust/holdem-wasm
+          cd equity-calculator/rust/holdem-wasm
           wasm-pack build --target web --release --out-dir ../../web/frontend/src/wasm
 
       - name: Install frontend dependencies
         run: |
-          cd web/frontend
+          cd equity-calculator/web/frontend
           npm ci
 
       - name: Build frontend
         run: |
-          cd web/frontend
+          cd equity-calculator/web/frontend
           npm run build
         env:
           VITE_USE_WASM: 'true'
@@ -67,7 +67,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: web/frontend/dist
+          path: equity-calculator/web/frontend/dist
 
   deploy:
     environment:
