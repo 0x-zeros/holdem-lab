@@ -35,6 +35,13 @@ from holdem_bot.vision.poker_legends_card_parts import (
     build_poker_legends_card_part_template_library,
     evaluate_poker_legends_card_part_templates,
 )
+from holdem_bot.vision.poker_legends_card_review import (
+    PokerLegendsCardReviewCandidate,
+    PokerLegendsCardReviewSelection,
+    PokerLegendsCardReviewSource,
+    PokerLegendsExcludedTruth,
+    select_poker_legends_card_review_candidates,
+)
 from holdem_bot.vision.poker_legends_cards import (
     PokerLegendsCardPrediction,
     PokerLegendsCardTemplate,
@@ -136,6 +143,9 @@ __all__ = [
     "PokerLegendsCardPartTemplate",
     "PokerLegendsCardPartTemplateManifest",
     "PokerLegendsCardPartTemplateRecognizer",
+    "PokerLegendsCardReviewCandidate",
+    "PokerLegendsCardReviewSelection",
+    "PokerLegendsCardReviewSource",
     "PokerLegendsCardTemplate",
     "PokerLegendsCardTemplateManifest",
     "PokerLegendsCardTemplateRecognizer",
@@ -143,6 +153,7 @@ __all__ = [
     "PokerLegendsButtonRecognizer",
     "PokerLegendsButtonTemplate",
     "PokerLegendsButtonTemplateManifest",
+    "PokerLegendsExcludedTruth",
     "PokerLegendsRoiButton",
     "PokerLegendsRoiCard",
     "PokerLegendsRoiOcrRecognizer",
@@ -206,4 +217,5 @@ __all__ = [
     "screen_state_from_poker_legends_annotation",
     "scan_poker_legends_ingest",
     "select_keyframes",
+    "select_poker_legends_card_review_candidates",
 ]

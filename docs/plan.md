@@ -165,17 +165,25 @@
 - 阶段 4 Poker Legends multi-source template 评估：已新增
   `uv run holdem-bot-build-poker-legends-multi-templates --source <name> <truth_dir> <annotation_dir> <image_root> ... --out ...`，
   可把多个 reviewed truth source 合并成带 source 前缀的 frame_id，解决不同视频 `keyframe_000023`
-  这类重名问题，并一次输出整牌模板、rank/suit 拆分模板和按钮模板评估。当前用 session_001
-  `truth_overlay_v1` + session_002 `auto_review_selection_v2/truth_overlay_v2` 生成
-  `artifacts/poker-legends-videos/multi_source_templates_v1/`：71 帧；整牌模板 246 个、覆盖 48/52，
-  leave-frame precision 0.958 / coverage 0.480；rank/suit 模板 492 个、覆盖 48/52，
-  leave-card precision 0.623 / coverage 0.496；按钮模板 21 个（call=11、check=10），
-  leave-frame precision/coverage 均为 1.000。当前仍缺具体牌 `5S` / `7D` / `8S` / `QD`。
+  这类重名问题，并一次输出整牌模板、rank/suit 拆分模板和按钮模板评估。v1 用 session_001
+  `truth_overlay_v1` + session_002 `auto_review_selection_v2/truth_overlay_v2` 生成 71 帧，覆盖 48/52。
+- 阶段 4 Poker Legends card-review 候选选择：已新增
+  `uv run holdem-bot-select-poker-legends-card-review-candidates --source <name> <ingest_manifest> ... --target-cards ...`，
+  用当前整牌模板和 rank/suit 模板扫描全量 ingest，排除已有 truth，只把目标缺牌与模板 gap 高价值帧
+  复制出来并套 ROI layout，供小 LLM 包复核。第一轮扫描 session_001 + session_002 共 590 帧，排除
+  已有 truth 73 帧，从 485 个可用桌面帧中选 48 帧；LLM 包 7.9MB（48 帧、336 个 card/board crop），
+  Gemini `gemini-3.1-flash-lite` 中途一次 503 后 resume 成功，补到 `5S` / `7D` / `QD`。加入
+  `card_review_selection_v1/truth_overlay_v1` 后生成
+  `artifacts/poker-legends-videos/multi_source_templates_v2/`：119 帧；整牌模板 529 个、覆盖 51/52，
+  leave-frame precision 0.956 / coverage 0.558；rank/suit 模板 1058 个、覆盖 51/52，
+  leave-card precision 0.627 / coverage 0.675；按钮仍为 21 个且 leave-frame precision/coverage 1.000。
+  第二轮只针对 `8S`，排除新增 truth 后从 437 个可用桌面帧中选 24 帧，LLM 包 3.1MB；未发现 `8S`。
+  现有两段视频的 A 路线已把缺牌收敛到只剩 `8S`。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  101 tests）。
+  102 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -191,10 +199,9 @@
   直接送 LLM；底部圆形 action strip 已确认为预选/快捷操作，不进入安全可点击判定。
 - 按钮 truth 已规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
-- 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
-  覆盖剩余未见牌（session_001 + session_002 reviewed 候选仍缺 `5S` / `7D` / `8S` / `QD`），
-  或继续把 rank/suit 局部分类器升级为更强的分类器来泛化到未见牌；当前朴素 rank/suit 模板的
-  `leave_card` precision 仍不足以直接上线。
+- 扩展牌面识别：当前 card template v0 是 fail-closed 基线；A 路线已从现有视频补到 51/52，
+  剩余未见牌为 `8S`。下一步按“先 A，再 B”的顺序进入 B：把 rank/suit 局部分类器升级为更强的
+  分类器来泛化到未见牌；当前朴素 rank/suit 模板的 `leave_card` precision 仍不足以直接上线。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把
