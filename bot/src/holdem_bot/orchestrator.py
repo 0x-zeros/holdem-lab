@@ -10,6 +10,7 @@ from holdem_common import Action, GameState
 from holdem_bot.automate import Automator
 from holdem_bot.capture import Capture
 from holdem_bot.recognize import Recognizer
+from holdem_bot.screen_state import ScreenState, evaluate_safety
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +20,7 @@ class BotStepResult:
     state: GameState | None = None
     action: Action | None = None
     confidence: float = 0.0
+    screen: ScreenState | None = None
 
 
 class BotOrchestrator:
@@ -45,32 +47,26 @@ class BotOrchestrator:
     def run_once(self) -> BotStepResult:
         frame = self.capture.capture()
         recognition = self.recognizer.recognize(frame)
-        state = recognition.state
+        decision = evaluate_safety(
+            screen=recognition.screen,
+            state=recognition.state,
+            recognition_confidence=recognition.confidence,
+            controlled_seat=self.seat,
+            min_confidence=self.min_confidence,
+        )
 
-        if recognition.confidence < self.min_confidence:
+        if not decision.allowed:
             return BotStepResult(
                 acted=False,
-                reason="low_confidence",
-                state=state,
-                confidence=recognition.confidence,
+                reason=decision.reason,
+                state=decision.state,
+                confidence=decision.confidence,
+                screen=decision.screen,
             )
 
-        if state.current_seat is None:
-            return BotStepResult(
-                acted=False,
-                reason="terminal",
-                state=state,
-                confidence=recognition.confidence,
-            )
-
-        if state.current_seat != self.seat:
-            return BotStepResult(
-                acted=False,
-                reason="waiting",
-                state=state,
-                confidence=recognition.confidence,
-            )
-
+        state = decision.state
+        if state is None:
+            raise RuntimeError("safety gate allowed an action without a GameState")
         action = decide(state)
         self.automator.perform(action, state)
         return BotStepResult(
@@ -78,5 +74,6 @@ class BotOrchestrator:
             reason="acted",
             state=state,
             action=action,
-            confidence=recognition.confidence,
+            confidence=decision.confidence,
+            screen=decision.screen,
         )

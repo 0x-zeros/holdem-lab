@@ -1,5 +1,5 @@
 import pytest
-from holdem_bot import BotOrchestrator, CapturedFrame, RecognitionResult
+from holdem_bot import BotOrchestrator, CapturedFrame, RecognitionResult, ScreenState
 from holdem_bot.adapters import ActionCallbackAutomator, StateCapture, StateRecognizer
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
 
@@ -38,6 +38,14 @@ class LowConfidenceRecognizer:
 
     def recognize(self, _frame: CapturedFrame) -> RecognitionResult:
         return RecognitionResult(state=self.state, confidence=0.25)
+
+
+class FixedRecognition:
+    def __init__(self, result: RecognitionResult) -> None:
+        self.result = result
+
+    def recognize(self, _frame: CapturedFrame) -> RecognitionResult:
+        return self.result
 
 
 def test_orchestrator_acts_when_it_is_controlled_seat_turn() -> None:
@@ -108,6 +116,101 @@ def test_orchestrator_skips_terminal_state() -> None:
 
     assert not result.acted
     assert result.reason == "terminal"
+    assert performed == []
+
+
+def test_orchestrator_blocks_overlay_before_deciding() -> None:
+    state = make_state()
+    performed: list[Action] = []
+    recognizer = FixedRecognition(
+        RecognitionResult(
+            state=state,
+            screen=ScreenState.blocked_overlay(blocking_reason="challenge_overlay"),
+        )
+    )
+    orchestrator = BotOrchestrator(
+        capture=StateCapture(lambda: state),
+        recognizer=recognizer,
+        automator=ActionCallbackAutomator(performed.append),
+        seat=0,
+    )
+
+    result = orchestrator.run_once()
+
+    assert not result.acted
+    assert result.reason == "blocked_overlay"
+    assert result.screen is not None
+    assert result.screen.blocking_reason == "challenge_overlay"
+    assert performed == []
+
+
+def test_orchestrator_blocks_non_table_screen_without_state() -> None:
+    state = make_state()
+    performed: list[Action] = []
+    recognizer = FixedRecognition(
+        RecognitionResult(
+            state=None,
+            screen=ScreenState.non_table_ui(reason="lobby"),
+        )
+    )
+    orchestrator = BotOrchestrator(
+        capture=StateCapture(lambda: state),
+        recognizer=recognizer,
+        automator=ActionCallbackAutomator(performed.append),
+        seat=0,
+    )
+
+    result = orchestrator.run_once()
+
+    assert not result.acted
+    assert result.reason == "non_table_ui"
+    assert result.state is None
+    assert performed == []
+
+
+def test_orchestrator_blocks_unknown_screen() -> None:
+    state = make_state()
+    performed: list[Action] = []
+    recognizer = FixedRecognition(
+        RecognitionResult(
+            state=state,
+            screen=ScreenState.unknown_or_transition(confidence=0.9, reason="animation"),
+        )
+    )
+    orchestrator = BotOrchestrator(
+        capture=StateCapture(lambda: state),
+        recognizer=recognizer,
+        automator=ActionCallbackAutomator(performed.append),
+        seat=0,
+    )
+
+    result = orchestrator.run_once()
+
+    assert not result.acted
+    assert result.reason == "unknown_or_transition"
+    assert performed == []
+
+
+def test_orchestrator_requires_state_for_actionable_table() -> None:
+    state = make_state()
+    performed: list[Action] = []
+    recognizer = FixedRecognition(
+        RecognitionResult(
+            state=None,
+            screen=ScreenState.actionable_table(hero_turn=True),
+        )
+    )
+    orchestrator = BotOrchestrator(
+        capture=StateCapture(lambda: state),
+        recognizer=recognizer,
+        automator=ActionCallbackAutomator(performed.append),
+        seat=0,
+    )
+
+    result = orchestrator.run_once()
+
+    assert not result.acted
+    assert result.reason == "no_game_state"
     assert performed == []
 
 

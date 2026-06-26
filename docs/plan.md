@@ -77,8 +77,14 @@
   工具，把现有 Tesseract ROI/OCR 输出与 LLM 候选逐字段比较，并写出
   `comparison_report.md` / `comparison.json` / `roi_ocr_results/`。当前 20 帧对比结果：
   cards 0/84、buttons 17/43、text_numbers 5/75、overall 22/202（约 10.9%）与 LLM 候选一致；
-  这说明旧 OCR 不能直接作为 Poker Legends 主识别器。LLM 候选整体明显更强，但抽查发现
-  `keyframe_000145` 有 `9C` 被标成 `9S` 的可能，候选标注仍需二次校验后才能作为真值。
+  这说明旧 OCR 不能直接作为 Poker Legends 主识别器。LLM 候选整体明显更强；对
+  `keyframe_000145` 的人工复核确认第三张公共牌是 `9S`，LLM 该字段正确。候选标注仍需二次校验后
+  才能作为真值。
+- 阶段 4 bot 安全闸门：已新增 `ScreenState` / `ScreenKind` / `evaluate_safety()`，把截图先分类为
+  `actionable_table`、`table_observe`、`blocked_overlay`、`non_table_ui`、`unknown_or_transition`；
+  `BotOrchestrator` 现在只有在 screen 为可行动牌桌、识别置信度达标、有 `GameState`、且轮到受控座位
+  时才会调用 `ai.decide()` 和 automator，其余状态一律返回停手原因。人工复核确认
+  `keyframe_000124` 是“底部 hero 等待选择”的可行动帧，后续标注需要显式保留 bottom hero/current。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
@@ -91,6 +97,8 @@
 **下一步：LLM 候选二次校验与 Poker Legends 识别器**
 - 不把 20 个 LLM 候选直接当真值入库；先做后处理/校验层：规范化 slot/name、清理 no-action
   帧的无关筹码字段、对牌面花色做二次验证，并把冲突/低置信/抽检失败字段列入复核报告。
+- 把人工复核结论转成第一版可审阅 truth overlay：1/2/3/4/7/8 归为 stop 类，6 归为
+  `table_observe`，5（`keyframe_000124`）归为 bottom-hero `actionable_table`。
 - 传统 Tesseract ROI/OCR 在 Poker Legends 上只保留作对照基线；实时主链路需要走
   template/card-crop classifier + button template/OCR + chip 专用 OCR 的组合，LLM 用于离线标注加速
   和低置信兜底。

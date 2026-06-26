@@ -9,13 +9,15 @@ from typing import Protocol
 from holdem_common import GameState
 
 from holdem_bot.capture import CapturedFrame
+from holdem_bot.screen_state import ScreenState
 
 
 @dataclass(frozen=True, slots=True)
 class RecognitionResult:
-    state: GameState
+    state: GameState | None
     confidence: float = 1.0
     metadata: Mapping[str, object] = field(default_factory=dict)
+    screen: ScreenState = field(default_factory=ScreenState.actionable_table)
 
 
 class Recognizer(Protocol):
