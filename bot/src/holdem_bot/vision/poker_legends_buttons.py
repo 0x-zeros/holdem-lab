@@ -19,7 +19,7 @@ from holdem_bot.vision.annotations import ScreenRect
 from holdem_bot.vision.poker_legends_screen import detect_poker_legends_screen_state
 
 RgbImage = NDArray[np.uint8]
-GrayFeature = NDArray[np.float32]
+ButtonFeature = NDArray[np.float32]
 
 DEFAULT_NORMALIZED_WIDTH = 96
 DEFAULT_NORMALIZED_HEIGHT = 64
@@ -203,7 +203,7 @@ class PokerLegendsButtonRecognizer:
 
     def _best_match(
         self,
-        feature: GrayFeature,
+        feature: ButtonFeature,
         *,
         exclude_frame_id: str | None,
     ) -> tuple[PokerLegendsButtonTemplate, float] | None:
@@ -480,32 +480,33 @@ def _action_counts(templates: Sequence[PokerLegendsButtonTemplate]) -> dict[str,
     return dict(sorted(counts.items()))
 
 
-def _feature_from_crop(crop: RgbImage) -> GrayFeature:
-    gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
+def _feature_from_crop(crop: RgbImage) -> ButtonFeature:
     resized = cv2.resize(
-        gray,
+        crop,
         (DEFAULT_NORMALIZED_WIDTH, DEFAULT_NORMALIZED_HEIGHT),
         interpolation=cv2.INTER_AREA,
     )
-    equalized = cv2.equalizeHist(resized)
-    return cast(GrayFeature, equalized.astype(np.float32) / 255.0)
+    return cast(ButtonFeature, resized.astype(np.float32) / 255.0)
 
 
-def _load_feature(path: str | Path) -> GrayFeature:
-    image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+def _load_feature(path: str | Path) -> ButtonFeature:
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if image is None:
         raise FileNotFoundError(f"could not read template image: {path}")
-    if image.shape != (DEFAULT_NORMALIZED_HEIGHT, DEFAULT_NORMALIZED_WIDTH):
+    if image.shape[:2] != (DEFAULT_NORMALIZED_HEIGHT, DEFAULT_NORMALIZED_WIDTH):
         image = cv2.resize(
             image,
             (DEFAULT_NORMALIZED_WIDTH, DEFAULT_NORMALIZED_HEIGHT),
             interpolation=cv2.INTER_AREA,
         )
-    return cast(GrayFeature, image.astype(np.float32) / 255.0)
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    return cast(ButtonFeature, rgb.astype(np.float32) / 255.0)
 
 
-def _write_feature_png(path: str | Path, feature: GrayFeature) -> None:
+def _write_feature_png(path: str | Path, feature: ButtonFeature) -> None:
     image = np.clip(feature * 255.0, 0, 255).astype(np.uint8)
+    if image.ndim == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     if not cv2.imwrite(str(path), image):
         raise RuntimeError(f"could not write template image: {path}")
 

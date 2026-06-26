@@ -114,9 +114,10 @@
   `uv run holdem-bot-build-poker-legends-button-templates <truth_overlays/*.json> --annotation-dir ... --image-root ... --out ...`
   工具，识别三个主动作按钮：`primary_left` 用模板区分 `check/call`（OCR 对 `Call` 不可靠）；
   `primary_middle` / `primary_right` 按固定位置映射为 `raise/fold`；raise shortcut 暂不作为动作输出，
-  避免和非动作 blind 控件混淆。当前产物在 `truth_overlay_v1/button_templates_v1/`：8 个
-  primary-left 模板（call=2、check=6），8 个 actionable 帧共 24 个主按钮 self 与 leave-frame
-  accuracy/precision/coverage 均为 1.000。
+  避免和非动作 blind 控件混淆。`primary_left` 模板特征已改为 RGB 归一化图像，避免灰度 equalize
+  弱化 `Call` 蓝色 C 与 `Check` 绿色对勾差异。当前产物在 `truth_overlay_v1/button_templates_v1/`：
+  8 个 primary-left 模板（call=2、check=6），8 个 actionable 帧共 24 个主按钮 self 与
+  leave-frame accuracy/precision/coverage 均为 1.000。
 - 阶段 4 Poker Legends session_002 分析：已对
   `artifacts/poker-legends-videos/raw/session_002.mov` 完成 ingest（22 分钟，413 个关键帧，18 页
   contact sheet），并生成 26 帧复核集与 ROI overlay。Gemini `gemini-3.1-flash-lite` 已执行
@@ -128,8 +129,7 @@
   `table_observe` 1，7 帧带人工复核覆盖；ScreenState v0 在补入右下买入提示 magenta 信号后达到
   26/26（1.000），session_001 也保持 20/20（1.000）无回归。
   ROI/OCR 对 LLM candidate overall agreement 仅
-  0.074，继续确认旧 OCR 不能作为 Poker Legends 主识别器。session_002 未复核牌面模板覆盖
-  40/52，和 session_001 合并可达 47/52（仍缺 `2H` / `5S` / `7D` / `8S` / `QD`）。已把 truth 合成里的
+  0.074，继续确认旧 OCR 不能作为 Poker Legends 主识别器。已把 truth 合成里的
   主按钮 action_type 规则化：可操作桌面中 `primary_left` 只接受 `check/call`，`primary_middle`
   映射 `raise`，`primary_right` 映射 `fold`，非可操作桌面清除扑克动作；session_002 未复核按钮模板
   提升到 self accuracy 1.000、leave-frame precision 0.975 / coverage 1.000。
@@ -162,18 +162,27 @@
   session_002 未复核 truth 上，保守阈值 `0.04/0.04` 得到 self 1.000、hidden false-positive 0、
   leave-frame precision 0.925 / coverage 0.626、leave-card precision 0.676 / coverage 0.346。结论：
   该原型可作为 fail-closed 辅助信号，但尚不能替代 LLM truth 或整牌模板来可靠识别完全未见组合。
+- 阶段 4 Poker Legends multi-source template 评估：已新增
+  `uv run holdem-bot-build-poker-legends-multi-templates --source <name> <truth_dir> <annotation_dir> <image_root> ... --out ...`，
+  可把多个 reviewed truth source 合并成带 source 前缀的 frame_id，解决不同视频 `keyframe_000023`
+  这类重名问题，并一次输出整牌模板、rank/suit 拆分模板和按钮模板评估。当前用 session_001
+  `truth_overlay_v1` + session_002 `auto_review_selection_v2/truth_overlay_v2` 生成
+  `artifacts/poker-legends-videos/multi_source_templates_v1/`：71 帧；整牌模板 246 个、覆盖 48/52，
+  leave-frame precision 0.958 / coverage 0.480；rank/suit 模板 492 个、覆盖 48/52，
+  leave-card precision 0.623 / coverage 0.496；按钮模板 21 个（call=11、check=10），
+  leave-frame precision/coverage 均为 1.000。当前仍缺具体牌 `5S` / `7D` / `8S` / `QD`。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  100 tests）。
+  101 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
 **下一步：Poker Legends truth 复核与牌面/按钮/筹码识别到 GameState**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 reviewed truth overlay（session_001 v1 /
-  session_002 v5）评估，不让可疑帧进入 `ai.decide()`。
+  session_002 v5 / session_002 auto review v2）评估，不让可疑帧进入 `ai.decide()`。
 - 继续在更多样本上验证右下买入提示、左侧活动栏、中心弹窗等 blocked overlay 信号；安全口径仍是
   可疑界面先停手。
 - 把 session timeline tracker 接到更密的关键帧识别输出上，用连续上下文稳定 hand boundary、
@@ -183,7 +192,7 @@
 - 按钮 truth 已规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
-  覆盖剩余未见牌（session_001 + session_002 未复核候选仍缺 `2H` / `5S` / `7D` / `8S` / `QD`），
+  覆盖剩余未见牌（session_001 + session_002 reviewed 候选仍缺 `5S` / `7D` / `8S` / `QD`），
   或继续把 rank/suit 局部分类器升级为更强的分类器来泛化到未见牌；当前朴素 rank/suit 模板的
   `leave_card` precision 仍不足以直接上线。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理

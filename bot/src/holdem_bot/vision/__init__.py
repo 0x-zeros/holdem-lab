@@ -60,6 +60,11 @@ from holdem_bot.vision.poker_legends_layout import (
     draw_layout_overlay,
     poker_legends_layout_regions,
 )
+from holdem_bot.vision.poker_legends_multi_templates import (
+    PokerLegendsTemplateSource,
+    build_and_evaluate_poker_legends_multi_templates,
+    materialize_poker_legends_template_dataset,
+)
 from holdem_bot.vision.poker_legends_screen import (
     PokerLegendsRegionFeature,
     PokerLegendsScreenDetection,
@@ -153,6 +158,7 @@ __all__ = [
     "PokerLegendsHandSegment",
     "PokerLegendsSessionTimeline",
     "PokerLegendsSessionTracker",
+    "PokerLegendsTemplateSource",
     "PokerLegendsTimelineEvent",
     "RecognitionScore",
     "RecognizedButton",
@@ -175,6 +181,7 @@ __all__ = [
     "build_poker_legends_card_part_template_library",
     "build_poker_legends_card_template_library",
     "build_poker_legends_button_template_library",
+    "build_and_evaluate_poker_legends_multi_templates",
     "build_poker_legends_recognition_comparison",
     "build_poker_legends_screen_scan",
     "build_poker_legends_session_timeline",
@@ -192,6 +199,7 @@ __all__ = [
     "execute_llm_annotation_package",
     "ingest_video",
     "merge_poker_legends_truth",
+    "materialize_poker_legends_template_dataset",
     "poker_legends_layout_regions",
     "recognize_from_annotation",
     "score_to_dict",
