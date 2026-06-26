@@ -67,6 +67,14 @@ from holdem_bot.vision.poker_legends_screen import (
     detect_poker_legends_screen_state_from_image,
     evaluate_poker_legends_screen_state,
 )
+from holdem_bot.vision.poker_legends_screen_scan import (
+    PokerLegendsLlmCandidate,
+    PokerLegendsScreenRun,
+    PokerLegendsScreenScan,
+    PokerLegendsScreenScanRow,
+    build_poker_legends_screen_scan,
+    scan_poker_legends_ingest,
+)
 from holdem_bot.vision.poker_legends_session import (
     PokerLegendsFrameObservation,
     PokerLegendsHandSegment,
@@ -137,6 +145,10 @@ __all__ = [
     "PokerLegendsRoiText",
     "PokerLegendsRegionFeature",
     "PokerLegendsScreenDetection",
+    "PokerLegendsLlmCandidate",
+    "PokerLegendsScreenRun",
+    "PokerLegendsScreenScan",
+    "PokerLegendsScreenScanRow",
     "PokerLegendsFrameObservation",
     "PokerLegendsHandSegment",
     "PokerLegendsSessionTimeline",
@@ -164,6 +176,7 @@ __all__ = [
     "build_poker_legends_card_template_library",
     "build_poker_legends_button_template_library",
     "build_poker_legends_recognition_comparison",
+    "build_poker_legends_screen_scan",
     "build_poker_legends_session_timeline",
     "build_poker_legends_truth_overlay",
     "compare_llm_candidate_to_roi",
@@ -183,5 +196,6 @@ __all__ = [
     "recognize_from_annotation",
     "score_to_dict",
     "screen_state_from_poker_legends_annotation",
+    "scan_poker_legends_ingest",
     "select_keyframes",
 ]

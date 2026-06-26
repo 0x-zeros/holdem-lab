@@ -241,7 +241,7 @@ def _regions_for_image(
             str(group): [region for region in _mapping_sequence(regions)]
             for group, regions in raw_regions.items()
         }
-        if _has_poker_legends_layout_metadata(layout_annotation):
+        if _has_poker_legends_layout_context(layout_annotation):
             return _merge_missing_default_regions(annotation_regions, default_regions)
         return annotation_regions
     return default_regions
@@ -308,9 +308,11 @@ def _merge_missing_default_regions(
     return merged
 
 
-def _has_poker_legends_layout_metadata(layout_annotation: Mapping[str, object] | None) -> bool:
+def _has_poker_legends_layout_context(layout_annotation: Mapping[str, object] | None) -> bool:
     if layout_annotation is None:
         return False
+    if layout_annotation.get("source") == "poker_legends_video":
+        return True
     metadata = layout_annotation.get("metadata")
     if not isinstance(metadata, Mapping):
         return False
