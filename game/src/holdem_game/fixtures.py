@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 from collections.abc import Sequence
 from pathlib import Path
+
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 import pygame
 from holdem_bot.vision import (
@@ -43,6 +46,7 @@ def write_pygame_fixture(
     stem: str = "pygame-preflop",
     size: tuple[int, int] = (1180, 760),
 ) -> TableAnnotation:
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     image_name = f"{stem}.png"

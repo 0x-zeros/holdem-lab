@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 4 最小 CV/OCR 识别器）
+## 当前进度（截至 2026-06-26 阶段 4 pygame CV/OCR 基线）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -44,16 +44,20 @@
   与 `tesseract-ocr` / `libgl1`（Ubuntu 官方 apt 源，已写入 devcontainer Dockerfile）；
   `bot/vision/roi_ocr.py` 可基于 fixture ROI 做 OpenCV 裁剪预处理、Tesseract OCR，并用
   `evaluate_recognition()` 统计识别准确率。
+- 阶段 4 pygame CV/OCR 基线：自家 pygame fixture 的 ROI/OCR 识别已覆盖牌面、按钮、筹码、
+  座位状态、当前行动座位；`uv run holdem-bot-evaluate-fixture <png> <json> --min-accuracy 1.0`
+  在当前 fixture 上达到 overall/cards/buttons/chips/seats/table 全部 1.0。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  47 tests）。
+  49 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
-  `d20669b`、`cabe333`。尚未 push。
+  `d20669b`、`cabe333`、`b40eef9`。尚未 push。
 
-**下一步：提高自家 pygame fixture 识别准确率**
-- 先补牌面模板匹配，替代 card OCR 对花色的误读；再补按钮/数字 OCR 的预处理和评价报告 CLI。
+**下一步：需要 host 侧样本后继续 Poker Legends 识别**
+- 在 macOS host 采集 Poker Legends 窗口截图样本，并按现有 JSON schema 标注座位、手牌/公共牌、
+  筹码、底池、按钮、轮到谁行动；之后复用 `RoiOcrRecognizer` / `evaluate_recognition()` 迭代真实游戏识别。
 - 暂不把 LLM/VLM 放进主链路；后续作为低置信度兜底或冷启动标注辅助。
 
 **环境备注（容器内）**

@@ -8,6 +8,7 @@ from holdem_bot.vision.annotations import (
     ScreenRect,
     TableAnnotation,
 )
+from holdem_bot.vision.evaluate import evaluate_fixture, score_to_dict
 from holdem_bot.vision.recognition import (
     CategoryScore,
     RecognitionScore,
@@ -35,6 +36,8 @@ __all__ = [
     "RoiOcrRecognizer",
     "ScreenRect",
     "TableAnnotation",
+    "evaluate_fixture",
     "evaluate_recognition",
     "recognize_from_annotation",
+    "score_to_dict",
 ]

@@ -32,7 +32,7 @@ _SUITS = set("cdhs")
 class RoiOcrConfig:
     crop_padding: int = 4
     ocr_scale: int = 5
-    face_brightness_threshold: float = 185.0
+    face_brightness_threshold: float = 130.0
     active_panel_rgb: tuple[int, int, int] = (44, 83, 70)
     inactive_panel_rgb: tuple[int, int, int] = (31, 41, 44)
 
@@ -120,21 +120,22 @@ class RoiOcrRecognizer:
         visible = _mean_brightness(roi) >= self.config.face_brightness_threshold
         if not visible:
             return RecognizedCard(slot=slot, card=None, visible=False, confidence=0.95)
-        text = self._ocr_text(roi, whitelist=_CARD_WHITELIST, psm=10)
         return RecognizedCard(
             slot=slot,
-            card=_card_code_from_text(text),
+            card=self._ocr_card_code(image, rect),
             visible=True,
-            confidence=0.60,
+            confidence=0.75,
         )
 
     def _recognize_button(self, image: RgbImage, rect: ScreenRect) -> RecognizedButton:
-        text = self._ocr_text(_crop(image, rect, self.config.crop_padding))
+        text = self._ocr_button_text(_crop(image, rect, pad=0))
         action_type = _action_type_from_text(text)
         return RecognizedButton(
             label=_normalize_text(text),
             action_type=action_type,
-            command="action",
+            command="new_hand"
+            if _normalize_text(text).lower().replace(" ", "") == "newhand"
+            else "action",
             confidence=0.60 if action_type is not None else 0.25,
         )
 
@@ -157,6 +158,58 @@ class RoiOcrRecognizer:
             None,
             fx=self.config.ocr_scale,
             fy=self.config.ocr_scale,
+            interpolation=cv2.INTER_CUBIC,
+        )
+        _, threshold = cv2.threshold(scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        config = f"--psm {psm} -c tessedit_char_whitelist={whitelist}"
+        return cast(str, pytesseract.image_to_string(threshold, config=config)).strip()
+
+    def _ocr_card_code(self, image: RgbImage, rect: ScreenRect) -> str | None:
+        for pad in (0, 4):
+            roi = _crop(image, rect, pad)
+            for scale in (4, 5):
+                for psm in (10, 7):
+                    text = self._ocr_text_with_scale(
+                        roi,
+                        scale=scale,
+                        whitelist=_CARD_WHITELIST,
+                        psm=psm,
+                    )
+                    card = _card_code_from_text(text)
+                    if card is not None:
+                        return card
+        return None
+
+    def _ocr_button_text(self, image: RgbImage) -> str:
+        first_text = ""
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        scaled = cv2.resize(gray, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+        _, threshold = cv2.threshold(scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        for candidate in (scaled, threshold, 255 - threshold):
+            for psm in (11, 8, 7):
+                text = cast(
+                    str, pytesseract.image_to_string(candidate, config=f"--psm {psm}")
+                ).strip()
+                if text and not first_text:
+                    first_text = text
+                if _action_type_from_text(text) is not None or "new" in text.lower():
+                    return text
+        return first_text
+
+    def _ocr_text_with_scale(
+        self,
+        image: RgbImage,
+        *,
+        scale: int,
+        whitelist: str,
+        psm: int,
+    ) -> str:
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        scaled = cv2.resize(
+            gray,
+            None,
+            fx=scale,
+            fy=scale,
             interpolation=cv2.INTER_CUBIC,
         )
         _, threshold = cv2.threshold(scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)

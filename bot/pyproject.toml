@@ -10,6 +10,9 @@ dependencies = [
     "pytesseract>=0.3.13",
 ]
 
+[project.scripts]
+holdem-bot-evaluate-fixture = "holdem_bot.vision.evaluate:main"
+
 [tool.uv.sources]
 holdem-ai = { workspace = true }
 holdem-common = { workspace = true }
