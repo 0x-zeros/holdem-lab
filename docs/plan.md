@@ -151,7 +151,10 @@
   `truth_overlay_v1`：`actionable_table` 32 / `table_observe` 17 / `blocked_overlay` 2，uncertain 21、
   warnings 8。ScreenState v0 对该未复核 truth 为 37/51（0.725）：8 张是安全阻塞口径
   （买入提示/左侧活动栏）应覆盖为 blocked，6 张是 LLM 把“在局中/底部预选条”当作 actionable 但
-  ScreenState 未见三主按钮簇，需人工确认底部圆形 action strip 是否允许作为可点击信号。
+  ScreenState 未见三主按钮簇。人工确认：底部圆形 action strip 是等待别人时的预选/快捷操作，
+  用于减少网络延迟，不作为安全自动点击信号；另外 4 张为轮到其他玩家操作。当前 reviewed
+  `truth_overlay_v2` 为 `actionable_table` 26 / `table_observe` 15 / `blocked_overlay` 10，
+  14 帧人工复核、warnings 0，ScreenState v0 达到 51/51（1.000）。
 - 阶段 4 Poker Legends rank/suit 牌面原型：已新增
   `uv run holdem-bot-build-poker-legends-card-part-templates ...`，把每张牌拆成 rank 局部模板与 suit
   局部模板，并额外输出 `leave_card` 评估（排除同一张具体牌，粗略衡量未见 rank+suit 组合的泛化）。
@@ -176,8 +179,7 @@
 - 把 session timeline tracker 接到更密的关键帧识别输出上，用连续上下文稳定 hand boundary、
   overlay pause/resume 与 showdown/winner 展示，而不是只依赖单帧判断。
 - 后续扩大 truth 时优先使用 dense scan 选出的 `auto_review_selection_v2` 这类候选集，不把整段视频
-  直接送 LLM；当前下一步是复核 14 个 ScreenState/LLM 分歧，尤其确认底部圆形 action strip 是
-  “当前可点击动作”还是“预选/快捷操作”。
+  直接送 LLM；底部圆形 action strip 已确认为预选/快捷操作，不进入安全可点击判定。
 - 按钮 truth 已规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
