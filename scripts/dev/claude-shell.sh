@@ -23,6 +23,10 @@ echo "Entering devcontainer: $CONTAINER"
 
 docker exec -it -u node -w /workspace "$CONTAINER" zsh
 
+# codex在.devcontainer里现在用得最舒服的命令：
+# 无文件沙盒限制，但仍保留审批：更像全盘权限；高风险动作仍可要求确认。
+# codex --sandbox danger-full-access --ask-for-approval on-request
+
 # --- handy variants (copy/run inside the container as needed) ---
 #
 # Claude Code:
