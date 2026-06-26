@@ -1,0 +1,267 @@
+from pathlib import Path
+
+from holdem_bot import CapturedFrame, ScreenKind
+from holdem_bot.adapters import PokerLegendsTableRecognizer
+from holdem_bot.vision import PokerLegendsCardConsensusPrediction
+from holdem_bot.vision.poker_legends_buttons import PokerLegendsButtonPrediction
+from holdem_common import ActionType, Street
+
+
+def test_poker_legends_table_recognizer_builds_prototype_state(tmp_path: Path) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    layout = {"image": str(image), "regions": {"cards": [], "board": [], "buttons": []}}
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer(
+            (
+                button_prediction("primary_left", "check", 0.90),
+                button_prediction("primary_middle", "raise", 0.90),
+                button_prediction("primary_right", "fold", 0.90),
+            )
+        ),
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": layout,
+            },
+        )
+    )
+
+    assert result.screen.kind is ScreenKind.ACTIONABLE_TABLE
+    assert result.state is not None
+    assert result.state.metadata["source"] == "poker_legends_prototype"
+    assert result.state.street is Street.FLOP
+    assert result.state.current_seat == 0
+    assert [card.code for card in result.state.player(0).hole_cards] == ["As", "Kh"]
+    assert [card.code for card in result.state.board] == ["2c", "7d", "Ts"]
+    assert {action.action_type for action in result.state.legal_actions} == {
+        ActionType.CHECK,
+        ActionType.RAISE,
+        ActionType.FOLD,
+    }
+    table = result.metadata["recognized_table"]
+    assert isinstance(table, dict)
+    assert table["pot"] == 150
+    assert result.confidence == 0.90
+
+
+def test_poker_legends_table_recognizer_skips_non_actionable_without_image_work(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    annotation["screen"] = {"kind": "table_observe", "confidence": 0.99, "hero_turn": False}
+    card_recognizer = FakeCardRecognizer(())
+    button_recognizer = FakeButtonRecognizer(())
+
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=card_recognizer,
+        button_recognizer=button_recognizer,
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {"image": str(image), "regions": {}},
+            },
+        )
+    )
+
+    assert result.screen.kind is ScreenKind.TABLE_OBSERVE
+    assert result.state is None
+    assert card_recognizer.calls == 0
+    assert button_recognizer.calls == 0
+
+
+def test_poker_legends_table_recognizer_fails_closed_without_pot(tmp_path: Path) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    annotation["texts"] = []
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer((button_prediction("primary_left", "check", 0.90),)),
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {"image": str(image), "regions": {}},
+            },
+        )
+    )
+
+    assert result.screen.kind is ScreenKind.ACTIONABLE_TABLE
+    assert result.state is None
+    assert result.metadata["state_block_reason"] == "missing_pot"
+
+
+class FakeCardRecognizer:
+    def __init__(self, predictions: tuple[PokerLegendsCardConsensusPrediction, ...]) -> None:
+        self.predictions = predictions
+        self.calls = 0
+
+    def recognize(
+        self,
+        _image_path: str | Path,
+        _annotation: object,
+        *,
+        frame_id: str,
+        exclude_frame_id: str | None = None,
+        exclude_card: str | None = None,
+    ) -> tuple[PokerLegendsCardConsensusPrediction, ...]:
+        self.calls += 1
+        assert frame_id == "frame_001"
+        assert exclude_frame_id is None
+        assert exclude_card is None
+        return self.predictions
+
+
+class FakeButtonRecognizer:
+    def __init__(self, predictions: tuple[PokerLegendsButtonPrediction, ...]) -> None:
+        self.predictions = predictions
+        self.calls = 0
+
+    def recognize(
+        self,
+        _image_path: str | Path,
+        _annotation: object,
+        *,
+        frame_id: str,
+        exclude_frame_id: str | None = None,
+    ) -> tuple[PokerLegendsButtonPrediction, ...]:
+        self.calls += 1
+        assert frame_id == "frame_001"
+        assert exclude_frame_id is None
+        return self.predictions
+
+
+def actionable_truth() -> dict[str, object]:
+    return {
+        "frame_id": "frame_001",
+        "screen": {
+            "kind": "actionable_table",
+            "confidence": 0.99,
+            "hero_turn": True,
+            "reason": "hero can act",
+        },
+        "table_state": {"street": "flop"},
+        "buttons": [
+            {
+                "name": "primary_left",
+                "visible": True,
+                "action_type": "check",
+                "label": "Check",
+            },
+            {
+                "name": "primary_middle",
+                "visible": True,
+                "action_type": "raise",
+                "label": "Raise",
+            },
+            {
+                "name": "primary_right",
+                "visible": True,
+                "action_type": "fold",
+                "label": "Fold",
+            },
+        ],
+        "texts": [
+            {
+                "name": "pot",
+                "visible": True,
+                "normalized_number": 150,
+                "confidence": 1.0,
+            }
+        ],
+        "seats": [
+            {
+                "name": "hero",
+                "visible": True,
+                "stack": 900,
+                "committed": 0,
+                "active": True,
+                "current": True,
+                "confidence": 1.0,
+            },
+            {
+                "name": "villain",
+                "visible": True,
+                "stack": 1200,
+                "committed": 0,
+                "active": True,
+                "current": False,
+                "confidence": 1.0,
+            },
+        ],
+    }
+
+
+def card_prediction(
+    group: str,
+    slot: str,
+    card: str,
+    confidence: float,
+) -> PokerLegendsCardConsensusPrediction:
+    return PokerLegendsCardConsensusPrediction(
+        frame_id="frame_001",
+        group=group,
+        slot=slot,
+        visible=True,
+        card=card,
+        confidence=confidence,
+        method="test",
+        full_card=card,
+        part_card=card,
+        classifier_card=card,
+        full_confidence=confidence,
+        part_confidence=confidence,
+        classifier_confidence=confidence,
+    )
+
+
+def button_prediction(
+    slot: str,
+    action_type: str,
+    confidence: float,
+) -> PokerLegendsButtonPrediction:
+    return PokerLegendsButtonPrediction(
+        frame_id="frame_001",
+        slot=slot,
+        visible=True,
+        action_type=action_type,
+        confidence=confidence,
+    )

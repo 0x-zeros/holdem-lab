@@ -191,11 +191,19 @@
   hidden false-positive 0。结论：classifier 单体不直接上线；`actionable_table` 上用 full-card +
   part/classifier consensus 作为 fail-closed 牌面信号，observe/showdown 继续走 timeline/暂停口径。
   诊断产物在 `artifacts/poker-legends-videos/multi_source_templates_v2/card_truth_audit_v1/`。
+- 阶段 4 Poker Legends table recognizer prototype：已新增 `PokerLegendsTableRecognizer`，把
+  ScreenState、card consensus、button recognizer 与已复核 truth 元数据合成为
+  `RecognizedTable`，并且只在 `actionable_table`、pot/seat/hero 手牌/board/按钮等字段齐全时构造
+  prototype `GameState`；纯截图或元数据不足仍保持 `state=None` fail-closed。当前在
+  `multi_source_templates_v2` 的 57 个 actionable truth 帧上扫描：15 帧生成 prototype state；其余按
+  `missing_pot` 22、`missing_hero_seat` 7、`not_enough_players` 6、`missing_call_amount` 3、
+  `board_count_mismatch` 3、`hero_not_current` 1 停手。产物在
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_actionable_v1/`。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  102 tests）。
+  108 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -212,17 +220,17 @@
 - 按钮 truth 已规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前可用策略是 `actionable_table` 上 full-card template 优先，失败后要求
-  rank/suit part 与 classifier consensus；该路径保持 hidden false-positive 0，但 leave-card coverage
-  只有约 0.50，仍是 fail-closed 辅助信号，不是完整 GameState 牌面 oracle。下一步把该 consensus
-  接到 Poker Legends `RecognizedTable` / `GameState` 原型，并把 observe/showdown 的 winner 展示牌、
-  slot 错位和 LLM truth 噪声纳入单独 truth 治理。
+  rank/suit part 与 classifier consensus；该路径已接入 Poker Legends `RecognizedTable` /
+  prototype `GameState`，但仍依赖 truth 元数据里的 pot/stack/call amount。下一步优先做筹码/底池/
+  call 金额 OCR 与 seat 元数据治理，让更多真实截图能越过 `missing_pot` / `missing_hero_seat` /
+  `missing_call_amount` 这些 fail-closed blocker。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把
   overlay 后面的数字字段继续标为 ignored。
-- 在 actionable truth 帧上实现 Poker Legends `RecognizedTable` → `GameState` 原型；只有当
-  screen、牌面、按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` /
-  `low_confidence`。
+- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：补筹码/底池/call 金额 OCR，完善
+  hero seat 识别；只有当 screen、牌面、按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则
+  继续停在 `no_game_state` / `low_confidence`。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。
