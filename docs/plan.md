@@ -122,8 +122,10 @@
   contact sheet），并生成 26 帧复核集与 ROI overlay。Gemini `gemini-3.1-flash-lite` 已执行
   26/26 个 LLM candidate（中途一次 503 后 resume 成功，未重复已成功帧），合成未人工复核版
   `truth_overlay_v1`：`actionable_table` 15 / `table_observe` 7 / `blocked_overlay` 4，uncertain 11。
-  ScreenState v0 对这版 candidate truth 为 19/26（0.731）；mismatch 主要是左侧活动/信息栏是否算
-  hard block 的口径差异，当前 v0 走保守停手。ROI/OCR 对 LLM candidate overall agreement 仅
+  已人工复核左侧活动/信息栏口径：`keyframe_000091`-`keyframe_000096` 按自动化安全口径标为
+  `blocked_overlay`，当前 `truth_overlay_v4` 为 `actionable_table` 15 / `blocked_overlay` 10 /
+  `table_observe` 1，ScreenState v0 达到 25/26（0.962）；唯一 mismatch 是 `keyframe_000045`
+  右下买入提示，因无主动作按钮簇暂不构成误点击风险。ROI/OCR 对 LLM candidate overall agreement 仅
   0.074，继续确认旧 OCR 不能作为 Poker Legends 主识别器。session_002 未复核牌面模板覆盖
   40/52，和 session_001 合并可达 47/52（仍缺 `2H` / `5S` / `7D` / `8S` / `QD`）。已把 truth 合成里的
   主按钮 action_type 规则化：可操作桌面中 `primary_left` 只接受 `check/call`，`primary_middle`
@@ -148,9 +150,7 @@
 **下一步：Poker Legends truth 复核与牌面/按钮/筹码识别到 GameState**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 `truth_overlay_v1` 评估，不让可疑帧进入
   `ai.decide()`。
-- 先复核 session_002 的 7 个 ScreenState mismatch：建议把左侧活动/信息栏按自动化安全口径标为
-  `blocked_overlay`；`keyframe_000045` 的右下买入提示可后续补检测，因为当前没有主动作按钮簇，
-  不会触发点击。
+- 后续补 `keyframe_000045` 这类右下买入提示检测；当前没有主动作按钮簇，不会触发点击。
 - 按钮 truth 已规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
