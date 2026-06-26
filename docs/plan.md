@@ -127,11 +127,18 @@
   0.074，继续确认旧 OCR 不能作为 Poker Legends 主识别器。session_002 未复核牌面模板覆盖
   40/52，和 session_001 合并可达 47/52（仍缺 `2H` / `5S` / `7D` / `8S` / `QD`）；未复核按钮
   模板 self accuracy 仅 0.643，说明按钮 truth 不能直接采用 LLM action_type，需要规则化合成或人工复核。
+- 阶段 4 Poker Legends rank/suit 牌面原型：已新增
+  `uv run holdem-bot-build-poker-legends-card-part-templates ...`，把每张牌拆成 rank 局部模板与 suit
+  局部模板，并额外输出 `leave_card` 评估（排除同一张具体牌，粗略衡量未见 rank+suit 组合的泛化）。
+  synthetic 测试覆盖 `AS/AH/KS/KH`，证明同一 rank 与 suit 在其他组合中出现时可以组合识别。真实
+  session_002 未复核 truth 上，保守阈值 `0.04/0.04` 得到 self 1.000、hidden false-positive 0、
+  leave-frame precision 0.925 / coverage 0.626、leave-card precision 0.676 / coverage 0.346。结论：
+  该原型可作为 fail-closed 辅助信号，但尚不能替代 LLM truth 或整牌模板来可靠识别完全未见组合。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  90 tests）。
+  92 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -146,7 +153,8 @@
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
   覆盖剩余未见牌（session_001 + session_002 未复核候选仍缺 `2H` / `5S` / `7D` / `8S` / `QD`），
-  或实现 rank/suit 局部分类器来泛化到未见牌。
+  或继续把 rank/suit 局部分类器升级为更强的分类器来泛化到未见牌；当前朴素 rank/suit 模板的
+  `leave_card` precision 仍不足以直接上线。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把
