@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 4 Poker Legends 视频 + LLM 标注包）
+## 当前进度（截至 2026-06-26 阶段 4 Poker Legends 视频 + LLM/CV 对比）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -71,7 +71,14 @@
   整图、360 个必要 ROI crop（board/cards/buttons/texts）、`requests.jsonl`、`manifest.json` 和
   `package_report.md`，总包约 6.3MB。执行器默认跳过已有候选结果，支持中断后 resume，避免重复计费。
 - 阶段 4 LLM 候选标注执行：Gemini key 已通过本地 `.env` 提供；当前 `llm_annotation_slim/` 已成功
-  生成 7/20 个 `candidate_annotations`，后续帧遇到 Gemini 503 高需求错误，可稍后直接 resume。
+  生成 20/20 个 `candidate_annotations` 与 provider 原始响应，可中断 resume，避免重复计费。
+- 阶段 4 Poker Legends LLM/CV 对比：已提供
+  `uv run holdem-bot-compare-poker-legends-recognition <annotations...> --image-root ... --candidate-dir ... --out ...`
+  工具，把现有 Tesseract ROI/OCR 输出与 LLM 候选逐字段比较，并写出
+  `comparison_report.md` / `comparison.json` / `roi_ocr_results/`。当前 20 帧对比结果：
+  cards 0/84、buttons 17/43、text_numbers 5/75、overall 22/202（约 10.9%）与 LLM 候选一致；
+  这说明旧 OCR 不能直接作为 Poker Legends 主识别器。LLM 候选整体明显更强，但抽查发现
+  `keyframe_000145` 有 `9C` 被标成 `9S` 的可能，候选标注仍需二次校验后才能作为真值。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
@@ -81,13 +88,14 @@
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：resume LLM 候选标注**
-- 稍后对 `artifacts/poker-legends-videos/session_001_selection/llm_annotation_slim/manifest.json` 再运行
-  `holdem-bot-llm-annotate --execute`；已有 7 帧会自动跳过，只提交剩余帧。若
-  `gemini-3.1-flash-lite` 继续 503，可临时加 `--model gemini-2.5-flash-lite` 重试。
-- LLM 先作为标注工厂主力：对 table 帧产出手牌/公共牌、筹码、底池、按钮、轮到谁行动；对
-  overlay/modal 帧产出 blocking/no-action 状态。候选标注通过冲突/低置信报告筛出少量需要复核的项。
-- 实时 bot 主链路仍先保留 CV/OCR/template；LLM 用于低置信兜底和离线标注加速。
+**下一步：LLM 候选二次校验与 Poker Legends 识别器**
+- 不把 20 个 LLM 候选直接当真值入库；先做后处理/校验层：规范化 slot/name、清理 no-action
+  帧的无关筹码字段、对牌面花色做二次验证，并把冲突/低置信/抽检失败字段列入复核报告。
+- 传统 Tesseract ROI/OCR 在 Poker Legends 上只保留作对照基线；实时主链路需要走
+  template/card-crop classifier + button template/OCR + chip 专用 OCR 的组合，LLM 用于离线标注加速
+  和低置信兜底。
+- 用校验后的 Poker Legends 候选生成第一版人工可审阅标注，再实现能输出 `RecognizedTable` /
+  `GameState` 的 Poker Legends recognizer。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。
