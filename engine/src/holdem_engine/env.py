@@ -31,10 +31,7 @@ class HoldemEnv:
         return self.facade.reset()
 
     def observe(self, seat: int | None = None) -> GameState:
-        observation = self.facade.observe()
-        if seat is not None:
-            observation.player(seat)
-        return observation
+        return self.facade.observe(seat)
 
     def legal_actions(self) -> tuple[Action, ...]:
         return self.facade.legal_actions()

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from holdem_common import Card
+
 
 @dataclass(frozen=True, slots=True)
 class HoldemConfig:
@@ -15,6 +17,7 @@ class HoldemConfig:
     button_seat: int = 0
     small_blind_seat: int = 0
     big_blind_seat: int = 1
+    deck: tuple[Card, ...] | None = None
 
     def __post_init__(self) -> None:
         if len(self.starting_stacks) < 2:
@@ -30,3 +33,8 @@ class HoldemConfig:
         for seat in (self.button_seat, self.small_blind_seat, self.big_blind_seat):
             if seat < 0 or seat >= len(self.starting_stacks):
                 raise ValueError(f"seat {seat} is outside the table")
+        if self.deck is not None:
+            if len(set(self.deck)) != len(self.deck):
+                raise ValueError("fixed deck cannot contain duplicate cards")
+            if len(self.deck) < 2 * len(self.starting_stacks):
+                raise ValueError("fixed deck must contain enough cards for all hole cards")

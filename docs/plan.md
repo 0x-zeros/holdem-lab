@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 1 启动）
+## 当前进度（截至 2026-06-26 阶段 1 engine + adapter 边界）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -17,16 +17,23 @@
   `common/ engine/ ai/ game/ bot/`。
 - `common/` 已落地共享 `GameState` / `Action` / `Card` / `Street` / `PlayerState` / `Pot`
   dataclass，作为 engine / game / ai / bot 的通用接口。
-- 阶段 1 已启动：`engine/` 已引入 PokerKit（PyPI，锁文件记录哈希），提供初版
-  `PokerKitFacade`、`HoldemEnv`、PokerKit → `GameState` 转换，以及边池/摊牌/筹码守恒测试。
-- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest）。
-- 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）。尚未 push。
+- 阶段 1 engine 基础闭环：`engine/` 已引入 PokerKit（官方 PyPI，锁文件记录哈希），提供
+  `PokerKitFacade`、`HoldemEnv`、PokerKit → `GameState` 转换；支持固定 deck 测试入口、
+  单座位隐藏观测、no-limit bet/raise-to 金额语义。
+- 阶段 1 adapter 边界：已引入 RLCard 与 OpenSpiel（均来自官方 PyPI，锁文件记录哈希），
+  `engine/holdem_engine/adapters/{rlcard.py,openspiel.py}` 已提供 `GameState` → 训练/求解观测、
+  合法动作 id、动作 id → `Action` 的映射；OpenSpiel 后端验证到 `universal_poker` 可用。
+- 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
+  摊牌平分、边池派奖、筹码守恒。
+- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest，25 tests）。
+- 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
+  `0a79c5c`、`c93b1bd`。尚未 push。
 
-**下一步：阶段 1**
-- 扩展 `engine/` facade 的动作语义与观测：明确 no-limit bet/raise 的 amount 约定、补
-  旁观/单座位 censor 观察、可控发牌/固定 deck 测试入口。
-- 补齐规则测试：盲注、下注轮推进、全员弃牌、all-in runout、边池派奖、筹码守恒 property test。
-- 之后再接 OpenSpiel / RLCard 适配器；重依赖按需加。
+**下一步：需要决策后进入阶段 2/3**
+- 推荐顺序：先做阶段 3 的最小 `ai.decide(state) -> action` 启发式策略（不加重依赖，先让
+  game/bot 有同一个可调用决策入口），再进入阶段 2 pygame 牌桌，把人类座位和 AI 座位接上。
+- 备选路线：直接进入阶段 2 pygame 牌桌（需要从官方 PyPI 添加 `pygame`），或先深化阶段 3 的
+  CFR/OpenSpiel/RLCard 训练入口。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。

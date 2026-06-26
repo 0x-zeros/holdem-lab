@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 
 from holdem_common import (
     Action,
@@ -85,7 +86,12 @@ def pots_from_pokerkit(state: PokerKitState) -> tuple[Pot, ...]:
     return tuple(pots)
 
 
-def game_state_from_pokerkit(state: PokerKitState, config: HoldemConfig) -> GameState:
+def game_state_from_pokerkit(
+    state: PokerKitState,
+    config: HoldemConfig,
+    *,
+    viewer_seat: int | None = None,
+) -> GameState:
     legal_actions = legal_actions_from_pokerkit(state)
     current_seat = state.turn_index if legal_actions else None
     to_call = state.checking_or_calling_amount or 0
@@ -105,6 +111,15 @@ def game_state_from_pokerkit(state: PokerKitState, config: HoldemConfig) -> Game
         )
         for seat in state.player_indices
     )
+    if viewer_seat is not None:
+        if viewer_seat not in state.player_indices:
+            raise KeyError(f"unknown seat: {viewer_seat}")
+        players = tuple(
+            player
+            if player.seat == viewer_seat or not state.status
+            else replace(player, hole_cards=())
+            for player in players
+        )
 
     return GameState(
         hand_id=config.hand_id,
@@ -123,5 +138,6 @@ def game_state_from_pokerkit(state: PokerKitState, config: HoldemConfig) -> Game
         metadata={
             "payoffs": tuple(state.payoffs),
             "pokerkit_status": state.status,
+            "viewer_seat": viewer_seat,
         },
     )

@@ -68,6 +68,14 @@ class Card:
 
 @dataclass(frozen=True, slots=True)
 class Action:
+    """A public action request or legal-action descriptor.
+
+    For no-limit ``BET``/``RAISE``/``ALL_IN``, ``amount`` is the total street
+    commitment after the action, matching PokerKit's "bet/raise to" semantics.
+    For ``CALL``, it is the chips required to continue. ``min_amount`` and
+    ``max_amount`` describe the legal total-commitment range when applicable.
+    """
+
     action_type: ActionType
     amount: int = 0
     min_amount: int | None = None
