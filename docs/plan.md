@@ -117,6 +117,16 @@
   避免和非动作 blind 控件混淆。当前产物在 `truth_overlay_v1/button_templates_v1/`：8 个
   primary-left 模板（call=2、check=6），8 个 actionable 帧共 24 个主按钮 self 与 leave-frame
   accuracy/precision/coverage 均为 1.000。
+- 阶段 4 Poker Legends session_002 分析：已对
+  `artifacts/poker-legends-videos/raw/session_002.mov` 完成 ingest（22 分钟，413 个关键帧，18 页
+  contact sheet），并生成 26 帧复核集与 ROI overlay。Gemini `gemini-3.1-flash-lite` 已执行
+  26/26 个 LLM candidate（中途一次 503 后 resume 成功，未重复已成功帧），合成未人工复核版
+  `truth_overlay_v1`：`actionable_table` 15 / `table_observe` 7 / `blocked_overlay` 4，uncertain 11。
+  ScreenState v0 对这版 candidate truth 为 19/26（0.731）；mismatch 主要是左侧活动/信息栏是否算
+  hard block 的口径差异，当前 v0 走保守停手。ROI/OCR 对 LLM candidate overall agreement 仅
+  0.074，继续确认旧 OCR 不能作为 Poker Legends 主识别器。session_002 未复核牌面模板覆盖
+  40/52，和 session_001 合并可达 47/52（仍缺 `2H` / `5S` / `7D` / `8S` / `QD`）；未复核按钮
+  模板 self accuracy 仅 0.643，说明按钮 truth 不能直接采用 LLM action_type，需要规则化合成或人工复核。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
@@ -126,11 +136,17 @@
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：Poker Legends 牌面/按钮/筹码识别到 GameState**
+**下一步：Poker Legends truth 复核与牌面/按钮/筹码识别到 GameState**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 `truth_overlay_v1` 评估，不让可疑帧进入
   `ai.decide()`。
+- 先复核 session_002 的 7 个 ScreenState mismatch：建议把左侧活动/信息栏按自动化安全口径标为
+  `blocked_overlay`；`keyframe_000045` 的右下买入提示可后续补检测，因为当前没有主动作按钮簇，
+  不会触发点击。
+- 按钮 truth 需要规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
+  `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
-  覆盖剩余 21 张未见牌，或实现 rank/suit 局部分类器来泛化到未见牌。
+  覆盖剩余未见牌（session_001 + session_002 未复核候选仍缺 `2H` / `5S` / `7D` / `8S` / `QD`），
+  或实现 rank/suit 局部分类器来泛化到未见牌。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把
