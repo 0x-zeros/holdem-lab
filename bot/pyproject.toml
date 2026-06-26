@@ -17,6 +17,7 @@ holdem-bot-apply-poker-legends-layout = "holdem_bot.vision.poker_legends_layout:
 holdem-bot-evaluate-fixture = "holdem_bot.vision.evaluate:main"
 holdem-bot-build-poker-legends-truth = "holdem_bot.vision.poker_legends_truth:main"
 holdem-bot-build-poker-legends-card-templates = "holdem_bot.vision.poker_legends_cards:main"
+holdem-bot-build-poker-legends-button-templates = "holdem_bot.vision.poker_legends_buttons:main"
 holdem-bot-compare-poker-legends-recognition = "holdem_bot.vision.poker_legends_compare:main"
 holdem-bot-evaluate-poker-legends-screen-state = "holdem_bot.vision.poker_legends_screen:main"
 holdem-bot-ingest-video = "holdem_bot.vision.video:main"

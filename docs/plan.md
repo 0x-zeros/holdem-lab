@@ -110,11 +110,18 @@
   hidden false-positive 0；保守 leave-frame precision 1.000、coverage 0.288。结论：模板链路可用且
   fail-closed，但当前 20 帧数据不足以支撑完整实时牌面识别，后续需要更多覆盖样本或更强的 rank/suit
   分类器。
+- 阶段 4 Poker Legends primary button recognizer v0：已提供
+  `uv run holdem-bot-build-poker-legends-button-templates <truth_overlays/*.json> --annotation-dir ... --image-root ... --out ...`
+  工具，识别三个主动作按钮：`primary_left` 用模板区分 `check/call`（OCR 对 `Call` 不可靠）；
+  `primary_middle` / `primary_right` 按固定位置映射为 `raise/fold`；raise shortcut 暂不作为动作输出，
+  避免和非动作 blind 控件混淆。当前产物在 `truth_overlay_v1/button_templates_v1/`：8 个
+  primary-left 模板（call=2、check=6），8 个 actionable 帧共 24 个主按钮 self 与 leave-frame
+  accuracy/precision/coverage 均为 1.000。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  88 tests）。
+  90 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -124,8 +131,8 @@
   `ai.decide()`。
 - 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
   覆盖剩余 21 张未见牌，或实现 rank/suit 局部分类器来泛化到未见牌。
-- 做按钮语义识别：先用按钮区域视觉特征判断按钮存在，再用模板/轻量 OCR 解析
-  `fold/check/call/bet/raise/all_in`；遮挡/弹窗按钮如 confirm/cancel 只影响 ScreenState，不映射为扑克动作。
+- 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
+  raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把
   overlay 后面的数字字段继续标为 ignored。
 - 在 actionable truth 帧上实现 Poker Legends `RecognizedTable` → `GameState` 原型；只有当
