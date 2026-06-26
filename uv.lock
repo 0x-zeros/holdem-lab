@@ -139,6 +139,7 @@ version = "0.0.0"
 source = { editable = "game" }
 dependencies = [
     { name = "holdem-ai" },
+    { name = "holdem-bot" },
     { name = "holdem-common" },
     { name = "holdem-engine" },
     { name = "pygame" },
@@ -147,6 +148,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "holdem-ai", editable = "ai" },
+    { name = "holdem-bot", editable = "bot" },
     { name = "holdem-common", editable = "common" },
     { name = "holdem-engine", editable = "engine" },
     { name = "pygame", specifier = ">=2.6.1" },

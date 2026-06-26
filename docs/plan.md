@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 4 bot 抽象层骨架）
+## 当前进度（截至 2026-06-26 阶段 4 in-process bot 闭环）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -31,17 +31,20 @@
 - 阶段 4 bot 骨架：`bot/` 已提供 `Capture` / `Recognizer` / `Automator` / `BotOrchestrator`
   接口；已实现无截图依赖的 in-process `GameState` 适配器，用于先验证
   capture → recognize → `ai.decide()` → automate 的控制闭环。
+- 阶段 4 in-process bot 闭环：`game/` 已接入 bot pipeline，`uv run holdem-game --bot-seat 0`
+  可让 bot 控制原本人类座位；该路径仍然不加截图/CV 依赖，先验证同一个
+  `GameState` / `ai.decide()` / `Action` 控制面。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
-- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest，39 tests）。
+- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest，42 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
-  `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`。尚未 push。
+  `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`。尚未 push。
 
-**下一步：需要决策后继续阶段 4**
-- 选项 A：先不加 CV 依赖，把 in-process bot adapter 接进自家 pygame app，做一个“bot 自动点自己
-  的游戏”的闭环演示；优点是快且完全可测，缺点是还不验证截图识别。
-- 选项 B：现在开始加截图/CV 依赖（如官方 PyPI 的 `mss` / `opencv-python`，系统 OCR 走官方
-  apt 源），做 Xvfb/host 截图识别雏形；优点是更接近 Steam bot，缺点是依赖和环境面更大。
+**下一步：CV 识别方案决策**
+- 先采集自家 pygame 牌桌与 Poker Legends 的截图样本，明确需要识别的字段：座位、手牌/公共牌、
+  筹码、底池、按钮、轮到谁行动。
+- 决策点：先走传统 CV/OCR（模板匹配 + 数字 OCR + 几何区域），还是引入 LLM/VLM 做兜底；
+  当前建议先做可测的传统 CV/OCR 主链路，LLM/VLM 留作低置信度兜底。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。

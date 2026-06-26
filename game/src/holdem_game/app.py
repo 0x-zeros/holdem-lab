@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import NoReturn
 
 import pygame
 from holdem_ai import decide
+from holdem_bot import BotOrchestrator, BotStepResult
+from holdem_bot.adapters import ActionCallbackAutomator, StateCapture, StateRecognizer
 from holdem_common import Action, GameState
 from holdem_engine import HoldemConfig, HoldemEnv
 
@@ -22,6 +25,8 @@ class HoldemGameApp:
         config: HoldemConfig | None = None,
         *,
         human_seat: int = 0,
+        bot_seat: int | None = None,
+        bot_delay_ms: int = 450,
         size: tuple[int, int] = DEFAULT_SIZE,
     ) -> None:
         pygame.init()
@@ -30,13 +35,23 @@ class HoldemGameApp:
         self.clock = pygame.time.Clock()
         self.size = size
         self.human_seat = human_seat
+        self.bot_seat = bot_seat
+        self.bot_delay_ms = bot_delay_ms
+        self.last_bot_action_ms = 0
         self.base_config = config or HoldemConfig(starting_stacks=(200, 200, 200))
+        if self.human_seat < 0 or self.human_seat >= len(self.base_config.starting_stacks):
+            raise ValueError("human_seat is outside the table")
+        if self.bot_seat is not None and (
+            self.bot_seat < 0 or self.bot_seat >= len(self.base_config.starting_stacks)
+        ):
+            raise ValueError("bot_seat is outside the table")
         self.hand_number = 0
         self.env = HoldemEnv(self.base_config)
         self.state: GameState
         self.buttons: list[ActionButton] = []
         self.message = "New hand"
         self.view = TableView(size)
+        self.bot_orchestrator = self._build_bot_orchestrator()
         self.reset_hand()
 
     def reset_hand(self) -> None:
@@ -45,7 +60,7 @@ class HoldemGameApp:
         self.env = HoldemEnv(config)
         self.state = self.env.reset()
         self.message = "New hand"
-        self._advance_ai_to_human()
+        self._advance_ai_to_controlled_seat()
         self._refresh_buttons()
 
     def run(self) -> NoReturn:
@@ -54,8 +69,24 @@ class HoldemGameApp:
                 if not self.handle_event(event):
                     self.close()
                     raise SystemExit(0)
+            self.tick()
             self.draw()
             self.clock.tick(30)
+
+    def tick(self, *, force_bot: bool = False) -> BotStepResult | None:
+        if self.bot_orchestrator is None or self.state.current_seat != self.bot_seat:
+            return None
+
+        now = pygame.time.get_ticks()
+        if not force_bot and now - self.last_bot_action_ms < self.bot_delay_ms:
+            return None
+
+        self.last_bot_action_ms = now
+        result = self.bot_orchestrator.run_once()
+        if not result.acted:
+            self.message = f"Bot seat {self.bot_seat}: {result.reason}"
+        self._refresh_buttons()
+        return result
 
     def draw(self) -> None:
         self._refresh_buttons()
@@ -102,12 +133,23 @@ class HoldemGameApp:
         result = self.env.step(action)
         self.state = result.observation
         self.message = f"You: {label_for_action(action)}"
-        self._advance_ai_to_human()
+        self._advance_ai_to_controlled_seat()
         self._refresh_buttons()
 
-    def _advance_ai_to_human(self) -> None:
+    def _apply_bot_action(self, action: Action) -> None:
+        result = self.env.step(action)
+        self.state = result.observation
+        self.message = f"Bot {self.bot_seat}: {label_for_action(action)}"
+        self._advance_ai_to_controlled_seat()
+        self._refresh_buttons()
+
+    def _advance_ai_to_controlled_seat(self) -> None:
         steps = 0
-        while self.state.current_seat is not None and self.state.current_seat != self.human_seat:
+        while (
+            self.state.current_seat is not None
+            and self.state.current_seat != self.human_seat
+            and self.state.current_seat != self.bot_seat
+        ):
             if steps >= 100:
                 raise RuntimeError("AI action loop exceeded 100 steps")
             seat = self.state.current_seat
@@ -126,6 +168,10 @@ class HoldemGameApp:
             self.buttons = self._layout_buttons(
                 (("New hand", None, "new_hand"),),
             )
+            return
+
+        if self.state.current_seat == self.bot_seat:
+            self.buttons = []
             return
 
         if self.state.current_seat != self.human_seat:
@@ -160,9 +206,42 @@ class HoldemGameApp:
             buttons.append(ActionButton(rect=rect, label=label, action=action, command=command))
         return buttons
 
+    def _bot_visible_state(self) -> GameState:
+        if self.bot_seat is None or self.state.current_seat is None:
+            return self.state
+        return self.env.observe(seat=self.bot_seat)
 
-def main(_argv: Sequence[str] | None = None) -> NoReturn:
-    app = HoldemGameApp()
+    def _build_bot_orchestrator(self) -> BotOrchestrator | None:
+        if self.bot_seat is None:
+            return None
+        return BotOrchestrator(
+            capture=StateCapture(self._bot_visible_state, source="holdem_game"),
+            recognizer=StateRecognizer(),
+            automator=ActionCallbackAutomator(self._apply_bot_action),
+            seat=self.bot_seat,
+        )
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run the holdem-lab pygame table.")
+    parser.add_argument(
+        "--bot-seat",
+        type=int,
+        default=None,
+        help="Seat controlled through the bot Capture/Recognizer/Automator pipeline.",
+    )
+    parser.add_argument(
+        "--bot-delay-ms",
+        type=int,
+        default=450,
+        help="Delay between automated bot actions.",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> NoReturn:
+    args = build_arg_parser().parse_args(argv)
+    app = HoldemGameApp(bot_seat=args.bot_seat, bot_delay_ms=args.bot_delay_ms)
     app.run()
 
 

@@ -5,6 +5,7 @@ description = "pygame Texas Hold'em table"
 requires-python = ">=3.12"
 dependencies = [
     "holdem-ai",
+    "holdem-bot",
     "holdem-common",
     "holdem-engine",
     "pygame>=2.6.1",
@@ -15,6 +16,7 @@ holdem-game = "holdem_game.app:main"
 
 [tool.uv.sources]
 holdem-ai = { workspace = true }
+holdem-bot = { workspace = true }
 holdem-common = { workspace = true }
 holdem-engine = { workspace = true }
 
