@@ -9,6 +9,11 @@ from holdem_bot.vision.annotations import (
     TableAnnotation,
 )
 from holdem_bot.vision.evaluate import evaluate_fixture, score_to_dict
+from holdem_bot.vision.poker_legends_layout import (
+    LayoutRegion,
+    apply_poker_legends_layout,
+    draw_layout_overlay,
+)
 from holdem_bot.vision.recognition import (
     CategoryScore,
     RecognitionScore,
@@ -42,6 +47,7 @@ __all__ = [
     "ExtractedFrame",
     "KeyframeSelectionManifest",
     "KeyframeSelectionRequest",
+    "LayoutRegion",
     "RecognitionScore",
     "RecognizedButton",
     "RecognizedCard",
@@ -54,6 +60,8 @@ __all__ = [
     "TableAnnotation",
     "VideoIngestManifest",
     "VideoMetadata",
+    "apply_poker_legends_layout",
+    "draw_layout_overlay",
     "evaluate_fixture",
     "evaluate_recognition",
     "ingest_video",

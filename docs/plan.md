@@ -57,17 +57,23 @@
   manifest 中复制代表 PNG/草稿 JSON、生成 `selected_manifest.json`、`selection_report.md` 与
   选择联系表；当前已在 `artifacts/poker-legends-videos/session_001_selection/` 生成 20 张代表帧，
   覆盖核心牌局街道、动作按钮、摊牌/all-in 与弹窗/菜单类 no-action 负样本。
+- 阶段 4 Poker Legends ROI layout bootstrap：已提供
+  `uv run holdem-bot-apply-poker-legends-layout <annotations...>` 工具，可把第一版可缩放 ROI 模板
+  写入代表帧草稿标注，并输出 overlay PNG 与 `layout_report.md`；当前
+  `artifacts/poker-legends-videos/session_001_selection/annotations/` 的 20 个草稿已应用
+  `poker_legends_1600w_v1`，overlay 在同目录 `layout_overlays/`。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  52 tests）。
+  55 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
 **下一步：填写 Poker Legends 代表关键帧标注**
 - 优先填 `artifacts/poker-legends-videos/session_001_selection/annotations/keyframe_*.json` 这 20 个
-  草稿标注；处理流程说明见同目录 `selection_report.md`，对应视觉总览见 `contact_sheet.jpg`。
+  草稿标注；处理流程说明见同目录 `selection_report.md` / `layout_report.md`，对应视觉总览见
+  `contact_sheet.jpg`，ROI 框检查见 `layout_overlays/`。
 - 对 table 帧填写座位、手牌/公共牌、筹码、底池、按钮、轮到谁行动；对 overlay/modal 帧标出
   阻塞区域并作为 no-action 状态；之后复用 `RoiOcrRecognizer` / `evaluate_recognition()` 迭代真实
   游戏识别。

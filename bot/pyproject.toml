@@ -11,6 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
+holdem-bot-apply-poker-legends-layout = "holdem_bot.vision.poker_legends_layout:main"
 holdem-bot-evaluate-fixture = "holdem_bot.vision.evaluate:main"
 holdem-bot-ingest-video = "holdem_bot.vision.video:main"
 holdem-bot-select-keyframes = "holdem_bot.vision.selection:main"
