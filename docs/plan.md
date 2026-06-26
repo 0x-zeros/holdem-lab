@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 4 视觉 fixture）
+## 当前进度（截至 2026-06-26 阶段 4 视觉评估口径）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -37,16 +37,19 @@
 - 阶段 4 视觉 fixture：`bot/vision/annotations.py` 已定义截图标注 JSON schema；`game/` 已提供
   `uv run holdem-game-capture-fixture --output-dir artifacts/vision-fixtures`，可生成自家 pygame
   牌桌 PNG + JSON 标注，用于后续 CV/OCR 识别准确率评估。
+- 阶段 4 视觉评估口径：`bot/vision/recognition.py` 已定义 `RecognizedTable` 中间结果、
+  annotation oracle recognizer 与 `evaluate_recognition()`；后续真实 CV/OCR 只要输出同一结构，
+  即可按 cards/buttons/chips/seats/table 分组统计准确率。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
-- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest，44 tests）。
+- 当前验证：`scripts/dev/verify-dev-env.sh` 通过（ruff format/check、mypy、pytest，46 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`。
   尚未 push。
 
-**下一步：传统 CV/OCR 最小识别器**
-- 先针对自家 pygame fixture 做几何区域识别：从 JSON 标注读取 ROI，识别牌位/按钮/筹码文本的
-  目标字段，并输出与 `GameState` 对齐的中间结果。
+**下一步：需要决策后添加真实 CV/OCR 依赖**
+- 推荐先加官方 PyPI 的 `opencv-python`（模板/颜色/区域处理）和 `pytesseract` Python wrapper；
+  Tesseract 可执行文件走 Ubuntu 官方 apt 源。先在自家 pygame fixture 上做牌面/按钮/筹码识别。
 - 暂不把 LLM/VLM 放进主链路；后续作为低置信度兜底或冷启动标注辅助。
 
 **环境备注（容器内）**
