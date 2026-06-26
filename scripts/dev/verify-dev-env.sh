@@ -19,6 +19,10 @@ bash scripts/dev/check-venv.sh
 
 [ -x "${VENV_DIR}/bin/python" ] || die "venv not found at ${VENV_DIR}; run scripts/dev/setup-dev-env.sh first"
 
+log "CV/OCR runtime"
+command -v tesseract >/dev/null || die "tesseract not found; rebuild the dev container or install Ubuntu package tesseract-ocr"
+uv run python -c 'import cv2, pytesseract; print(f"cv2 {cv2.__version__}; tesseract {pytesseract.get_tesseract_version()}")'
+
 # Static checks only make sense once there is Python source. Keep these excludes
 # in sync with pyproject's ruff/mypy excludes.
 if find . -name '*.py' \

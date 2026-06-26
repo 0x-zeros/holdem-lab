@@ -6,6 +6,8 @@ requires-python = ">=3.12"
 dependencies = [
     "holdem-ai",
     "holdem-common",
+    "opencv-python>=4.13.0.92",
+    "pytesseract>=0.3.13",
 ]
 
 [tool.uv.sources]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 
 from holdem_bot.vision.annotations import TableAnnotation
@@ -136,46 +137,69 @@ def evaluate_recognition(
     _record(scores, "table", recognized.current_seat == expected.current_seat)
     _record(scores, "chips", recognized.pot == _pot_from_annotation(expected))
 
-    expected_board = {card.slot: card for card in expected.board}
-    for card in recognized.board:
-        expected_card = expected_board.get(card.slot)
+    recognized_board = {card.slot: card for card in recognized.board}
+    for expected_card in expected.board:
+        card = recognized_board.get(expected_card.slot)
         _record(
             scores,
             "cards",
-            expected_card is not None
+            card is not None
             and card.card == expected_card.card
             and card.visible == expected_card.visible,
         )
+    _record_extras(scores, "cards", recognized_board.keys(), {card.slot for card in expected.board})
 
-    expected_seats = {seat.seat: seat for seat in expected.seats}
-    for seat in recognized.seats:
-        expected_seat = expected_seats.get(seat.seat)
-        if expected_seat is None:
+    recognized_seats = {seat.seat: seat for seat in recognized.seats}
+    for expected_seat in expected.seats:
+        seat = recognized_seats.get(expected_seat.seat)
+        if seat is None:
+            _record(scores, "chips", False)
+            _record(scores, "chips", False)
             _record(scores, "seats", False)
+            _record(scores, "seats", False)
+            for _expected_card in expected_seat.hole_cards:
+                _record(scores, "cards", False)
             continue
         _record(scores, "chips", seat.stack == expected_seat.stack)
         _record(scores, "chips", seat.committed == expected_seat.committed)
         _record(scores, "seats", seat.active == expected_seat.active)
         _record(scores, "seats", seat.current == expected_seat.current)
-        expected_hole = {card.slot: card for card in expected_seat.hole_cards}
-        for card in seat.hole_cards:
-            expected_card = expected_hole.get(card.slot)
+        recognized_hole = {card.slot: card for card in seat.hole_cards}
+        for expected_card in expected_seat.hole_cards:
+            card = recognized_hole.get(expected_card.slot)
             _record(
                 scores,
                 "cards",
-                expected_card is not None
+                card is not None
                 and card.card == expected_card.card
                 and card.visible == expected_card.visible,
             )
+        _record_extras(
+            scores,
+            "cards",
+            recognized_hole.keys(),
+            {card.slot for card in expected_seat.hole_cards},
+        )
+    _record_extras(scores, "seats", recognized_seats.keys(), {seat.seat for seat in expected.seats})
 
-    expected_buttons = {(button.label, button.command): button for button in expected.buttons}
-    for button in recognized.buttons:
-        expected_button = expected_buttons.get((button.label, button.command))
+    recognized_buttons = {
+        (button.action_type, button.command): button for button in recognized.buttons
+    }
+    for expected_button in expected.buttons:
+        button = recognized_buttons.get((expected_button.action_type, expected_button.command))
         _record(
             scores,
             "buttons",
-            expected_button is not None and button.action_type == expected_button.action_type,
+            button is not None
+            and button.action_type == expected_button.action_type
+            and button.command == expected_button.command,
         )
+    _record_extras(
+        scores,
+        "buttons",
+        recognized_buttons.keys(),
+        {(button.action_type, button.command) for button in expected.buttons},
+    )
 
     categories = tuple(
         CategoryScore(
@@ -194,6 +218,18 @@ def evaluate_recognition(
 
 def _record(scores: defaultdict[str, list[bool]], category: str, correct: bool) -> None:
     scores[category].append(correct)
+
+
+def _record_extras(
+    scores: defaultdict[str, list[bool]],
+    category: str,
+    recognized: Iterable[Hashable],
+    expected: Iterable[Hashable],
+) -> None:
+    recognized_set = set(recognized)
+    expected_set = set(expected)
+    for _extra in recognized_set - expected_set:
+        scores[category].append(False)
 
 
 def _pot_from_annotation(annotation: TableAnnotation) -> int | None:

@@ -18,6 +18,7 @@ from holdem_bot.vision.recognition import (
     evaluate_recognition,
     recognize_from_annotation,
 )
+from holdem_bot.vision.roi_ocr import RoiOcrConfig, RoiOcrRecognizer
 
 __all__ = [
     "AnnotatedButton",
@@ -30,6 +31,8 @@ __all__ = [
     "RecognizedCard",
     "RecognizedSeat",
     "RecognizedTable",
+    "RoiOcrConfig",
+    "RoiOcrRecognizer",
     "ScreenRect",
     "TableAnnotation",
     "evaluate_recognition",

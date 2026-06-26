@@ -20,14 +20,16 @@ ARG CODEX_VERSION=latest
 ARG NODE_MAJOR=24
 ARG GIT_DELTA_VERSION=0.18.2
 
-# --- base tools + Ubuntu's Python 3.12 + native build toolchain ---
+# --- base tools + Ubuntu's Python 3.12 + native build toolchain + CV/OCR runtime ---
 # Python 3.12 is Ubuntu 24.04's default python3 (official). build-essential/cmake/clang/
 # python3-dev let us compile native wheels later (e.g. OpenSpiel from source on arm64).
 # xz-utils is needed to extract the official Node .tar.xz.
+# tesseract-ocr/libgl1/fontconfig/fonts-dejavu-core support the bot CV/OCR pipeline.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget gnupg git jq less procps sudo fzf zsh man-db unzip nano vim locales xz-utils \
     build-essential cmake pkg-config clang libssl-dev \
     python3 python3-venv python3-dev python3-pip python-is-python3 \
+    tesseract-ocr libgl1 fontconfig fonts-dejavu-core \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # --- locale ---
