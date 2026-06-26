@@ -102,11 +102,19 @@
   `truth_overlay_v1/screen_state_eval/screen_state_report.md`。运行时
   `PokerLegendsScreenStateRecognizer` 可消费 truth/candidate JSON 或截图路径；v0 只输出
   `ScreenState`，`GameState` 仍为 `None`，因此现有安全闸门会在 `no_game_state` 停手，不会误点。
+- 阶段 4 Poker Legends card template v0：已提供
+  `uv run holdem-bot-build-poker-legends-card-templates <truth_overlays/*.json> --annotation-dir ... --image-root ... --out ...`
+  工具，从 `truth_overlay_v1` 的正常桌面帧（`actionable_table` / `table_observe`）抽取 hero 手牌与公共牌
+  crop，生成标准化模板库、manifest 与 self / leave-frame 评估报告。当前产物在
+  `truth_overlay_v1/card_templates_v1/`：73 个模板、覆盖 31/52 张牌；self sanity 可见牌准确率 1.000、
+  hidden false-positive 0；保守 leave-frame precision 1.000、coverage 0.288。结论：模板链路可用且
+  fail-closed，但当前 20 帧数据不足以支撑完整实时牌面识别，后续需要更多覆盖样本或更强的 rank/suit
+  分类器。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  86 tests）。
+  88 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -114,8 +122,8 @@
 **下一步：Poker Legends 牌面/按钮/筹码识别到 GameState**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 `truth_overlay_v1` 评估，不让可疑帧进入
   `ai.decide()`。
-- 从 truth overlay 的可见牌面 crop 生成第一版 card template/classifier，先覆盖 hero 手牌与公共牌；
-  Tesseract ROI/OCR 只保留作对照基线，不作为牌面主识别器。
+- 扩展牌面识别：当前 card template v0 是 fail-closed 基线；要进入可用 GameState，需要补更多视频样本
+  覆盖剩余 21 张未见牌，或实现 rank/suit 局部分类器来泛化到未见牌。
 - 做按钮语义识别：先用按钮区域视觉特征判断按钮存在，再用模板/轻量 OCR 解析
   `fold/check/call/bet/raise/all_in`；遮挡/弹窗按钮如 confirm/cancel 只影响 ScreenState，不映射为扑克动作。
 - 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把

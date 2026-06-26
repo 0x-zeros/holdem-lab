@@ -17,6 +17,15 @@ from holdem_bot.vision.llm_annotation import (
     build_llm_annotation_package,
     execute_llm_annotation_package,
 )
+from holdem_bot.vision.poker_legends_cards import (
+    PokerLegendsCardPrediction,
+    PokerLegendsCardTemplate,
+    PokerLegendsCardTemplateManifest,
+    PokerLegendsCardTemplateRecognizer,
+    build_and_evaluate_poker_legends_card_templates,
+    build_poker_legends_card_template_library,
+    evaluate_poker_legends_card_templates,
+)
 from holdem_bot.vision.poker_legends_compare import (
     FieldComparison,
     PokerLegendsRoiButton,
@@ -83,6 +92,10 @@ __all__ = [
     "LlmFrameRequest",
     "LlmRoiCrop",
     "LayoutRegion",
+    "PokerLegendsCardPrediction",
+    "PokerLegendsCardTemplate",
+    "PokerLegendsCardTemplateManifest",
+    "PokerLegendsCardTemplateRecognizer",
     "PokerLegendsRoiButton",
     "PokerLegendsRoiCard",
     "PokerLegendsRoiOcrRecognizer",
@@ -105,6 +118,8 @@ __all__ = [
     "annotation_output_schema",
     "apply_poker_legends_layout",
     "build_llm_annotation_package",
+    "build_and_evaluate_poker_legends_card_templates",
+    "build_poker_legends_card_template_library",
     "build_poker_legends_recognition_comparison",
     "build_poker_legends_truth_overlay",
     "compare_llm_candidate_to_roi",
@@ -112,6 +127,7 @@ __all__ = [
     "detect_poker_legends_screen_state",
     "detect_poker_legends_screen_state_from_image",
     "evaluate_fixture",
+    "evaluate_poker_legends_card_templates",
     "evaluate_poker_legends_screen_state",
     "evaluate_recognition",
     "execute_llm_annotation_package",
