@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Any, Self, cast
 
 import cv2
+from google import genai
+from google.genai import types as genai_types
 from numpy.typing import NDArray
 from openai import OpenAI
 
@@ -19,9 +22,12 @@ from holdem_bot.vision.annotations import ScreenRect
 
 RgbImage = NDArray[Any]
 
-DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_PROVIDER = "gemini"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_DETAIL = "original"
 REQUESTS_JSONL = "requests.jsonl"
+SUPPORTED_PROVIDERS = ("openai", "gemini")
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +52,7 @@ class LlmFrameRequest:
 @dataclass(frozen=True, slots=True)
 class LlmAnnotationManifest:
     schema_version: int
+    provider: str
     model: str
     detail: str
     requests_jsonl: str
@@ -69,6 +76,7 @@ class LlmAnnotationManifest:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         return cls(
             schema_version=int(data["schema_version"]),
+            provider=str(data.get("provider", "openai")),
             model=str(data["model"]),
             detail=str(data["detail"]),
             requests_jsonl=str(data["requests_jsonl"]),
@@ -81,7 +89,8 @@ def build_llm_annotation_package(
     output_dir: str | Path,
     *,
     image_root: str | Path,
-    model: str = DEFAULT_MODEL,
+    provider: str = DEFAULT_PROVIDER,
+    model: str | None = None,
     detail: str = DEFAULT_DETAIL,
     crop_scale: float = 2.0,
     limit: int | None = None,
@@ -129,7 +138,8 @@ def build_llm_annotation_package(
 
     manifest = LlmAnnotationManifest(
         schema_version=1,
-        model=model,
+        provider=_normalize_provider(provider),
+        model=_resolve_model(provider, model),
         detail=detail,
         requests_jsonl=REQUESTS_JSONL,
         frames=tuple(frames),
@@ -145,6 +155,7 @@ def execute_llm_annotation_package(
     *,
     output_dir: str | Path | None = None,
     model: str | None = None,
+    provider: str | None = None,
     detail: str | None = None,
     limit: int | None = None,
 ) -> None:
@@ -157,30 +168,27 @@ def execute_llm_annotation_package(
     responses_dir.mkdir(parents=True, exist_ok=True)
     candidate_dir.mkdir(parents=True, exist_ok=True)
 
-    client = OpenAI()
     selected_frames = manifest.frames if limit is None else manifest.frames[:limit]
     outputs: list[dict[str, object]] = []
+    resolved_provider = _normalize_provider(provider or manifest.provider)
+    resolved_model = model or manifest.model
     for frame in selected_frames:
-        response = cast(Any, client.responses).create(
-            model=model or manifest.model,
-            input=[
-                {
-                    "role": "user",
-                    "content": _response_content(package_dir, frame, detail or manifest.detail),
-                }
-            ],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "poker_legends_frame_annotation",
-                    "schema": annotation_output_schema(),
-                    "strict": True,
-                }
-            },
-            temperature=0,
-            max_output_tokens=4000,
-        )
-        raw_text = str(getattr(response, "output_text", ""))
+        if resolved_provider == "openai":
+            raw_text = _execute_openai_frame(
+                package_dir,
+                frame,
+                model=resolved_model,
+                detail=detail or manifest.detail,
+            )
+        elif resolved_provider == "gemini":
+            raw_text = _execute_gemini_frame(
+                package_dir,
+                frame,
+                model=resolved_model,
+                detail=detail or manifest.detail,
+            )
+        else:
+            raise ValueError(f"unsupported provider: {resolved_provider}")
         response_path = responses_dir / f"{frame.frame_id}.json"
         response_path.write_text(raw_text + "\n", encoding="utf-8")
         candidate = _parse_candidate(raw_text, frame.frame_id)
@@ -354,6 +362,98 @@ def annotation_output_schema() -> dict[str, object]:
     }
 
 
+def _execute_openai_frame(
+    package_dir: Path,
+    frame: LlmFrameRequest,
+    *,
+    model: str,
+    detail: str,
+) -> str:
+    client = OpenAI()
+    response = cast(Any, client.responses).create(
+        model=model,
+        input=[
+            {
+                "role": "user",
+                "content": _openai_response_content(package_dir, frame, detail),
+            }
+        ],
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "poker_legends_frame_annotation",
+                "schema": annotation_output_schema(),
+                "strict": True,
+            }
+        },
+        temperature=0,
+        max_output_tokens=4000,
+    )
+    return str(getattr(response, "output_text", ""))
+
+
+def _execute_gemini_frame(
+    package_dir: Path,
+    frame: LlmFrameRequest,
+    *,
+    model: str,
+    detail: str,
+) -> str:
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is required for Gemini execution")
+    client = genai.Client(api_key=api_key)
+    response = cast(Any, client.models).generate_content(
+        model=model,
+        contents=_gemini_response_content(package_dir, frame, detail),
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=annotation_output_schema(),
+            temperature=0,
+            max_output_tokens=4000,
+        ),
+    )
+    return str(getattr(response, "text", ""))
+
+
+def _normalize_provider(provider: str) -> str:
+    normalized = provider.strip().lower()
+    if normalized not in SUPPORTED_PROVIDERS:
+        raise ValueError(f"unsupported provider: {provider}")
+    return normalized
+
+
+def _resolve_model(provider: str, model: str | None) -> str:
+    if model:
+        return model
+    normalized = _normalize_provider(provider)
+    if normalized == "gemini":
+        return DEFAULT_GEMINI_MODEL
+    if normalized == "openai":
+        return DEFAULT_OPENAI_MODEL
+    raise ValueError(f"unsupported provider: {provider}")
+
+
+def _load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        os.environ[key] = _unquote_env_value(value.strip())
+
+
+def _unquote_env_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build or execute LLM annotation requests for Poker Legends frames."
@@ -361,14 +461,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("annotations", nargs="*", help="Draft annotation JSON files.")
     parser.add_argument("--image-root", help="Root for annotation image paths.")
     parser.add_argument("--out", required=True, help="Output directory for the LLM package.")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="OpenAI model for execution.")
-    parser.add_argument("--detail", default=DEFAULT_DETAIL, help="Image detail mode.")
+    parser.add_argument(
+        "--provider",
+        choices=SUPPORTED_PROVIDERS,
+        default=os.environ.get("HOLDEM_LLM_PROVIDER"),
+        help="LLM provider to use.",
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("HOLDEM_LLM_MODEL"),
+        help="Model for execution. Defaults by provider.",
+    )
+    parser.add_argument(
+        "--detail",
+        default=os.environ.get("HOLDEM_LLM_DETAIL", DEFAULT_DETAIL),
+        help="Image detail mode.",
+    )
     parser.add_argument("--crop-scale", type=float, default=2.0, help="Scale ROI crops before use.")
     parser.add_argument("--limit", type=int, default=None, help="Optional frame limit.")
     parser.add_argument(
         "--execute",
         action="store_true",
-        help="Call OpenAI after building the package. Requires OPENAI_API_KEY.",
+        help="Call the configured LLM provider after building the package.",
     )
     parser.add_argument(
         "--manifest",
@@ -378,7 +492,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    _load_dotenv(Path(".env"))
     args = build_arg_parser().parse_args(argv)
+    provider = _normalize_provider(args.provider or DEFAULT_PROVIDER)
     if args.manifest is None:
         if args.image_root is None:
             raise SystemExit("--image-root is required when building a new LLM annotation package")
@@ -386,6 +502,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.annotations,
             args.out,
             image_root=args.image_root,
+            provider=provider,
             model=args.model,
             detail=args.detail,
             crop_scale=args.crop_scale,
@@ -400,9 +517,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             manifest_path,
             output_dir=args.out,
             model=args.model,
+            provider=args.provider,
             detail=args.detail,
             limit=args.limit,
         )
+    output_provider = (
+        provider
+        if args.manifest is None
+        else _normalize_provider(args.provider or manifest.provider)
+    )
     print(
         json.dumps(
             {
@@ -411,6 +534,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                     manifest.frames if args.limit is None else manifest.frames[: args.limit]
                 ),
                 "manifest": str(manifest_path),
+                "provider": output_provider,
+                "model": _resolve_model(output_provider, args.model)
+                if args.manifest is None
+                else args.model or manifest.model,
                 "requests_jsonl": str(Path(args.out) / manifest.requests_jsonl),
             },
             indent=2,
@@ -462,6 +589,7 @@ def _write_requests_jsonl(path: Path, manifest: LlmAnnotationManifest) -> None:
             json.dumps(
                 {
                     "frame_id": frame.frame_id,
+                    "provider": manifest.provider,
                     "model": manifest.model,
                     "detail": manifest.detail,
                     "prompt": frame.prompt,
@@ -477,10 +605,15 @@ def _write_requests_jsonl(path: Path, manifest: LlmAnnotationManifest) -> None:
 
 def _write_package_report(path: Path, manifest: LlmAnnotationManifest) -> None:
     total_crops = sum(len(frame.crops) for frame in manifest.frames)
+    if manifest.provider == "gemini":
+        key_note = "`GEMINI_API_KEY` or `GOOGLE_API_KEY`"
+    else:
+        key_note = "`OPENAI_API_KEY`"
     lines = [
         "# Poker Legends LLM Annotation Package",
         "",
         "## Configuration",
+        f"- Provider: `{manifest.provider}`",
         f"- Model: `{manifest.model}`",
         f"- Image detail: `{manifest.detail}`",
         f"- Frames: {len(manifest.frames)}",
@@ -493,7 +626,7 @@ def _write_package_report(path: Path, manifest: LlmAnnotationManifest) -> None:
         "- Candidate outputs should not be treated as final truth until conflict checks pass.",
         "",
         "## Execute",
-        "Run the same command with `--execute` in an environment with `OPENAI_API_KEY` set.",
+        f"Run the same command with `--execute` in an environment with {key_note} set.",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -558,7 +691,7 @@ def _build_frame_prompt(
     )
 
 
-def _response_content(
+def _openai_response_content(
     package_dir: Path, frame: LlmFrameRequest, detail: str
 ) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = [
@@ -579,6 +712,30 @@ def _response_content(
             }
         )
     return content
+
+
+def _gemini_response_content(
+    package_dir: Path,
+    frame: LlmFrameRequest,
+    detail: str,
+) -> list[str | genai_types.Part]:
+    parts: list[str | genai_types.Part] = [
+        frame.prompt,
+        "Full frame:",
+        _gemini_image_part(package_dir / frame.image, detail),
+    ]
+    for crop in frame.crops:
+        parts.append(f"ROI crop: {crop.id} ({crop.kind})")
+        parts.append(_gemini_image_part(package_dir / crop.image, detail))
+    return parts
+
+
+def _gemini_image_part(path: Path, detail: str) -> genai_types.Part:
+    _ = detail
+    return genai_types.Part.from_bytes(
+        data=path.read_bytes(),
+        mime_type=_image_mime_type(path),
+    )
 
 
 def _card_schema(
@@ -666,9 +823,12 @@ def _resize_by_scale(image: RgbImage, scale: float) -> RgbImage:
 
 def _image_data_uri(path: Path) -> str:
     data = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{_image_mime_type(path)};base64,{data}"
+
+
+def _image_mime_type(path: Path) -> str:
     suffix = path.suffix.lower()
-    mime = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
-    return f"data:{mime};base64,{data}"
+    return "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
 
 
 def _read_image(path: Path) -> RgbImage:

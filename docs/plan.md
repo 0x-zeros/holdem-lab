@@ -62,22 +62,26 @@
   写入代表帧草稿标注，并输出 overlay PNG 与 `layout_report.md`；当前
   `artifacts/poker-legends-videos/session_001_selection/annotations/` 的 20 个草稿已应用
   `poker_legends_1600w_v1`，overlay 在同目录 `layout_overlays/`。
-- 阶段 4 LLM 标注工厂：已引入 OpenAI Python SDK（官方 PyPI，锁文件记录解析版本），提供
-  `uv run holdem-bot-llm-annotate <annotations...> --image-root <dir> --out <dir>` 工具；默认只生成
-  离线请求包，`--execute` 才会调用 OpenAI Responses API。当前已为 20 个代表帧生成
+- 阶段 4 LLM 标注工厂：已引入 OpenAI Python SDK 与 Google Gemini SDK（均来自官方 PyPI，锁文件
+  记录解析版本），提供
+  `uv run holdem-bot-llm-annotate <annotations...> --image-root <dir> --out <dir>` 工具；支持
+  `--provider gemini|openai`，默认 Gemini `gemini-3.1-flash-lite`，默认只生成离线请求包，
+  `--execute` 才会调用对应 provider API。当前已为 20 个代表帧生成
   `artifacts/poker-legends-videos/session_001_selection/llm_annotation/`，包含 20 张整图、520 个放大
   ROI crop、`requests.jsonl`、`manifest.json` 和 `package_report.md`。
+- 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  58 tests）。
+  59 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
 **下一步：执行 LLM 候选标注**
-- 当前容器没有 `OPENAI_API_KEY`，所以已先生成离线请求包；在有 key 的环境中运行同一命令并加
-  `--execute`，即可输出 `candidate_annotations/`、`candidate_report.md`、`uncertain_report.md`。
+- 复制 `.env.example` 为 `.env`，填入 `GEMINI_API_KEY`；当前请求包已配置为
+  `gemini-3.1-flash-lite`。在有 key 的环境中对现有 manifest 运行 `holdem-bot-llm-annotate --execute`，
+  即可输出 `candidate_annotations/`、`candidate_report.md`、`uncertain_report.md`。
 - LLM 先作为标注工厂主力：对 table 帧产出手牌/公共牌、筹码、底池、按钮、轮到谁行动；对
   overlay/modal 帧产出 blocking/no-action 状态。候选标注通过冲突/低置信报告筛出少量需要复核的项。
 - 实时 bot 主链路仍先保留 CV/OCR/template；LLM 用于低置信兜底和离线标注加速。

@@ -4,6 +4,7 @@ from typing import cast
 
 import cv2
 import numpy as np
+import pytest
 from holdem_bot.vision import (
     LlmAnnotationManifest,
     annotation_output_schema,
@@ -54,7 +55,8 @@ def test_build_llm_annotation_package_writes_requests_and_crops(tmp_path: Path) 
         [annotation_path],
         output_dir,
         image_root=image_root,
-        model="gpt-5.5",
+        provider="gemini",
+        model="gemini-3.1-flash-lite",
         detail="original",
         crop_scale=2.0,
     )
@@ -69,7 +71,8 @@ def test_build_llm_annotation_package_writes_requests_and_crops(tmp_path: Path) 
     requests = (output_dir / "requests.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(requests) == 1
     request = json.loads(requests[0])
-    assert request["model"] == "gpt-5.5"
+    assert request["provider"] == "gemini"
+    assert request["model"] == "gemini-3.1-flash-lite"
     assert request["detail"] == "original"
     assert request["output_schema"]["properties"]["table_state"]
     assert (output_dir / "package_report.md").exists()
@@ -108,3 +111,39 @@ def test_llm_annotation_cli_builds_package_without_execute(tmp_path: Path) -> No
 
     assert (output_dir / "manifest.json").exists()
     assert not (output_dir / "responses").exists()
+
+
+def test_llm_annotation_cli_loads_dotenv_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image_root = tmp_path / "selection"
+    frame_path = image_root / "frames" / "keyframe_000001.png"
+    annotation_path = image_root / "annotations" / "keyframe_000001.json"
+    output_dir = tmp_path / "llm"
+    write_test_frame(frame_path)
+    write_draft_annotation(annotation_path, image="frames/keyframe_000001.png")
+    apply_poker_legends_layout(annotation_path)
+    (tmp_path / ".env").write_text(
+        "HOLDEM_LLM_PROVIDER=openai\nHOLDEM_LLM_MODEL=gpt-5.5\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("HOLDEM_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("HOLDEM_LLM_MODEL", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    llm_main(
+        [
+            str(annotation_path),
+            "--image-root",
+            str(image_root),
+            "--out",
+            str(output_dir),
+            "--limit",
+            "1",
+        ]
+    )
+    manifest = LlmAnnotationManifest.read_json(output_dir / "manifest.json")
+
+    assert manifest.provider == "openai"
+    assert manifest.model == "gpt-5.5"
