@@ -179,6 +179,18 @@
   leave-card precision 0.627 / coverage 0.675；按钮仍为 21 个且 leave-frame precision/coverage 1.000。
   第二轮只针对 `8S`，排除新增 truth 后从 437 个可用桌面帧中选 24 帧，LLM 包 3.1MB；未发现 `8S`。
   现有两段视频的 A 路线已把缺牌收敛到只剩 `8S`。
+- 阶段 4 Poker Legends card classifier / consensus v1：已新增
+  `uv run holdem-bot-build-poker-legends-card-classifier ...`，训练本地可见性门控 + rank/suit 加权
+  KNN 分类器；另新增 `uv run holdem-bot-evaluate-poker-legends-card-consensus ...`，运行策略为
+  “整牌模板先命中；否则 rank/suit part 模板与 classifier 必须对同一 slot 给出同一张牌才输出”。
+  B 阶段发现全量 `table_observe` / showdown truth 不能直接作为固定 board ROI 训练数据：Poker Legends
+  会把 winner/hero 展示牌摆到桌面附近，LLM truth 可能把展示牌错并进 board slot。当前 B 的可用口径先
+  收敛到 `actionable_table`：classifier 单体 leave-frame precision/coverage 0.899/0.958、leave-card
+  0.510/0.903、hidden false-positive 0；旧 part actionable baseline leave-card 0.680/0.606；整牌模板
+  leave-frame 0.945/0.571；consensus actionable v1 leave-frame 0.911/0.889、leave-card 0.745/0.502、
+  hidden false-positive 0。结论：classifier 单体不直接上线；`actionable_table` 上用 full-card +
+  part/classifier consensus 作为 fail-closed 牌面信号，observe/showdown 继续走 timeline/暂停口径。
+  诊断产物在 `artifacts/poker-legends-videos/multi_source_templates_v2/card_truth_audit_v1/`。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
@@ -199,9 +211,11 @@
   直接送 LLM；底部圆形 action strip 已确认为预选/快捷操作，不进入安全可点击判定。
 - 按钮 truth 已规则化：主按钮中间/右侧优先按固定位置映射，不直接吸收 LLM 的 `other` /
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
-- 扩展牌面识别：当前 card template v0 是 fail-closed 基线；A 路线已从现有视频补到 51/52，
-  剩余未见牌为 `8S`。下一步按“先 A，再 B”的顺序进入 B：把 rank/suit 局部分类器升级为更强的
-  分类器来泛化到未见牌；当前朴素 rank/suit 模板的 `leave_card` precision 仍不足以直接上线。
+- 扩展牌面识别：当前可用策略是 `actionable_table` 上 full-card template 优先，失败后要求
+  rank/suit part 与 classifier consensus；该路径保持 hidden false-positive 0，但 leave-card coverage
+  只有约 0.50，仍是 fail-closed 辅助信号，不是完整 GameState 牌面 oracle。下一步把该 consensus
+  接到 Poker Legends `RecognizedTable` / `GameState` 原型，并把 observe/showdown 的 winner 展示牌、
+  slot 错位和 LLM truth 噪声纳入单独 truth 治理。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 做筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，并把
