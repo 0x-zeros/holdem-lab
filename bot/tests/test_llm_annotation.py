@@ -10,6 +10,7 @@ from holdem_bot.vision import (
     annotation_output_schema,
     apply_poker_legends_layout,
     build_llm_annotation_package,
+    execute_llm_annotation_package,
 )
 from holdem_bot.vision.llm_annotation import main as llm_main
 
@@ -64,9 +65,13 @@ def test_build_llm_annotation_package_writes_requests_and_crops(tmp_path: Path) 
 
     assert restored == manifest
     assert len(manifest.frames) == 1
+    assert manifest.image_format == "jpg"
+    assert manifest.full_max_width == 1280
+    assert manifest.crop_max_edge == 640
+    assert manifest.crop_groups == ("board", "cards", "buttons", "texts")
     frame = manifest.frames[0]
     assert (output_dir / frame.image).exists()
-    assert len(frame.crops) == 26
+    assert len(frame.crops) == 18
     assert all((output_dir / crop.image).exists() for crop in frame.crops)
     requests = (output_dir / "requests.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(requests) == 1
@@ -147,3 +152,30 @@ def test_llm_annotation_cli_loads_dotenv_defaults(
 
     assert manifest.provider == "openai"
     assert manifest.model == "gpt-5.5"
+
+
+def test_execute_llm_annotation_package_skips_existing_candidates(tmp_path: Path) -> None:
+    image_root = tmp_path / "selection"
+    frame_path = image_root / "frames" / "keyframe_000001.png"
+    annotation_path = image_root / "annotations" / "keyframe_000001.json"
+    output_dir = tmp_path / "llm"
+    write_test_frame(frame_path)
+    write_draft_annotation(annotation_path, image="frames/keyframe_000001.png")
+    apply_poker_legends_layout(annotation_path)
+    build_llm_annotation_package([annotation_path], output_dir, image_root=image_root)
+    candidate_dir = output_dir / "candidate_annotations"
+    response_dir = output_dir / "responses"
+    candidate_dir.mkdir()
+    response_dir.mkdir()
+    (candidate_dir / "keyframe_000001.json").write_text(
+        json.dumps({"frame_id": "keyframe_000001", "uncertain": []}),
+        encoding="utf-8",
+    )
+    (response_dir / "keyframe_000001.json").write_text(
+        '{"frame_id":"keyframe_000001"}\n',
+        encoding="utf-8",
+    )
+
+    execute_llm_annotation_package(output_dir / "manifest.json")
+
+    assert "keyframe_000001" in (output_dir / "candidate_report.md").read_text(encoding="utf-8")

@@ -6,7 +6,6 @@ import argparse
 import base64
 import json
 import os
-import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -26,8 +25,14 @@ DEFAULT_PROVIDER = "gemini"
 DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_DETAIL = "original"
+DEFAULT_IMAGE_FORMAT = "jpg"
+DEFAULT_JPEG_QUALITY = 85
+DEFAULT_FULL_MAX_WIDTH = 1280
+DEFAULT_CROP_MAX_EDGE = 640
+DEFAULT_CROP_GROUPS = ("board", "cards", "buttons", "texts")
 REQUESTS_JSONL = "requests.jsonl"
 SUPPORTED_PROVIDERS = ("openai", "gemini")
+SUPPORTED_IMAGE_FORMATS = ("jpg", "png")
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +60,11 @@ class LlmAnnotationManifest:
     provider: str
     model: str
     detail: str
+    image_format: str
+    full_max_width: int | None
+    crop_scale: float
+    crop_max_edge: int | None
+    crop_groups: tuple[str, ...]
     requests_jsonl: str
     frames: tuple[LlmFrameRequest, ...]
 
@@ -79,6 +89,11 @@ class LlmAnnotationManifest:
             provider=str(data.get("provider", "openai")),
             model=str(data["model"]),
             detail=str(data["detail"]),
+            image_format=str(data.get("image_format", "png")),
+            full_max_width=_optional_int(data.get("full_max_width")),
+            crop_scale=_to_float(data.get("crop_scale", 2.0)),
+            crop_max_edge=_optional_int(data.get("crop_max_edge")),
+            crop_groups=tuple(str(group) for group in data.get("crop_groups", ())),
             requests_jsonl=str(data["requests_jsonl"]),
             frames=tuple(_frame_request_from_dict(frame) for frame in data["frames"]),
         )
@@ -93,6 +108,11 @@ def build_llm_annotation_package(
     model: str | None = None,
     detail: str = DEFAULT_DETAIL,
     crop_scale: float = 2.0,
+    crop_groups: Sequence[str] = DEFAULT_CROP_GROUPS,
+    image_format: str = DEFAULT_IMAGE_FORMAT,
+    jpeg_quality: int = DEFAULT_JPEG_QUALITY,
+    full_max_width: int | None = DEFAULT_FULL_MAX_WIDTH,
+    crop_max_edge: int | None = DEFAULT_CROP_MAX_EDGE,
     limit: int | None = None,
 ) -> LlmAnnotationManifest:
     if crop_scale <= 0:
@@ -102,6 +122,14 @@ def build_llm_annotation_package(
         selected_paths = selected_paths[:limit]
     if not selected_paths:
         raise ValueError("at least one annotation is required")
+    normalized_format = _normalize_image_format(image_format)
+    if not (1 <= jpeg_quality <= 100):
+        raise ValueError("jpeg_quality must be between 1 and 100")
+    if full_max_width is not None and full_max_width <= 0:
+        raise ValueError("full_max_width must be positive")
+    if crop_max_edge is not None and crop_max_edge <= 0:
+        raise ValueError("crop_max_edge must be positive")
+    selected_crop_groups = _normalize_crop_groups(crop_groups)
 
     output = Path(output_dir)
     images_dir = output / "images"
@@ -114,16 +142,23 @@ def build_llm_annotation_package(
         annotation = _read_json_object(annotation_path)
         frame_id = annotation_path.stem
         source_image = Path(image_root) / str(annotation["image"])
-        image_path = images_dir / f"{frame_id}{source_image.suffix or '.png'}"
-        shutil.copy2(source_image, image_path)
-        image = _read_image(image_path)
+        source_frame = _read_image(source_image)
+        frame_image = _resize_to_max_width(source_frame, full_max_width)
+        image_path = images_dir / f"{frame_id}.{normalized_format}"
+        _write_image(
+            image_path, frame_image, image_format=normalized_format, jpeg_quality=jpeg_quality
+        )
         crops = _write_crops(
-            image,
+            source_frame,
             annotation,
             output,
             crops_dir / frame_id,
             frame_id=frame_id,
             crop_scale=crop_scale,
+            crop_groups=selected_crop_groups,
+            image_format=normalized_format,
+            jpeg_quality=jpeg_quality,
+            crop_max_edge=crop_max_edge,
         )
         prompt = _build_frame_prompt(annotation, crops)
         frames.append(
@@ -141,6 +176,11 @@ def build_llm_annotation_package(
         provider=_normalize_provider(provider),
         model=_resolve_model(provider, model),
         detail=detail,
+        image_format=normalized_format,
+        full_max_width=full_max_width,
+        crop_scale=crop_scale,
+        crop_max_edge=crop_max_edge,
+        crop_groups=tuple(selected_crop_groups),
         requests_jsonl=REQUESTS_JSONL,
         frames=tuple(frames),
     )
@@ -158,6 +198,7 @@ def execute_llm_annotation_package(
     provider: str | None = None,
     detail: str | None = None,
     limit: int | None = None,
+    skip_existing: bool = True,
 ) -> None:
     manifest_file = Path(manifest_path)
     package_dir = manifest_file.parent
@@ -173,6 +214,18 @@ def execute_llm_annotation_package(
     resolved_provider = _normalize_provider(provider or manifest.provider)
     resolved_model = model or manifest.model
     for frame in selected_frames:
+        response_path = responses_dir / f"{frame.frame_id}.json"
+        candidate_path = candidate_dir / f"{frame.frame_id}.json"
+        if skip_existing and candidate_path.exists() and response_path.exists():
+            candidate = _read_json_object(candidate_path)
+            outputs.append(
+                _candidate_report_row(
+                    frame.frame_id, candidate_path, response_path, target_dir, candidate
+                )
+            )
+            _write_candidate_report(target_dir / "candidate_report.md", outputs)
+            _write_uncertain_report(target_dir / "uncertain_report.md", candidate_dir)
+            continue
         if resolved_provider == "openai":
             raw_text = _execute_openai_frame(
                 package_dir,
@@ -189,26 +242,19 @@ def execute_llm_annotation_package(
             )
         else:
             raise ValueError(f"unsupported provider: {resolved_provider}")
-        response_path = responses_dir / f"{frame.frame_id}.json"
         response_path.write_text(raw_text + "\n", encoding="utf-8")
         candidate = _parse_candidate(raw_text, frame.frame_id)
-        candidate_path = candidate_dir / f"{frame.frame_id}.json"
         candidate_path.write_text(
             json.dumps(candidate, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        uncertain = candidate.get("uncertain", [])
-        uncertain_count = len(uncertain) if isinstance(uncertain, list) else 0
         outputs.append(
-            {
-                "frame_id": frame.frame_id,
-                "candidate": str(candidate_path.relative_to(target_dir)),
-                "response": str(response_path.relative_to(target_dir)),
-                "uncertain_count": uncertain_count,
-            }
+            _candidate_report_row(
+                frame.frame_id, candidate_path, response_path, target_dir, candidate
+            )
         )
-    _write_candidate_report(target_dir / "candidate_report.md", outputs)
-    _write_uncertain_report(target_dir / "uncertain_report.md", candidate_dir)
+        _write_candidate_report(target_dir / "candidate_report.md", outputs)
+        _write_uncertain_report(target_dir / "uncertain_report.md", candidate_dir)
 
 
 def annotation_output_schema() -> dict[str, object]:
@@ -434,6 +480,32 @@ def _resolve_model(provider: str, model: str | None) -> str:
     raise ValueError(f"unsupported provider: {provider}")
 
 
+def _normalize_image_format(image_format: str) -> str:
+    normalized = image_format.strip().lower()
+    if normalized == "jpeg":
+        normalized = "jpg"
+    if normalized not in SUPPORTED_IMAGE_FORMATS:
+        raise ValueError(f"unsupported image format: {image_format}")
+    return normalized
+
+
+def _parse_crop_groups(raw: str) -> tuple[str, ...]:
+    if raw.strip().lower() == "all":
+        return ("all",)
+    return tuple(group.strip() for group in raw.split(",") if group.strip())
+
+
+def _normalize_crop_groups(crop_groups: Sequence[str]) -> tuple[str, ...]:
+    if not crop_groups:
+        raise ValueError("at least one crop group is required")
+    if len(crop_groups) == 1 and crop_groups[0].strip().lower() == "all":
+        return ("board", "buttons", "seats", "cards", "texts", "overlays")
+    normalized = tuple(dict.fromkeys(group.strip() for group in crop_groups if group.strip()))
+    if not normalized:
+        raise ValueError("at least one crop group is required")
+    return normalized
+
+
 def _load_dotenv(path: Path) -> None:
     if not path.exists():
         return
@@ -478,11 +550,45 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Image detail mode.",
     )
     parser.add_argument("--crop-scale", type=float, default=2.0, help="Scale ROI crops before use.")
+    parser.add_argument(
+        "--crop-groups",
+        default=",".join(DEFAULT_CROP_GROUPS),
+        help="Comma-separated ROI groups to include, or 'all'.",
+    )
+    parser.add_argument(
+        "--image-format",
+        choices=SUPPORTED_IMAGE_FORMATS,
+        default=DEFAULT_IMAGE_FORMAT,
+        help="Format used for packaged full images and crops.",
+    )
+    parser.add_argument(
+        "--jpeg-quality",
+        type=int,
+        default=DEFAULT_JPEG_QUALITY,
+        help="JPEG quality when --image-format=jpg.",
+    )
+    parser.add_argument(
+        "--full-max-width",
+        type=int,
+        default=DEFAULT_FULL_MAX_WIDTH,
+        help="Downscale full frames to this width. Use 0 for original size.",
+    )
+    parser.add_argument(
+        "--crop-max-edge",
+        type=int,
+        default=DEFAULT_CROP_MAX_EDGE,
+        help="Limit ROI crop max edge after scaling. Use 0 for no cap.",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Optional frame limit.")
     parser.add_argument(
         "--execute",
         action="store_true",
         help="Call the configured LLM provider after building the package.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run frames even when candidate response files already exist.",
     )
     parser.add_argument(
         "--manifest",
@@ -506,6 +612,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             model=args.model,
             detail=args.detail,
             crop_scale=args.crop_scale,
+            crop_groups=_parse_crop_groups(args.crop_groups),
+            image_format=args.image_format,
+            jpeg_quality=args.jpeg_quality,
+            full_max_width=None if args.full_max_width == 0 else args.full_max_width,
+            crop_max_edge=None if args.crop_max_edge == 0 else args.crop_max_edge,
             limit=args.limit,
         )
         manifest_path = Path(args.out) / "manifest.json"
@@ -520,6 +631,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             provider=args.provider,
             detail=args.detail,
             limit=args.limit,
+            skip_existing=not args.force,
         )
     output_provider = (
         provider
@@ -554,10 +666,17 @@ def _write_crops(
     *,
     frame_id: str,
     crop_scale: float,
+    crop_groups: Sequence[str],
+    image_format: str,
+    jpeg_quality: int,
+    crop_max_edge: int | None,
 ) -> list[LlmRoiCrop]:
     crop_dir.mkdir(parents=True, exist_ok=True)
     crops: list[LlmRoiCrop] = []
+    selected_groups = set(crop_groups)
     for group, regions in _region_groups(annotation).items():
+        if group not in selected_groups:
+            continue
         for region in regions:
             name = str(region["name"])
             kind = str(region["kind"])
@@ -565,10 +684,10 @@ def _write_crops(
             crop_image = _crop(image, rect, pad=8)
             if crop_scale != 1.0:
                 crop_image = _resize_by_scale(crop_image, crop_scale)
+            crop_image = _resize_to_max_edge(crop_image, crop_max_edge)
             crop_id = f"{group}.{name}"
-            path = crop_dir / f"{group}__{name}.png"
-            if not cv2.imwrite(str(path), crop_image):
-                raise RuntimeError(f"could not write crop: {path}")
+            path = crop_dir / f"{group}__{name}.{image_format}"
+            _write_image(path, crop_image, image_format=image_format, jpeg_quality=jpeg_quality)
             crops.append(
                 LlmRoiCrop(
                     id=crop_id,
@@ -592,6 +711,11 @@ def _write_requests_jsonl(path: Path, manifest: LlmAnnotationManifest) -> None:
                     "provider": manifest.provider,
                     "model": manifest.model,
                     "detail": manifest.detail,
+                    "image_format": manifest.image_format,
+                    "full_max_width": manifest.full_max_width,
+                    "crop_scale": manifest.crop_scale,
+                    "crop_max_edge": manifest.crop_max_edge,
+                    "crop_groups": manifest.crop_groups,
                     "prompt": frame.prompt,
                     "image": frame.image,
                     "crops": [asdict(crop) for crop in frame.crops],
@@ -616,6 +740,11 @@ def _write_package_report(path: Path, manifest: LlmAnnotationManifest) -> None:
         f"- Provider: `{manifest.provider}`",
         f"- Model: `{manifest.model}`",
         f"- Image detail: `{manifest.detail}`",
+        f"- Image format: `{manifest.image_format}`",
+        f"- Full image max width: {manifest.full_max_width or 'original'}",
+        f"- Crop scale: {manifest.crop_scale}",
+        f"- Crop max edge: {manifest.crop_max_edge or 'none'}",
+        f"- Crop groups: {', '.join(manifest.crop_groups)}",
         f"- Frames: {len(manifest.frames)}",
         f"- ROI crops: {total_crops}",
         f"- Requests JSONL: `{manifest.requests_jsonl}`",
@@ -644,6 +773,23 @@ def _write_candidate_report(path: Path, outputs: Sequence[Mapping[str, object]])
             f"`{output['response']}` | {output['uncertain_count']} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _candidate_report_row(
+    frame_id: str,
+    candidate_path: Path,
+    response_path: Path,
+    target_dir: Path,
+    candidate: Mapping[str, object],
+) -> dict[str, object]:
+    uncertain = candidate.get("uncertain", [])
+    uncertain_count = len(uncertain) if isinstance(uncertain, list) else 0
+    return {
+        "frame_id": frame_id,
+        "candidate": str(candidate_path.relative_to(target_dir)),
+        "response": str(response_path.relative_to(target_dir)),
+        "uncertain_count": uncertain_count,
+    }
 
 
 def _write_uncertain_report(path: Path, candidate_dir: Path) -> None:
@@ -821,6 +967,53 @@ def _resize_by_scale(image: RgbImage, scale: float) -> RgbImage:
     )
 
 
+def _resize_to_max_width(image: RgbImage, max_width: int | None) -> RgbImage:
+    if max_width is None or image.shape[1] <= max_width:
+        return image
+    scale = max_width / image.shape[1]
+    height = max(1, round(image.shape[0] * scale))
+    return cast(
+        RgbImage,
+        cv2.resize(image, (max_width, height), interpolation=cv2.INTER_AREA),
+    )
+
+
+def _resize_to_max_edge(image: RgbImage, max_edge: int | None) -> RgbImage:
+    if max_edge is None:
+        return image
+    height, width = image.shape[:2]
+    current_max = max(width, height)
+    if current_max <= max_edge:
+        return image
+    scale = max_edge / current_max
+    return cast(
+        RgbImage,
+        cv2.resize(
+            image,
+            (max(1, round(width * scale)), max(1, round(height * scale))),
+            interpolation=cv2.INTER_AREA,
+        ),
+    )
+
+
+def _write_image(
+    path: Path,
+    image: RgbImage,
+    *,
+    image_format: str,
+    jpeg_quality: int,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if image_format == "jpg":
+        params = [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
+    elif image_format == "png":
+        params = [int(cv2.IMWRITE_PNG_COMPRESSION), 6]
+    else:
+        raise ValueError(f"unsupported image format: {image_format}")
+    if not cv2.imwrite(str(path), image, params):
+        raise RuntimeError(f"could not write image: {path}")
+
+
 def _image_data_uri(path: Path) -> str:
     data = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:{_image_mime_type(path)};base64,{data}"
@@ -887,3 +1080,17 @@ def _to_int(value: object) -> int:
     if isinstance(value, str):
         return int(value)
     raise TypeError(f"expected int or string: {value!r}")
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    return _to_int(value)
+
+
+def _to_float(value: object) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        return float(value)
+    raise TypeError(f"expected number or string: {value!r}")

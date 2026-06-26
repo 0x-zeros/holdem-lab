@@ -67,21 +67,24 @@
   `uv run holdem-bot-llm-annotate <annotations...> --image-root <dir> --out <dir>` 工具；支持
   `--provider gemini|openai`，默认 Gemini `gemini-3.1-flash-lite`，默认只生成离线请求包，
   `--execute` 才会调用对应 provider API。当前已为 20 个代表帧生成
-  `artifacts/poker-legends-videos/session_001_selection/llm_annotation/`，包含 20 张整图、520 个放大
-  ROI crop、`requests.jsonl`、`manifest.json` 和 `package_report.md`。
+  省流版 `artifacts/poker-legends-videos/session_001_selection/llm_annotation_slim/`：20 张 1280 宽 JPEG
+  整图、360 个必要 ROI crop（board/cards/buttons/texts）、`requests.jsonl`、`manifest.json` 和
+  `package_report.md`，总包约 6.3MB。执行器默认跳过已有候选结果，支持中断后 resume，避免重复计费。
+- 阶段 4 LLM 候选标注执行：Gemini key 已通过本地 `.env` 提供；当前 `llm_annotation_slim/` 已成功
+  生成 7/20 个 `candidate_annotations`，后续帧遇到 Gemini 503 高需求错误，可稍后直接 resume。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  59 tests）。
+  60 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：执行 LLM 候选标注**
-- 复制 `.env.example` 为 `.env`，填入 `GEMINI_API_KEY`；当前请求包已配置为
-  `gemini-3.1-flash-lite`。在有 key 的环境中对现有 manifest 运行 `holdem-bot-llm-annotate --execute`，
-  即可输出 `candidate_annotations/`、`candidate_report.md`、`uncertain_report.md`。
+**下一步：resume LLM 候选标注**
+- 稍后对 `artifacts/poker-legends-videos/session_001_selection/llm_annotation_slim/manifest.json` 再运行
+  `holdem-bot-llm-annotate --execute`；已有 7 帧会自动跳过，只提交剩余帧。若
+  `gemini-3.1-flash-lite` 继续 503，可临时加 `--model gemini-2.5-flash-lite` 重试。
 - LLM 先作为标注工厂主力：对 table 帧产出手牌/公共牌、筹码、底池、按钮、轮到谁行动；对
   overlay/modal 帧产出 blocking/no-action 状态。候选标注通过冲突/低置信报告筛出少量需要复核的项。
 - 实时 bot 主链路仍先保留 CV/OCR/template；LLM 用于低置信兜底和离线标注加速。
