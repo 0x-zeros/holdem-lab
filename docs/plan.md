@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-26 阶段 4 Poker Legends 视频 ingest）
+## 当前进度（截至 2026-06-26 阶段 4 Poker Legends 视频 ingest + 代表帧选择）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -49,21 +49,28 @@
   在当前 fixture 上达到 overall/cards/buttons/chips/seats/table 全部 1.0。
 - 阶段 4 Poker Legends 视频 ingest：已提供 `uv run holdem-bot-ingest-video <video> --out <dir>`
   工具，使用 OpenCV 顺序解码、按采样 FPS + 画面差分去重、输出 keyframe PNG、draft annotation
-  JSON、`manifest.json`、`process_report.md` 和 `contact_sheet.jpg`；已对
+  JSON、`manifest.json`、`process_report.md`、分页 contact sheet 与首屏 `contact_sheet.jpg`；已对
   `artifacts/poker-legends-videos/raw/session_001.mov` 跑通，保留 177 个关键帧，产物在
   `artifacts/poker-legends-videos/session_001_ingest/`。
+- 阶段 4 Poker Legends 代表帧选择：已提供
+  `uv run holdem-bot-select-keyframes <manifest.json> --out <dir> --select ...` 工具，可从 ingest
+  manifest 中复制代表 PNG/草稿 JSON、生成 `selected_manifest.json`、`selection_report.md` 与
+  选择联系表；当前已在 `artifacts/poker-legends-videos/session_001_selection/` 生成 20 张代表帧，
+  覆盖核心牌局街道、动作按钮、摊牌/all-in 与弹窗/菜单类 no-action 负样本。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  51 tests）。
+  52 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
-  `d20669b`、`cabe333`、`b40eef9`、`ba3befd`。尚未 push。
+  `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：标注 Poker Legends 代表关键帧**
-- 从 `artifacts/poker-legends-videos/session_001_ingest/contact_sheet.jpg` 中挑 10-20 个代表状态，
-  填写对应 `annotations/keyframe_*.json` 的区域和值：座位、手牌/公共牌、筹码、底池、按钮、
-  轮到谁行动；之后复用 `RoiOcrRecognizer` / `evaluate_recognition()` 迭代真实游戏识别。
+**下一步：填写 Poker Legends 代表关键帧标注**
+- 优先填 `artifacts/poker-legends-videos/session_001_selection/annotations/keyframe_*.json` 这 20 个
+  草稿标注；处理流程说明见同目录 `selection_report.md`，对应视觉总览见 `contact_sheet.jpg`。
+- 对 table 帧填写座位、手牌/公共牌、筹码、底池、按钮、轮到谁行动；对 overlay/modal 帧标出
+  阻塞区域并作为 no-action 状态；之后复用 `RoiOcrRecognizer` / `evaluate_recognition()` 迭代真实
+  游戏识别。
 - 暂不把 LLM/VLM 放进主链路；后续作为低置信度兜底或冷启动标注辅助。
 
 **环境备注（容器内）**

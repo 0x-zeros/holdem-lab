@@ -20,6 +20,12 @@ from holdem_bot.vision.recognition import (
     recognize_from_annotation,
 )
 from holdem_bot.vision.roi_ocr import RoiOcrConfig, RoiOcrRecognizer
+from holdem_bot.vision.selection import (
+    KeyframeSelectionManifest,
+    KeyframeSelectionRequest,
+    SelectedKeyframe,
+    select_keyframes,
+)
 from holdem_bot.vision.video import (
     ExtractedFrame,
     VideoIngestManifest,
@@ -34,6 +40,8 @@ __all__ = [
     "AnnotatedText",
     "CategoryScore",
     "ExtractedFrame",
+    "KeyframeSelectionManifest",
+    "KeyframeSelectionRequest",
     "RecognitionScore",
     "RecognizedButton",
     "RecognizedCard",
@@ -42,6 +50,7 @@ __all__ = [
     "RoiOcrConfig",
     "RoiOcrRecognizer",
     "ScreenRect",
+    "SelectedKeyframe",
     "TableAnnotation",
     "VideoIngestManifest",
     "VideoMetadata",
@@ -50,4 +59,5 @@ __all__ = [
     "ingest_video",
     "recognize_from_annotation",
     "score_to_dict",
+    "select_keyframes",
 ]

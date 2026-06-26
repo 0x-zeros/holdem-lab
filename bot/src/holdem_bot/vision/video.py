@@ -45,6 +45,7 @@ class VideoIngestManifest:
     max_gap_seconds: float
     resize_width: int | None
     contact_sheet: str | None
+    contact_sheets: tuple[str, ...]
     process_report: str
     frames: tuple[ExtractedFrame, ...]
 
@@ -72,6 +73,7 @@ class VideoIngestManifest:
             max_gap_seconds=float(data["max_gap_seconds"]),
             resize_width=None if data["resize_width"] is None else int(data["resize_width"]),
             contact_sheet=None if data["contact_sheet"] is None else str(data["contact_sheet"]),
+            contact_sheets=tuple(str(sheet) for sheet in data.get("contact_sheets", ())),
             process_report=str(data["process_report"]),
             frames=tuple(_frame_from_dict(frame) for frame in data["frames"]),
         )
@@ -124,7 +126,7 @@ def ingest_video(
     finally:
         cap.release()
 
-    contact_sheet = _write_contact_sheet(output, frames_dir, extracted)
+    contact_sheets = _write_contact_sheets(output, frames_dir, extracted)
     process_report = output / "process_report.md"
     manifest = VideoIngestManifest(
         schema_version=1,
@@ -133,7 +135,8 @@ def ingest_video(
         diff_threshold=diff_threshold,
         max_gap_seconds=max_gap_seconds,
         resize_width=resize_width,
-        contact_sheet=None if contact_sheet is None else str(contact_sheet.relative_to(output)),
+        contact_sheet=contact_sheets[0] if contact_sheets else None,
+        contact_sheets=contact_sheets,
         process_report=str(process_report.relative_to(output)),
         frames=tuple(extracted),
     )
@@ -376,56 +379,68 @@ def _write_draft_annotation(
     path.write_text(json.dumps(draft, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _write_contact_sheet(
+def _write_contact_sheets(
     output: Path,
     frames_dir: Path,
     frames: list[ExtractedFrame],
     *,
     columns: int = 4,
-    max_images: int = 24,
-) -> Path | None:
+    images_per_sheet: int = 24,
+) -> tuple[str, ...]:
     if not frames:
-        return None
+        return ()
 
-    selected = frames[:max_images]
-    thumbnails: list[NDArray[np.uint8]] = []
+    output_dir = frames_dir.parent / "contact_sheets"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sheet_paths: list[str] = []
     thumb_width, thumb_height = 320, 196
-    for frame in selected:
-        image = cv2.imread(str(output / frame.image), cv2.IMREAD_COLOR)
-        if image is None:
+    for page_index, start in enumerate(range(0, len(frames), images_per_sheet)):
+        page_frames = frames[start : start + images_per_sheet]
+        thumbnails: list[NDArray[np.uint8]] = []
+        for frame in page_frames:
+            image = cv2.imread(str(output / frame.image), cv2.IMREAD_COLOR)
+            if image is None:
+                continue
+            thumb = cast(
+                NDArray[np.uint8],
+                cv2.resize(image, (thumb_width, thumb_height), interpolation=cv2.INTER_AREA),
+            )
+            cv2.putText(
+                thumb,
+                f"{Path(frame.image).stem}  {frame.timestamp_seconds:.1f}s",
+                (8, 24),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            thumbnails.append(thumb)
+
+        if not thumbnails:
             continue
-        thumb = cast(
-            NDArray[np.uint8],
-            cv2.resize(image, (thumb_width, thumb_height), interpolation=cv2.INTER_AREA),
-        )
-        cv2.putText(
-            thumb,
-            f"{frame.timestamp_seconds:.1f}s",
-            (8, 24),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
-        )
-        thumbnails.append(thumb)
 
-    if not thumbnails:
-        return None
+        rows = (len(thumbnails) + columns - 1) // columns
+        sheet = np.zeros((rows * thumb_height, columns * thumb_width, 3), dtype=np.uint8)
+        for index, thumbnail in enumerate(thumbnails):
+            row = index // columns
+            column = index % columns
+            y = row * thumb_height
+            x = column * thumb_width
+            sheet[y : y + thumb_height, x : x + thumb_width] = thumbnail
 
-    rows = (len(thumbnails) + columns - 1) // columns
-    sheet = np.zeros((rows * thumb_height, columns * thumb_width, 3), dtype=np.uint8)
-    for index, thumbnail in enumerate(thumbnails):
-        row = index // columns
-        column = index % columns
-        y = row * thumb_height
-        x = column * thumb_width
-        sheet[y : y + thumb_height, x : x + thumb_width] = thumbnail
+        path = output_dir / f"contact_sheet_{page_index:03d}.jpg"
+        if not cv2.imwrite(str(path), sheet):
+            raise RuntimeError(f"could not write contact sheet: {path}")
+        sheet_paths.append(str(path.relative_to(output)))
 
-    path = frames_dir.parent / "contact_sheet.jpg"
-    if not cv2.imwrite(str(path), sheet):
-        raise RuntimeError(f"could not write contact sheet: {path}")
-    return path
+    if sheet_paths:
+        first_sheet = frames_dir.parent / "contact_sheet.jpg"
+        first_source = output / sheet_paths[0]
+        image = cv2.imread(str(first_source), cv2.IMREAD_COLOR)
+        if image is not None and not cv2.imwrite(str(first_sheet), image):
+            raise RuntimeError(f"could not write contact sheet: {first_sheet}")
+    return tuple(sheet_paths)
 
 
 def _write_process_report(path: Path, manifest: VideoIngestManifest) -> None:
@@ -449,6 +464,10 @@ def _write_process_report(path: Path, manifest: VideoIngestManifest) -> None:
     ]
     if manifest.contact_sheet is not None:
         lines.append(f"- Contact sheet: `{manifest.contact_sheet}`")
+    if manifest.contact_sheets:
+        lines.append("- Contact sheet pages:")
+        for sheet in manifest.contact_sheets:
+            lines.append(f"  - `{sheet}`")
     lines.extend(
         [
             "",
