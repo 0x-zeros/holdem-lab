@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-27 阶段 2/3 local game + AI polish v4）
+## 当前进度（截至 2026-06-27 阶段 2/3 local game + AI evaluation v1）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -256,22 +256,25 @@
   rebuy 并记录到行动日志；桌面左上角显示 session 盈亏与当前手前筹码。`P` 键可暂停/恢复 AI 自动
   推进，暂停后 human 行动会停在下一个 AI seat，便于观察局面；恢复后继续自动推进。CV fixture 生成
   时会关闭 session/action overlay，保持自家 pygame OCR 基线稳定。
+- 阶段 2/3 AI evaluation v1：`uv run holdem-ai-evaluate-heads-up` 进入系统评估阶段。默认可跑两两
+  heads-up；新增 `--matrix current no_equity tight loose` 模式，可自动跑所有 profile pairings，
+  输出 pairings 明细与 leaderboard（chips、bb/100、胜负统计）。当前 profile 仍是可解释 heuristic
+  族，作为后续手调 range 或接 CFR/RL 前的基线。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  147 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --hands 2 --seed 3 --profile-a current
-  --profile-b tight` 已跑通。
+  149 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current no_equity tight
+  --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：本地游戏 + AI 继续完善**
+**下一步：AI 训练路线决策**
 - 当前优先级切回自家 pygame 游戏与共用 AI。Poker Legends host dry-run 先暂停，不进入真实点击测试。
-- 本地游戏基础项已闭合：可连续试玩、可自定义下注、可暂停 AI、可看行动日志/摊牌摘要/session 统计。
-  下一步需要决策方向：继续打磨游戏 UX（下注滑杆、历史牌谱、设置面板），还是进入 AI 评估/训练阶段。
-- AI 侧基础项已闭合：`decide()` 通用入口、可解释 metadata、轻量 equity、head-to-head 评估脚本均已
-  可用。下一步需要决策：继续手调 heuristic range，还是开始接 CFR/RL 训练评估。
+- 本地游戏基础 UX 已闭合：可连续试玩、可自定义下注、可暂停 AI、可看行动日志/摊牌摘要/session 统计。
+- AI 评估阶段已启动：`decide()` 通用入口、可解释 metadata、轻量 equity、head-to-head/matrix 评估
+  均可用。下一步需要决策：继续基于 matrix 结果手调 heuristic range，还是开始接 CFR/RL 训练评估。
 
 **Poker Legends host dry-run 后续暂停项**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 reviewed truth overlay（session_001 v1 /

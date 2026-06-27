@@ -2,7 +2,7 @@ import json
 from typing import cast
 
 import pytest
-from holdem_ai.evaluate import evaluate_heads_up, main, profile_from_name
+from holdem_ai.evaluate import evaluate_heads_up, evaluate_profile_matrix, main, profile_from_name
 
 
 def test_evaluate_heads_up_returns_balanced_profile_stats() -> None:
@@ -36,3 +36,31 @@ def test_evaluate_cli_outputs_json(capsys: pytest.CaptureFixture[str]) -> None:
     report = json.loads(capsys.readouterr().out)
     assert report["hands"] == 2
     assert set(report["profiles"]) == {"current", "tight"}
+
+
+def test_evaluate_profile_matrix_returns_pairings_and_leaderboard() -> None:
+    result = evaluate_profile_matrix(("current", "no_equity", "tight"), hands=2, seed=5)
+    report = result.to_dict()
+    pairings = cast(dict[str, object], report["pairings"])
+    leaderboard = cast(list[dict[str, object]], report["leaderboard"])
+
+    assert set(pairings) == {
+        "current_vs_no_equity",
+        "current_vs_tight",
+        "no_equity_vs_tight",
+    }
+    assert [entry["profile"] for entry in leaderboard]
+    assert {entry["profile"] for entry in leaderboard} == {
+        "current",
+        "no_equity",
+        "tight",
+    }
+
+
+def test_evaluate_matrix_cli_outputs_json(capsys: pytest.CaptureFixture[str]) -> None:
+    main(["--matrix", "current", "no_equity", "tight", "--hands", "2", "--seed", "9"])
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["hands_per_pairing"] == 2
+    assert len(report["pairings"]) == 3
+    assert len(report["leaderboard"]) == 3
