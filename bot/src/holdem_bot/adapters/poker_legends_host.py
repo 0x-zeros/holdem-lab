@@ -12,6 +12,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
+from holdem_ai.field import FieldExploitPolicy
+from holdem_ai.opponents import OpponentModel
 from holdem_common import Action, ActionType, GameState
 
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
@@ -307,19 +309,118 @@ def dry_run_once_main(argv: Sequence[str] | None = None) -> None:
         planner=planner,
         log_path=args.log_jsonl,
     )
+    # An opponent-aware policy carrying a persistent per-seat read. On a single
+    # frame the read is still UNKNOWN (it needs many hands), so the decision is
+    # identical to the bare heuristic; the model is what a continuous session
+    # (e.g. the replay runner) populates to start exploiting the field.
+    policy = FieldExploitPolicy()
     orchestrator = BotOrchestrator(
         capture=capture,
         recognizer=recognizer,
         automator=automator,
         seat=args.seat,
         min_confidence=args.min_confidence,
+        policy_explainer=policy.explain,
     )
     result = orchestrator.run_once()
     record = _bot_step_result_to_dict(
         result,
         dry_run_record=automator.records[-1] if automator.records else None,
+        opponent_reads=_opponent_reads(policy.model, result.state, controlled_seat=args.seat),
     )
     print(json.dumps(record, indent=2, sort_keys=True))
+
+
+def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
+    """Replay a directory of saved frames through ONE persistent opponent-aware policy.
+
+    A single dry-run frame can never build a read (each invocation is a fresh
+    process). This feeds a whole sequence of saved frames through one
+    ``FieldExploitPolicy`` so the per-seat ``OpponentModel`` accumulates exactly as
+    it would over a live session, and reports the read it ends up with — the
+    offline proxy for "does real-frame recognition support an opponent model". Each
+    frame's own annotation JSON supplies its ROIs (and, with ``--use-truth``, the
+    ground-truth state, isolating the read logic from recognition quality). Never
+    clicks.
+    """
+    parser = argparse.ArgumentParser(description="Replay saved Poker Legends frames; build a read.")
+    parser.add_argument("--frames-dir", required=True)
+    parser.add_argument("--annotations-dir", required=True)
+    parser.add_argument("--card-part-manifest", required=True)
+    parser.add_argument("--card-classifier-manifest", required=True)
+    parser.add_argument("--button-manifest", required=True)
+    parser.add_argument("--card-template-manifest")
+    parser.add_argument("--seat", type=int, default=0)
+    parser.add_argument("--min-confidence", type=float, default=0.80)
+    parser.add_argument("--log-jsonl", required=True)
+    parser.add_argument(
+        "--use-truth",
+        action="store_true",
+        help="Bypass CV with each frame's truth annotation (isolates the read from recognition).",
+    )
+    parser.add_argument("--limit", type=int)
+    args = parser.parse_args(argv)
+
+    recognizer = PokerLegendsTableRecognizer.from_manifests(
+        card_part_manifest=args.card_part_manifest,
+        card_classifier_manifest=args.card_classifier_manifest,
+        button_manifest=args.button_manifest,
+        card_template_manifest=args.card_template_manifest,
+        controlled_seat=args.seat,
+    )
+    policy = FieldExploitPolicy()
+
+    frame_paths = sorted(Path(args.frames_dir).glob("*.png"))
+    if args.limit is not None:
+        frame_paths = frame_paths[: args.limit]
+    annotations_dir = Path(args.annotations_dir)
+
+    steps: list[dict[str, object]] = []
+    opponent_seats: set[int] = set()
+    for frame_path in frame_paths:
+        annotation_path = annotations_dir / f"{frame_path.stem}.json"
+        if not annotation_path.exists():
+            continue
+        capture = PokerLegendsImageCapture(
+            image_path=str(frame_path),
+            layout_annotation_path=str(annotation_path),
+            annotation_path=str(annotation_path) if args.use_truth else None,
+        )
+        automator = PokerLegendsDryRunAutomator(
+            planner=PokerLegendsLayoutClickPlanner.from_annotation_path(str(annotation_path)),
+            log_path=args.log_jsonl,
+        )
+        orchestrator = BotOrchestrator(
+            capture=capture,
+            recognizer=recognizer,
+            automator=automator,
+            seat=args.seat,
+            min_confidence=args.min_confidence,
+            policy_explainer=policy.explain,
+        )
+        result = orchestrator.run_once()
+        if result.state is not None:
+            opponent_seats.update(
+                player.seat for player in result.state.players if player.seat != args.seat
+            )
+        steps.append(
+            {
+                "frame": frame_path.stem,
+                "acted": result.acted,
+                "reason": result.reason,
+                "exploit": result.policy_decision.metadata.get("exploit")
+                if result.policy_decision is not None
+                else None,
+            }
+        )
+
+    summary = {
+        "frames": len(steps),
+        "actionable": sum(1 for step in steps if step["acted"]),
+        "opponent_reads": [_seat_read_dict(policy.model, seat) for seat in sorted(opponent_seats)],
+        "steps": steps,
+    }
+    print(json.dumps(summary, indent=2, sort_keys=True))
 
 
 def _command_for_action(action: Action) -> str:
@@ -336,6 +437,7 @@ def _bot_step_result_to_dict(
     result: BotStepResult,
     *,
     dry_run_record: Mapping[str, object] | None,
+    opponent_reads: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     return {
         "acted": result.acted,
@@ -345,7 +447,40 @@ def _bot_step_result_to_dict(
         "state": _state_summary(result.state),
         "action": _action_to_dict(result.action),
         "policy_decision": _policy_decision_to_dict(result),
+        "opponent_reads": opponent_reads,
         "dry_run_record": dict(dry_run_record) if dry_run_record is not None else None,
+    }
+
+
+def _opponent_reads(
+    model: OpponentModel,
+    state: GameState | None,
+    *,
+    controlled_seat: int,
+) -> list[dict[str, object]] | None:
+    """Per-seat VPIP/PFR/profile read for the opponents in the recognised state.
+
+    On a single frame these are mostly ``unknown`` (the read needs many hands); a
+    continuous session accumulates them, and this is the channel the operator
+    watches to see whether real-frame recognition supports an opponent model.
+    """
+    if state is None:
+        return None
+    return [
+        _seat_read_dict(model, player.seat)
+        for player in state.players
+        if player.seat != controlled_seat
+    ]
+
+
+def _seat_read_dict(model: OpponentModel, seat: int) -> dict[str, object]:
+    read = model.read(seat)
+    return {
+        "seat": read.seat,
+        "profile": read.profile.value,
+        "hands": read.hands,
+        "vpip": round(read.vpip, 3) if read.vpip is not None else None,
+        "pfr": round(read.pfr, 3) if read.pfr is not None else None,
     }
 
 

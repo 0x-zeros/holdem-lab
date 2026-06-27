@@ -404,8 +404,16 @@
   再轻跟反流血）**测试后明确砍掉**。新增 `loose_passive` 参照（松被动鱼，会下注成手牌，被判 STATION）。诚实标注：observed
   VPIP 被观察时序低估（站理论~0.85 实测~0.50）但相对分离干净；**端到端 nit/鱼增益高方差**（需 100+ 副牌才稳定，故门**逻辑**
   由瞬时单元测试钉死、**增益**由文档大样本背书，不进快测；站剥削效应巨大稳健保留为集成测试）。验证：`verify-dev-env.sh`
-  全绿（ruff/mypy/**277 tests**）；网格详见 `docs/ai-strength.md` §6 S4。下一步②：把 `OpponentModel` 接进 bot orchestrator
-  （持久 `policy_explainer`，dry-run 日志显示每座位 profile/VPIP）。
+  全绿（ruff/mypy/**277 tests**）；网格详见 `docs/ai-strength.md` §6 S4。
+- 阶段 4 bot 接入对手读数（S4 ②）：把 `FieldExploitPolicy`（持久 `OpponentModel`）作为 Poker Legends host dry-run
+  的 `policy_explainer` 注入 orchestrator——orchestrator 跨帧持有策略对象，故连续会话里每座位读数会累积；单帧 dry-run
+  时读数恒 UNKNOWN→回退 base，决策与裸启发式**逐字节相同**（安全）。dry-run 输出新增 `opponent_reads`（每座位
+  profile/VPIP/PFR/hands）+ `policy_decision.metadata.exploit`/`opponent_profiles`。新增 **`replay_dry_run_main`**
+  （CLI `holdem-bot-replay-poker-legends-dry-run`）：用**同一持久 policy** 顺序重放一串保存帧 → 读数累积，离线验证
+  "感知→读数"管道（`--use-truth` 隔离 CV 质量）。验证：bot 19 测试通过（含
+  `test_orchestrator_with_field_exploit_accumulates_opponent_read` 钉死跨帧累积+分类）。**离线发现**：现有
+  `session_001_selection` 20 帧即便 `--use-truth` 也全 `non_table_ui`（本就是菜单/弹窗负样本，无 actionable state），
+  故读数在这批帧上不填充——需 host 实拍 actionable 帧才会累积（指南 `docs/bot-host-dryrun.md` Step 3）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

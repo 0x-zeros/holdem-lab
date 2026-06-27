@@ -62,6 +62,30 @@ actionable table and produce a non-null `state` + `action`.
 
 ---
 
+## Step 3 — build an opponent read across a session (replay)
+
+A single frame can never build a read: each `run-poker-legends-dry-run` is a fresh
+process. The bot's decision policy (`FieldExploitPolicy`) carries a per-seat
+`OpponentModel` that only becomes useful once it has seen many hands, so to
+exercise it you replay a *sequence* of frames through **one** persistent policy:
+
+```bash
+uv run holdem-bot-replay-poker-legends-dry-run \
+  --frames-dir <dir of *.png> --annotations-dir <dir of matching *.json> \
+  --card-part-manifest … --card-classifier-manifest … --button-manifest … \
+  --log-jsonl /tmp/poker-legends-replay.jsonl
+```
+
+It runs every frame through the same policy (never clicks) and prints a summary:
+per-frame `reason`/`exploit`, and the final `opponent_reads` (`vpip`/`pfr`/`profile`
+per seat). Add `--use-truth` to feed each frame's annotation as ground truth,
+which isolates the read logic from recognition quality — if reads stay empty even
+with `--use-truth`, the frames have no actionable table states (the bundled
+`session_001_selection` set is mostly menus/overlays); if they populate with
+`--use-truth` but not without, the gap is recognition (Step 2's calibration). This
+is the offline proxy for "does real-frame recognition support an opponent model"
+— the highest-signal thing to send back alongside the per-frame JSON.
+
 ## Reading the output JSON
 
 | field | meaning |
@@ -70,7 +94,8 @@ actionable table and produce a non-null `state` + `action`.
 | `reason` | `acted` / `blocked_overlay` / `low_confidence` / `no_game_state` / a `state_block_reason` (e.g. `missing_pot`, `not_enough_players`, `hero_not_current`, `missing_seat_stack`, `low_card_confidence`) |
 | `screen.kind` | `actionable_table` / `table_observe` / `blocked_overlay` / `unknown_or_transition` |
 | `state` | recognized `GameState` summary (pot, to_call, legal_actions) — `null` if fail-closed |
-| `action` / `policy_decision` | what the AI **would** do (incl. `metadata.button_seat_source` = recognized/default_oop) |
+| `action` / `policy_decision` | what the AI **would** do (incl. `metadata.button_seat_source` = recognized/default_oop, and `metadata.exploit` = base/station/nit + `metadata.opponent_profiles`) |
+| `opponent_reads` | per-seat `{profile, vpip, pfr, hands}` from the opponent model — `unknown` on a single frame (the read needs many hands; see Step 3) |
 | `dry_run_record.click_plan` | where it **would** click `(x, y)` — use this to check ROI alignment |
 
 The `--log-jsonl` file accumulates every step's record (append-only).

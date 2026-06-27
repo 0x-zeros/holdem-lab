@@ -1,5 +1,7 @@
 import pytest
 from holdem_ai import PolicyDecision
+from holdem_ai.field import FieldExploitPolicy
+from holdem_ai.opponents import OpponentModel, OpponentProfile
 from holdem_bot import BotOrchestrator, CapturedFrame, RecognitionResult, ScreenState
 from holdem_bot.adapters import ActionCallbackAutomator, StateCapture, StateRecognizer
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
@@ -97,6 +99,52 @@ def test_orchestrator_can_use_custom_policy_explainer() -> None:
     assert result.policy_decision is not None
     assert result.policy_decision.reason == "custom_profile"
     assert performed == [result.action]
+
+
+def test_orchestrator_with_field_exploit_accumulates_opponent_read() -> None:
+    # A persistent FieldExploitPolicy injected as the policy_explainer must build a
+    # per-seat read across frames -- the core of the bot-side opponent model. Seat 1
+    # voluntarily commits (a limp) every hand and never raises -> reads as a station.
+    policy = FieldExploitPolicy(model=OpponentModel(min_hands=4))
+    counter = {"hand": 0}
+
+    def next_state() -> GameState:
+        hand = counter["hand"]
+        counter["hand"] += 1
+        return GameState(
+            hand_id=f"hand-{hand}",
+            street=Street.PREFLOP,
+            players=(
+                PlayerState(seat=0, stack=100, committed=2, hole_cards=cards("7c", "2d")),
+                PlayerState(seat=1, stack=100, committed=2),  # voluntary limp, never raises
+            ),
+            board=(),
+            pots=(Pot(amount=4, eligible_seats=frozenset({0, 1})),),
+            current_seat=0,
+            button_seat=0,
+            small_blind=1,
+            big_blind=2,
+            min_raise=4,
+            to_call=0,
+            legal_actions=(Action(ActionType.CHECK),),
+        )
+
+    orchestrator = BotOrchestrator(
+        capture=StateCapture(next_state),
+        recognizer=StateRecognizer(),
+        automator=ActionCallbackAutomator(lambda _action: None),
+        seat=0,
+        policy_explainer=policy.explain,
+    )
+
+    for _ in range(10):
+        result = orchestrator.run_once()
+        assert result.acted
+
+    read = policy.model.read(1)
+    assert read.hands >= 4
+    assert read.vpip == 1.0
+    assert read.profile is OpponentProfile.STATION
 
 
 def test_orchestrator_waits_when_other_seat_is_to_act() -> None:
