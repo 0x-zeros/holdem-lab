@@ -542,23 +542,17 @@ def _recognized_table_from_predictions(
         for prediction in card_predictions
         if prediction.group == "hero_hole_cards"
     )
-    buttons = tuple(
-        RecognizedButton(
-            label=_truth_button_label(annotation, prediction.slot)
-            or _number_prediction_raw(number_predictions, "buttons", prediction.slot)
-            or (prediction.action_type or ""),
-            action_type=prediction.action_type,
-            command=prediction.slot,
-            confidence=prediction.confidence,
-        )
-        for prediction in button_predictions
-        if prediction.visible and prediction.action_type is not None
+    buttons = _recognized_buttons_from_predictions(
+        annotation,
+        button_predictions=button_predictions,
+        number_predictions=number_predictions,
     )
     seats = _recognized_seats_from_annotation(
         annotation,
         controlled_seat=controlled_seat,
         hero_hole_cards=hero_hole_cards,
         number_predictions=number_predictions,
+        hero_current=screen.hero_turn is True,
     )
     confidences = [
         screen.confidence,
@@ -594,6 +588,7 @@ def _recognized_seats_from_annotation(
     controlled_seat: int,
     hero_hole_cards: tuple[RecognizedCard, ...],
     number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    hero_current: bool,
 ) -> tuple[RecognizedSeat, ...]:
     raw_seats = _mapping_sequence(None if annotation is None else annotation.get("seats"))
     seat_numbers = _seat_numbers(raw_seats, controlled_seat=controlled_seat)
@@ -619,7 +614,7 @@ def _recognized_seats_from_annotation(
                 confidence=_to_float(item.get("confidence"), default=0.0),
             )
         )
-    if not seats and hero_hole_cards:
+    if _seat_by_number(tuple(seats), controlled_seat) is None and hero_hole_cards:
         stack = _first_number(
             _hero_stack_from_texts(annotation),
             _number_prediction_value(number_predictions, "texts", "hero_stack"),
@@ -631,9 +626,23 @@ def _recognized_seats_from_annotation(
                     stack=stack,
                     committed=0,
                     active=True,
-                    current=True,
+                    current=hero_current,
                     hole_cards=hero_hole_cards,
                     confidence=1.0,
+                )
+            )
+    if len(seats) == 1:
+        opponent_stack = _opponent_stack_from_texts(annotation)
+        if opponent_stack is not None:
+            seats.append(
+                RecognizedSeat(
+                    seat=_next_available_seat(seats, controlled_seat=controlled_seat),
+                    stack=opponent_stack,
+                    committed=0,
+                    active=True,
+                    current=False,
+                    hole_cards=(),
+                    confidence=0.75,
                 )
             )
     return tuple(sorted(seats, key=lambda seat: seat.seat))
@@ -661,6 +670,18 @@ def _seat_numbers(
     return numbers
 
 
+def _next_available_seat(
+    seats: list[RecognizedSeat],
+    *,
+    controlled_seat: int,
+) -> int:
+    used = {seat.seat for seat in seats}
+    seat = 0
+    while seat in used or seat == controlled_seat:
+        seat += 1
+    return seat
+
+
 def _recognized_table_to_dict(table: RecognizedTable) -> dict[str, object]:
     return {
         "source": table.source,
@@ -676,23 +697,63 @@ def _recognized_table_to_dict(table: RecognizedTable) -> dict[str, object]:
     }
 
 
+def _recognized_buttons_from_predictions(
+    annotation: Mapping[str, object] | None,
+    *,
+    button_predictions: tuple[PokerLegendsButtonPrediction, ...],
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+) -> tuple[RecognizedButton, ...]:
+    buttons = tuple(
+        RecognizedButton(
+            label=_truth_button_label(annotation, prediction.slot)
+            or _number_prediction_raw(number_predictions, "buttons", prediction.slot)
+            or (prediction.action_type or ""),
+            action_type=prediction.action_type,
+            command=prediction.slot,
+            confidence=prediction.confidence,
+        )
+        for prediction in button_predictions
+        if prediction.visible and prediction.action_type is not None
+    )
+    if buttons:
+        return buttons
+    return _truth_action_buttons(annotation)
+
+
 def _street_name_from_annotation(
     annotation: Mapping[str, object] | None,
     board: tuple[RecognizedCard, ...],
 ) -> str:
+    visible_board_count = len(tuple(card for card in board if card.visible and card.card))
     table_state = annotation.get("table_state") if annotation is not None else None
     if isinstance(table_state, Mapping):
         raw = table_state.get("street")
         if isinstance(raw, str) and raw in _STREET_MAP:
+            expected_count = _expected_board_count_for_street_name(raw)
+            if expected_count is None or expected_count == visible_board_count:
+                return raw
+            inferred = _street_name_from_board_count(visible_board_count)
+            if inferred is not None:
+                return inferred
             return raw
-    visible_board_count = len(tuple(card for card in board if card.visible and card.card))
+    return _street_name_from_board_count(visible_board_count) or "unknown"
+
+
+def _street_name_from_board_count(visible_board_count: int) -> str | None:
     inferred_streets: dict[int, str] = {
         0: Street.PREFLOP.value,
         3: Street.FLOP.value,
         4: Street.TURN.value,
         5: Street.RIVER.value,
     }
-    return inferred_streets.get(visible_board_count, "unknown")
+    return inferred_streets.get(visible_board_count)
+
+
+def _expected_board_count_for_street_name(street: str) -> int | None:
+    parsed = _STREET_MAP.get(street)
+    if parsed is None:
+        return None
+    return _expected_board_count(parsed)
 
 
 def _street_from_table(table: RecognizedTable) -> Street | None:
@@ -734,7 +795,7 @@ def _current_seat(seats: tuple[RecognizedSeat, ...]) -> int | None:
 
 def _pot_from_annotation(annotation: Mapping[str, object] | None) -> int | None:
     for text in _mapping_sequence(None if annotation is None else annotation.get("texts")):
-        if str(text.get("name") or "") == "pot" and bool(text.get("visible", True)):
+        if str(text.get("name") or "") in {"pot", "pot_size"} and bool(text.get("visible", True)):
             value = _optional_int(text.get("normalized_number"))
             if value is not None:
                 return value
@@ -750,13 +811,83 @@ def _hero_stack_from_texts(annotation: Mapping[str, object] | None) -> int | Non
     return None
 
 
-def _truth_button_label(annotation: Mapping[str, object] | None, slot: str) -> str | None:
+def _opponent_stack_from_texts(annotation: Mapping[str, object] | None) -> int | None:
+    for text in _mapping_sequence(None if annotation is None else annotation.get("texts")):
+        if str(text.get("name") or "") in {"right_top_stack", "opponent_stack"} and bool(
+            text.get("visible", True)
+        ):
+            value = _optional_int(text.get("normalized_number"))
+            if value is not None:
+                return value
+    return None
+
+
+def _truth_button(
+    annotation: Mapping[str, object] | None,
+    slot: str,
+) -> Mapping[str, object] | None:
     for button in _mapping_sequence(None if annotation is None else annotation.get("buttons")):
         if str(button.get("name") or "") == slot:
-            label = button.get("label")
-            if isinstance(label, str) and label.strip():
-                return label
+            return button
     return None
+
+
+def _truth_button_label(annotation: Mapping[str, object] | None, slot: str) -> str | None:
+    button = _truth_button(annotation, slot)
+    if button is None:
+        return None
+    label = button.get("label")
+    if isinstance(label, str) and label.strip() and bool(button.get("visible", True)):
+        return label
+    return None
+
+
+def _truth_action_buttons(annotation: Mapping[str, object] | None) -> tuple[RecognizedButton, ...]:
+    buttons: list[RecognizedButton] = []
+    for button in _mapping_sequence(None if annotation is None else annotation.get("buttons")):
+        action_type = str(button.get("action_type") or "")
+        if action_type not in _ACTION_MAP:
+            continue
+        if not bool(button.get("visible", True)):
+            continue
+        name = str(button.get("name") or "")
+        label = button.get("label")
+        if not isinstance(label, str) or not label.strip():
+            label = action_type
+        if not _is_direct_truth_action_button(name, label):
+            continue
+        buttons.append(
+            RecognizedButton(
+                label=label,
+                action_type=action_type,
+                command=name or action_type,
+                confidence=_to_float(button.get("confidence"), default=0.75),
+            )
+        )
+    return tuple(buttons)
+
+
+def _is_direct_truth_action_button(name: str, label: str) -> bool:
+    normalized_name = name.lower()
+    normalized_label = label.lower()
+    if "any" in normalized_label or "check/fold" in normalized_label:
+        return False
+    if normalized_name.startswith("raise_shortcut"):
+        return False
+    if normalized_name in {
+        "primary_left",
+        "primary_middle",
+        "primary_right",
+        "check",
+        "call",
+        "raise",
+        "fold",
+    }:
+        return True
+    if normalized_name.endswith("_button"):
+        prefix = normalized_name.removesuffix("_button")
+        return prefix in {"check", "call", "raise", "fold"}
+    return False
 
 
 def _button_amount(
@@ -769,6 +900,11 @@ def _button_amount(
         amount = _button_amount_from_label(label)
         if amount is not None:
             return amount
+        if "any" in label.lower():
+            return None
+    amount = _truth_call_amount(annotation)
+    if amount is not None:
+        return amount
     return _number_prediction_value(number_predictions, "buttons", slot)
 
 
@@ -779,6 +915,32 @@ def _button_amount_from_label(label: str) -> int | None:
     if "check" in normalized:
         return 0
     return parse_poker_legends_chip_amount(label)
+
+
+def _truth_call_amount(annotation: Mapping[str, object]) -> int | None:
+    for button in _mapping_sequence(annotation.get("buttons")):
+        if not bool(button.get("visible", True)):
+            continue
+        label = button.get("label")
+        if not isinstance(label, str):
+            continue
+        if "call" not in label.lower() or "any" in label.lower():
+            continue
+        amount = _button_amount_from_label(label)
+        if amount is not None:
+            return amount
+    for text in _mapping_sequence(annotation.get("texts")):
+        if str(text.get("name") or "") != "top_action_banner" or not bool(
+            text.get("visible", True)
+        ):
+            continue
+        value = text.get("value")
+        if not isinstance(value, str) or "call" not in value.lower():
+            continue
+        amount = _button_amount_from_label(value)
+        if amount is not None:
+            return amount
+    return None
 
 
 def _number_roi_names_for_fallbacks(

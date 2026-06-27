@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-27 阶段 4 Poker Legends numeric OCR fallback v1）
+## 当前进度（截至 2026-06-27 阶段 4 Poker Legends seat/action fallback v1）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -207,11 +207,21 @@
   新暴露的后续 blocker 为 `missing_hero_seat` 13、`missing_legal_actions` 11、`not_enough_players` 7、
   `missing_call_amount` 3、`board_count_mismatch` 3、`hero_not_current` 1。产物在
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_numeric_v1/`。
+- 阶段 4 Poker Legends seat/action fallback v1：在不放宽安全闸门的前提下，继续收紧
+  `RecognizedTable -> GameState`。新增保守规则：hero 手牌可见且有 reviewed `hero_stack` 时补受控
+  hero seat；truth 只有 hero 且有 reviewed `right_top_stack` / `opponent_stack` 时补一个最小对手 seat；
+  图像按钮识别为空时，只吸收 reviewed truth 中明确的直接动作按钮，继续排除 `Call Any`、
+  `Check/Fold` 与快捷下注；当 reviewed street 与可见公共牌数量冲突时，用公共牌数量推断真实街道。
+  当前同一批 57 个 actionable truth 帧：prototype state 从 numeric v1 的 16 提升到 47；
+  `missing_hero_seat` 13 -> 0，`missing_legal_actions` 11 -> 3，`not_enough_players` 7 -> 3，
+  `missing_call_amount` 3 -> 1，`missing_pot` 3 -> 2，`board_count_mismatch` 3 -> 0，
+  `hero_not_current` 仍为 1。产物在
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_seat_action_v1/`。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  113 tests）。
+  119 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -229,16 +239,18 @@
   `all_in` / `cancel` action_type；左侧继续只区分 `check` / `call`，不确定则 needs_review。
 - 扩展牌面识别：当前可用策略是 `actionable_table` 上 full-card template 优先，失败后要求
   rank/suit part 与 classifier consensus；该路径已接入 Poker Legends `RecognizedTable` /
-  prototype `GameState`。numeric OCR fallback 已能消掉大多数 `missing_pot`，但低置信和歧义数字仍会
-  fail-closed。下一步优先治理 `missing_hero_seat` / `missing_legal_actions` / `missing_call_amount`，
-  再让更多真实截图越过 `RecognizedTable` → `GameState` 门槛。
+  prototype `GameState`。seat/action fallback v1 已把 57 个 actionable truth 帧中的 47 个转成
+  prototype state；剩余 10 帧继续 fail-closed。下一步只针对残余 blocker 做小步治理：
+  `missing_legal_actions` 3、`not_enough_players` 3、`missing_pot` 2、`missing_call_amount` 1、
+  `hero_not_current` 1。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 继续校准筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，
   低置信数字只记录不使用；overlay 后面的数字字段继续标为 ignored。
-- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：完善 hero seat 识别、current seat
-  推断、主按钮 legal action 生成与 call amount 解析；只有当 screen、牌面、按钮、筹码都超过阈值时
-  才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` / `low_confidence`。
+- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：对剩余 10 个 fail-closed actionable
+  帧逐一归类；能用 reviewed truth 明确修正的继续收敛，无法确认的保留停手。只有当 screen、牌面、
+  按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` /
+  `low_confidence`。离线 state 稳定性达标后再进入 macOS 捕获与 dry-run 自动化。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。
