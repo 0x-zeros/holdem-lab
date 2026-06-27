@@ -114,8 +114,15 @@
       "一致、低噪抽象内"有意义的近纳什值）；10bb 对照（1500 手）pushfold vs maniac **+40.5**、vs rock
       **+27.0**、vs 启发式 **+5.0**（去噪前为略负，现约打平偏赢）。一处有用观察：10bb 下启发式自身负于
       maniac（−45.6），而 pushfold 胜 maniac（+40.5）——正是 S2c-3 护栏要补的短筹码漏洞。
-    - **S2c-2 短筹码 preflop game v2**：在 push/fold 之上加 limp / min-raise / 2.5x / jam 与 BB 应对，
-      覆盖 BB-vs-minraise、SB 小注价值、jam-over-open；**先不进翻后**。
+    - **S2c-2 短筹码 preflop game v2（已落地）**：`preflop_game_v2.ShortStackPreflopGame`——button 可
+      fold/limp/min-raise(2bb)/2.5x/jam，BB 逐一应对（check/fold/call/jam），BB jam-over-open 后 button
+      再 fold/call；沿用 S2c-1 的去牌联合发桶 + 去噪矩阵。CFR+ 解到 exploitability ~1e-5。**关键建模发现**：
+      纯"无翻后摊牌"下，中间尺度（min-raise/2.5x）被 limp-or-jam **严格支配**——这是 postflop-blind 模型的
+      真实局限。于是加**单参数 `oop_realization`（R，默认 0.85）**作位置/主动权的粗代理：非全下底池里 OOP 的
+      BB 只兑现 R 比例的 equity、IP 的 button 吃下其余；`R=1` 退回退化模型，`R<1` 让 fold-equity vs 位置 vs
+      风险的权衡成立，尺度才被真正使用（8bb 多 jam＝真实、12bb 起宽 limp、16bb 出现 2.5x；BB 用 fold/call/jam
+      防守；越浅 jam 越多）。**诚实边界**：R 代理会有 artifact（如 limp 强牌），不是真翻后（→ S3）；该 blueprint
+      尚未接进出牌（→ S2c-3）。
     - **S2c-3 CFR 作启发式护栏（混合）**：启发式出动作，CFR 只在覆盖到的高杠杆全下点否决明显错误，
       兼得弱场剥削收益与短筹码不可剥削下限。
     - **S2c-4 评估硬化（已落地）**：① **CRN 配对评估** `evaluate_match`——同一副牌换座各打一次（duplicate

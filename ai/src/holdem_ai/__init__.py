@@ -28,6 +28,7 @@ from holdem_ai.preflop import (
     preflop_equity,
 )
 from holdem_ai.preflop_game import PushFoldBlueprint, solve_push_fold
+from holdem_ai.preflop_game_v2 import ShortStackBlueprint, solve_short_stack_preflop
 from holdem_ai.profiles import (
     HEURISTIC_PROFILE_NAMES,
     PROFILE_NAMES,
@@ -53,6 +54,7 @@ __all__ = [
     "PushFoldBlueprint",
     "PushFoldPolicy",
     "RandomPolicy",
+    "ShortStackBlueprint",
     "RockPolicy",
     "TAGPolicy",
     "ThreeBetJammerPolicy",
@@ -69,5 +71,6 @@ __all__ = [
     "preflop_equity",
     "profile_from_name",
     "solve_push_fold",
+    "solve_short_stack_preflop",
     "train_cfr",
 ]

@@ -353,8 +353,15 @@
   → `docs/ai-reference-eval.md`（10/25/100bb，1200/800/300 对）。**头条**：10bb 启发式负 maniac（−18.8）而
   pushfold 胜 maniac（+40.8）——GTO 短筹码下限；对被动/会防守对手 `current` 反赢更多（GTO≠榨取上限）。
   后续 BB-defender / minraise / checkraise-bluffer 对手按需再加。
+- 阶段 3 AI S2c-2（短筹码 preflop game v2）：`preflop_game_v2.ShortStackPreflopGame`——在 push/fold 上加
+  button 的 limp/min-raise(2bb)/2.5x/jam 与 BB 的 check/fold/call/jam 应对、BB-jam-over-open 后 button 再
+  fold/call；沿用 S2c-1 去牌联合发桶 + 去噪矩阵，CFR+ 解到 exploitability ~1e-5，`solve_short_stack_preflop`
+  抽出 per-bucket 蓝图（button_open / bb_vs_{limp,minraise,raise25,jam} / button_vs_jam）。**关键发现**：纯无翻后
+  摊牌让 min-raise/2.5x 被 limp-or-jam 严格支配；加单参数 `oop_realization`(R=0.85，位置/主动权粗代理)后尺度才被
+  使用（8bb 多 jam、12bb 宽 limp、16bb 出 2.5x）。`test_preflop_game_v2` 覆盖可遍历/零和、近纳什、分布归一、
+  越浅越 jam、R=1 退化 vs R<1 尺度涌现。诚实边界：R 有 artifact、非真翻后(→S3)，蓝图尚未接出牌(→S2c-3)。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  225 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match pushfold tag --pairs 20`（CRN+CI）。
+  234 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match pushfold tag --pairs 20`（CRN+CI）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
