@@ -57,7 +57,7 @@ class HoldemGameApp:
 
     def reset_hand(self) -> None:
         self.hand_number += 1
-        config = replace(self.base_config, hand_id=f"hand-{self.hand_number}")
+        config = self._config_for_hand(self.hand_number)
         self.env = HoldemEnv(config)
         self.state = self.env.reset()
         self.message = "New hand"
@@ -172,8 +172,27 @@ class HoldemGameApp:
             steps += 1
 
         if self.state.current_seat is None:
-            rewards = self.state.metadata.get("payoffs")
-            self.message = f"Hand complete  Payoffs {rewards}"
+            self.message = self._terminal_summary()
+            if not self.action_log or self.action_log[-1] != self.message:
+                self.action_log.append(self.message)
+                self.action_log = self.action_log[-8:]
+
+    def _config_for_hand(self, hand_number: int) -> HoldemConfig:
+        player_count = len(self.base_config.starting_stacks)
+        button_seat = (self.base_config.button_seat + hand_number - 1) % player_count
+        if player_count == 2:
+            small_blind_seat = button_seat
+            big_blind_seat = (button_seat + 1) % player_count
+        else:
+            small_blind_seat = (button_seat + 1) % player_count
+            big_blind_seat = (button_seat + 2) % player_count
+        return replace(
+            self.base_config,
+            hand_id=f"hand-{hand_number}",
+            button_seat=button_seat,
+            small_blind_seat=small_blind_seat,
+            big_blind_seat=big_blind_seat,
+        )
 
     def _refresh_buttons(self) -> None:
         if self.state.current_seat is None:
@@ -322,6 +341,19 @@ class HoldemGameApp:
         if policy_decision is not None:
             line = f"{line} ({policy_decision.reason}, {policy_decision.strength:.2f})"
         return line
+
+    def _terminal_summary(self) -> str:
+        raw_payoffs = self.state.metadata.get("payoffs")
+        if not isinstance(raw_payoffs, tuple):
+            return "Hand complete"
+        payoffs = tuple(int(payoff) for payoff in raw_payoffs)
+        winners = tuple(index for index, payoff in enumerate(payoffs) if payoff > 0)
+        if winners:
+            winner_text = ",".join(str(seat) for seat in winners)
+        else:
+            winner_text = "split"
+        payoff_text = " ".join(f"{seat}:{payoff:+d}" for seat, payoff in enumerate(payoffs))
+        return f"Hand complete  Winners {winner_text}  Payoffs {payoff_text}"
 
     def _bot_visible_state(self) -> GameState:
         if self.bot_seat is None or self.state.current_seat is None:

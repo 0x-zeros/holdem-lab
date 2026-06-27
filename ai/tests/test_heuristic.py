@@ -1,5 +1,11 @@
 import pytest
-from holdem_ai import decide, estimate_private_strength, explain_decision
+from holdem_ai import (
+    decide,
+    estimate_private_strength,
+    estimate_showdown_equity,
+    evaluate_best_hand,
+    explain_decision,
+)
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
 
 
@@ -209,6 +215,45 @@ def test_estimate_private_strength_scores_made_flush_above_top_pair() -> None:
     )
 
     assert flush_strength > top_pair_strength
+
+
+def test_evaluate_best_hand_orders_flush_above_straight() -> None:
+    flush = evaluate_best_hand(cards("Ah", "Kh", "Qh", "7h", "2h", "3c", "4d"))
+    straight = evaluate_best_hand(cards("As", "Kd", "Qh", "Jc", "Ts", "3c", "4d"))
+
+    assert flush > straight
+
+
+def test_estimate_showdown_equity_is_deterministic_and_uses_board_context() -> None:
+    strong_state = state_with(
+        hole_cards=cards("Ah", "Ad"),
+        board=cards("As", "7h", "2c"),
+        legal_actions=(Action(ActionType.CHECK),),
+        pot=40,
+    )
+    weak_state = state_with(
+        hole_cards=cards("8h", "3d"),
+        board=cards("As", "7h", "2c"),
+        legal_actions=(Action(ActionType.CHECK),),
+        pot=40,
+    )
+
+    strong_equity = estimate_showdown_equity(strong_state, samples=80)
+
+    assert strong_equity == estimate_showdown_equity(strong_state, samples=80)
+    assert strong_equity > estimate_showdown_equity(weak_state, samples=80)
+
+
+def test_explain_decision_includes_showdown_equity_metadata() -> None:
+    state = state_with(
+        hole_cards=cards("Ah", "Qd"),
+        board=cards("Qs", "7h", "2c"),
+        legal_actions=(Action(ActionType.CHECK),),
+    )
+
+    decision = explain_decision(state)
+
+    assert isinstance(decision.metadata["showdown_equity"], float)
 
 
 def test_decide_rejects_terminal_state() -> None:

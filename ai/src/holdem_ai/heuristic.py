@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from holdem_common import Action, ActionType, Card, GameState, Rank, Street, Suit
 
+from holdem_ai.equity import estimate_showdown_equity
+
 _RANK_VALUES = {
     Rank.TWO: 2,
     Rank.THREE: 3,
@@ -42,6 +44,8 @@ class HeuristicConfig:
     protection_bet_pot_fraction: float = 0.50
     semi_bluff_pot_fraction: float = 0.45
     draw_call_discount_per_out: float = 0.012
+    equity_samples: int = 160
+    equity_weight: float = 0.30
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +65,7 @@ class _HandAssessment:
     outs: int
     preflop_strength: float
     active_opponents: int
+    showdown_equity: float | None
 
     @property
     def has_strong_draw(self) -> bool:
@@ -82,7 +87,7 @@ class HeuristicPolicy:
 
         legal = _legal_by_type(state.legal_actions)
         player = state.player(state.current_seat)
-        assessment = _assess_hand(state, player.hole_cards, state.board)
+        assessment = _assess_hand(state, player.hole_cards, state.board, self.config)
         strength = assessment.strength
 
         if state.to_call > 0:
@@ -199,15 +204,22 @@ def _assess_hand(
     state: GameState,
     hole_cards: Iterable[Card],
     board: Iterable[Card],
+    config: HeuristicConfig,
 ) -> _HandAssessment:
     active_opponents = max(
         0,
         sum(1 for player in state.active_players if player.seat != state.current_seat),
     )
     raw = _assess_cards(tuple(hole_cards), tuple(board), active_opponents=active_opponents)
+    showdown_equity = _estimate_equity_or_none(state, config)
     position_bonus = _position_bonus(state)
     street_penalty = _multiway_penalty(state.street, active_opponents)
-    strength = _clamp(raw.strength + position_bonus - street_penalty)
+    strength = raw.strength
+    if showdown_equity is not None:
+        strength = (
+            raw.strength * (1.0 - config.equity_weight) + showdown_equity * config.equity_weight
+        )
+    strength = _clamp(strength + position_bonus - street_penalty)
     return _HandAssessment(
         strength=strength,
         made_hand=raw.made_hand,
@@ -215,6 +227,7 @@ def _assess_hand(
         outs=raw.outs,
         preflop_strength=raw.preflop_strength,
         active_opponents=active_opponents,
+        showdown_equity=showdown_equity,
     )
 
 
@@ -232,6 +245,7 @@ def _assess_cards(
             outs=0,
             preflop_strength=0.32,
             active_opponents=active_opponents,
+            showdown_equity=None,
         )
 
     preflop_strength = _preflop_strength(hole)
@@ -251,6 +265,7 @@ def _assess_cards(
         outs=outs,
         preflop_strength=preflop_strength,
         active_opponents=active_opponents,
+        showdown_equity=None,
     )
 
 
@@ -352,10 +367,23 @@ def _decision(
             "outs": assessment.outs,
             "preflop_strength": assessment.preflop_strength,
             "active_opponents": assessment.active_opponents,
+            "showdown_equity": assessment.showdown_equity,
             "pot_total": state.pot_total,
             "to_call": state.to_call,
         },
     )
+
+
+def _estimate_equity_or_none(
+    state: GameState,
+    config: HeuristicConfig,
+) -> float | None:
+    if not state.board or config.equity_samples <= 0:
+        return None
+    try:
+        return estimate_showdown_equity(state, samples=config.equity_samples)
+    except ValueError:
+        return None
 
 
 def _preflop_strength(hole: tuple[Card, ...]) -> float:

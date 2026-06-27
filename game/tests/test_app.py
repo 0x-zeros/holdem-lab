@@ -93,6 +93,58 @@ def test_app_handles_keyboard_call_shortcut() -> None:
         app.close()
 
 
+def test_app_rotates_button_and_blinds_between_hands() -> None:
+    app = HoldemGameApp(
+        HoldemConfig(
+            starting_stacks=(100, 100, 100),
+            deck=cards("As", "Ks", "Qh", "Ah", "Kh", "Jd", "2c", "7d", "9s", "Jc", "3h"),
+        ),
+        size=(900, 620),
+    )
+    try:
+        assert app.state.button_seat == 0
+        assert app.state.player(1).small_blind
+        assert app.state.player(2).big_blind
+
+        app.reset_hand()
+
+        assert app.state.button_seat == 1
+        assert app.state.player(2).small_blind
+        assert app.state.player(0).big_blind
+    finally:
+        app.close()
+
+
+def test_app_reports_readable_terminal_summary() -> None:
+    app = HoldemGameApp(
+        HoldemConfig(
+            starting_stacks=(100, 100),
+            deck=cards("As", "Ks", "Ah", "Kh", "2c", "7d", "9s", "Jc", "3h"),
+        ),
+        size=(900, 620),
+    )
+    try:
+        fold_button = next(
+            button
+            for button in app.buttons
+            if button.action is not None and button.action.action_type is ActionType.FOLD
+        )
+
+        app.handle_event(
+            pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN,
+                {"button": 1, "pos": fold_button.rect.center},
+            ),
+        )
+
+        assert app.state.current_seat is None
+        assert "Winners" in app.message
+        assert "Payoffs" in app.message
+        assert app.action_log[-1] == app.message
+    finally:
+        app.close()
+
+
 def test_app_can_drive_human_seat_through_bot_pipeline() -> None:
     app = HoldemGameApp(
         HoldemConfig(

@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-27 阶段 2/3 local game + AI polish v1）
+## 当前进度（截至 2026-06-27 阶段 2/3 local game + AI polish v2）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -239,21 +239,27 @@
   行动日志面板、AI 策略理由展示，以及 CLI 桌面配置参数（玩家数、人类座位、起始筹码、大小盲、
   bot seat/delay）。这批改动不引入新依赖，继续通过同一个 `GameState` 和 `explain_decision()` 让
   本地游戏与 bot 共用策略。
+- 阶段 2/3 本地游戏与 AI polish v2：新增无外部依赖的轻量 hand evaluator / rollout equity 模块，
+  暴露 `evaluate_best_hand()` 与 `estimate_showdown_equity()`；postflop `HeuristicPolicy` 会用固定
+  seed 抽样 equity 混入 strength，并把 `showdown_equity` 写入 `PolicyDecision.metadata`，方便本地游戏
+  和 bot 日志审计。pygame 游戏新增多手牌 button/SB/BB 自动轮转，终局消息改为可读的 winners/payoff
+  摘要，行动日志也保留 hand complete 结果。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  135 tests）。
+  140 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
 **下一步：本地游戏 + AI 继续完善**
 - 当前优先级切回自家 pygame 游戏与共用 AI。Poker Legends host dry-run 先暂停，不进入真实点击测试。
-- 游戏侧下一步：补下注滑杆/输入框、手牌结束后的摊牌详情、座位/按钮轮转、重新买入或锦标赛结束状态；
+- 游戏侧下一步：补下注滑杆/输入框、手牌结束后的摊牌详情、重新买入或锦标赛结束状态；
   同时保持 fixture annotation 稳定，避免破坏 CV/OCR 训练管线。
-- AI 侧下一步：加入轻量 roll-out/equity 估计器、按人数/位置调整 opening/calling range、记录策略
-  telemetry，为后续 CFR/RL 评估留接口；仍保持 `decide(state) -> Action` 为唯一调用面。
+- AI 侧下一步：基于已落地的轻量 rollout equity 继续校准按人数/位置的 opening/calling range，
+  增加策略 telemetry / head-to-head 评估脚本，为后续 CFR/RL 评估留接口；仍保持
+  `decide(state) -> Action` 为唯一调用面。
 
 **Poker Legends host dry-run 后续暂停项**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 reviewed truth overlay（session_001 v1 /
