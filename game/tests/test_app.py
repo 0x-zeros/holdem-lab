@@ -26,6 +26,12 @@ def drive_ai_until_controlled(app: HoldemGameApp, *, max_steps: int = 20) -> Non
     raise AssertionError("AI did not return control to a human or bot seat")
 
 
+def reveal_delayed_settlement(app: HoldemGameApp) -> None:
+    if app.state.current_seat is None and not app.terminal_announced:
+        app.settlement_reveal_at_ms = 0
+        app.tick()
+
+
 def test_app_renders_table_in_dummy_video_driver() -> None:
     app = HoldemGameApp(
         HoldemConfig(
@@ -255,6 +261,7 @@ def test_app_logs_showdown_hand_categories() -> None:
             ),
         )
         drive_ai_until_controlled(app)
+        reveal_delayed_settlement(app)
 
         assert app.state.current_seat is None
         assert any(line.startswith("Showdown") for line in app.action_log)
@@ -300,6 +307,7 @@ def test_app_delays_local_ai_actions_until_tick_ready() -> None:
             starting_stacks=(100, 100, 100),
             deck=cards("As", "Ks", "Qh", "Ah", "Kh", "Jd", "2c", "7d", "9s", "Jc", "3h"),
         ),
+        human_seat=1,
         ai_delay_ms=10_000,
         size=(900, 620),
     )
@@ -320,12 +328,47 @@ def test_app_delays_local_ai_actions_until_tick_ready() -> None:
         app.close()
 
 
+def test_app_delays_settlement_overlay_after_ai_terminal_action() -> None:
+    app = HoldemGameApp(
+        HoldemConfig(
+            starting_stacks=(100, 100),
+            small_blind=5,
+            big_blind=10,
+            button_seat=1,
+            small_blind_seat=1,
+            big_blind_seat=0,
+            deck=cards("As", "2c", "Ah", "7d", "3c", "4d", "5s", "8h", "9c"),
+        ),
+        ai_delay_ms=0,
+        size=(900, 620),
+    )
+    try:
+        assert app.state.current_seat == 1
+
+        app.tick(force_ai=True)
+
+        assert app.state.current_seat is None
+        assert not app.terminal_announced
+        assert app._settlement_view() is None
+        assert app.buttons == []
+        assert app.message.startswith("AI 1:")
+
+        reveal_delayed_settlement(app)
+
+        assert app.terminal_announced
+        assert app._settlement_view() is not None
+        assert [button.label for button in app.buttons] == ["Next hand"]
+    finally:
+        app.close()
+
+
 def test_app_exposes_turn_indicator_for_current_seat() -> None:
     app = HoldemGameApp(
         HoldemConfig(
             starting_stacks=(100, 100, 100),
             deck=cards("As", "Ks", "Qh", "Ah", "Kh", "Jd", "2c", "7d", "9s", "Jc", "3h"),
         ),
+        human_seat=1,
         turn_timeout_ms=20_000,
         size=(900, 620),
     )
@@ -333,7 +376,7 @@ def test_app_exposes_turn_indicator_for_current_seat() -> None:
         indicator = app._turn_indicator_view()
 
         assert indicator is not None
-        assert indicator.title == "Turn: AI 2"
+        assert indicator.title == "Turn: AI 0"
         assert "Max 20s" in indicator.subtitle
     finally:
         app.close()
@@ -345,7 +388,7 @@ def test_app_keeps_fold_button_when_check_is_free_for_human() -> None:
             starting_stacks=(100, 100, 100),
             deck=cards("As", "Ks", "Qh", "Ah", "Kh", "Jd", "2c", "7d", "9s", "Jc", "3h"),
         ),
-        human_seat=1,
+        human_seat=2,
         size=(900, 620),
     )
     try:
@@ -403,6 +446,7 @@ def test_app_logs_ai_policy_reason() -> None:
             starting_stacks=(100, 100, 100),
             deck=cards("As", "Ks", "Qh", "Ah", "Kh", "Jd", "2c", "7d", "9s", "Jc", "3h"),
         ),
+        human_seat=1,
         size=(900, 620),
     )
     try:

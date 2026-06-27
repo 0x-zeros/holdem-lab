@@ -275,11 +275,14 @@
   并新增 `--ai-delay-ms` / `--turn-timeout-sec`；牌桌顶部显示当前行动座位、最大等待倒计时和进度条。
   pygame 人类 UI 会保留 Steam 风格的 Fold 快捷按钮；核心 `GameState.legal_actions` 仍只在有跟注压力时
   暴露 Fold，避免 AI/训练接口学到免费弃牌。
+- 阶段 2 本地试玩 UX v4：修复 PokerKit 内部座位顺序与 holdem-lab public seat 的映射，确保
+  button/SB/BB、实际盲注投入、当前行动座位一致；AI/bot 动作导致终局时先显示最后动作，短暂延迟后再
+  弹出结算面板，避免 `New hand` 后看起来直接跳回结算。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  157 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current no_equity tight
+  159 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current no_equity tight
   --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、

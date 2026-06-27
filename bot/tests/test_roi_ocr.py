@@ -19,7 +19,7 @@ def test_roi_ocr_recognizes_core_fields_from_pygame_fixture(tmp_path: Path) -> N
     recognized = RoiOcrRecognizer().recognize(tmp_path / "roi.png", annotation)
     score = evaluate_recognition(recognized, annotation)
 
-    assert recognized.pot == 35
+    assert recognized.pot == 15
     assert recognized.current_seat == 0
     assert score.accuracy == 1.0
     assert score.category("buttons").accuracy == 1.0

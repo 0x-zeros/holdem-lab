@@ -30,6 +30,7 @@ DEFAULT_STARTING_BIG_BLINDS = 100
 DEFAULT_PLAYERS = 3
 DEFAULT_AI_DELAY_MS = 700
 DEFAULT_TURN_TIMEOUT_SEC = 30
+DEFAULT_SETTLEMENT_REVEAL_DELAY_MS = 1_000
 _HAND_RANK_NAMES = {
     8: "straight flush",
     7: "quads",
@@ -90,6 +91,7 @@ class HoldemGameApp:
         self.hand_number = 0
         self.hand_settled = False
         self.terminal_announced = False
+        self.settlement_reveal_at_ms: int | None = None
         self.ai_paused = False
         self.env = HoldemEnv(self.base_config)
         self.state: GameState
@@ -112,6 +114,7 @@ class HoldemGameApp:
         self.bet_input = ""
         self.hand_settled = False
         self.terminal_announced = False
+        self.settlement_reveal_at_ms = None
         self._after_state_change(force_new_turn=True)
 
     def run(self) -> NoReturn:
@@ -126,6 +129,10 @@ class HoldemGameApp:
 
     def tick(self, *, force_bot: bool = False, force_ai: bool = False) -> BotStepResult | None:
         self._sync_turn_state()
+        if self.state.current_seat is None:
+            self._handle_terminal_state()
+            self._refresh_buttons()
+            return None
         if self.ai_paused:
             return None
         if self._tick_local_ai(force_ai=force_ai):
@@ -214,12 +221,17 @@ class HoldemGameApp:
         result = self.env.step(action)
         self.state = result.observation
         self._record_action(f"Bot {self.bot_seat}", action)
-        self._after_state_change()
+        self._after_state_change(terminal_delay_ms=DEFAULT_SETTLEMENT_REVEAL_DELAY_MS)
 
-    def _after_state_change(self, *, force_new_turn: bool = False) -> None:
+    def _after_state_change(
+        self,
+        *,
+        force_new_turn: bool = False,
+        terminal_delay_ms: int = 0,
+    ) -> None:
         self._sync_turn_state(force_new_turn=force_new_turn)
         if self.state.current_seat is None:
-            self._handle_terminal_state()
+            self._handle_terminal_state(delay_ms=terminal_delay_ms)
         elif self.ai_paused and self._is_local_ai_turn():
             self.message = f"AI paused  Seat {self.state.current_seat}"
         elif self._is_local_ai_turn():
@@ -274,14 +286,20 @@ class HoldemGameApp:
         result = self.env.step(action)
         self.state = result.observation
         self._record_action(f"AI {seat}", action, policy_decision=policy_decision)
-        self._after_state_change()
+        self._after_state_change(terminal_delay_ms=DEFAULT_SETTLEMENT_REVEAL_DELAY_MS)
         return True
 
-    def _handle_terminal_state(self) -> None:
+    def _handle_terminal_state(self, *, delay_ms: int = 0) -> None:
         if self.terminal_announced:
             return
 
         self._settle_session_stacks()
+        now = pygame.time.get_ticks()
+        if delay_ms > 0 and self.settlement_reveal_at_ms is None:
+            self.settlement_reveal_at_ms = now + delay_ms
+        if self.settlement_reveal_at_ms is not None and now < self.settlement_reveal_at_ms:
+            return
+
         self.message = self._terminal_summary()
         if not self.action_log or self.action_log[-1] != self.message:
             self.action_log.append(self.message)
@@ -313,6 +331,9 @@ class HoldemGameApp:
     def _refresh_buttons(self) -> None:
         if self.state.current_seat is None:
             self.bet_input = ""
+            if not self.terminal_announced:
+                self.buttons = []
+                return
             self.buttons = self._layout_buttons(
                 (("Next hand", None, "new_hand"),),
             )
@@ -603,6 +624,8 @@ class HoldemGameApp:
 
     def _settlement_view(self) -> SettlementView | None:
         if self.state.current_seat is not None:
+            return None
+        if not self.terminal_announced:
             return None
         raw_payoffs = self.state.metadata.get("payoffs")
         if not isinstance(raw_payoffs, tuple):

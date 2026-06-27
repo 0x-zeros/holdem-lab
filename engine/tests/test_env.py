@@ -33,6 +33,29 @@ def test_blinds_are_posted_and_button_roles_are_exposed() -> None:
     assert state.pot_total == 3
 
 
+def test_heads_up_button_rotation_maps_to_actual_blinds_and_actor() -> None:
+    env = HoldemEnv(
+        HoldemConfig(
+            starting_stacks=(100, 100),
+            small_blind=5,
+            big_blind=10,
+            button_seat=1,
+            small_blind_seat=1,
+            big_blind_seat=0,
+        ),
+    )
+
+    state = env.reset(seed=1)
+
+    assert state.current_seat == 1
+    assert state.player(1).dealer
+    assert state.player(1).small_blind
+    assert state.player(1).committed == 5
+    assert state.player(0).big_blind
+    assert state.player(0).committed == 10
+    assert state.to_call == 5
+
+
 def test_reset_can_use_fixed_deck_before_hole_dealing() -> None:
     env = HoldemEnv(
         HoldemConfig(

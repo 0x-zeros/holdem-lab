@@ -72,14 +72,24 @@ def street_from_pokerkit(state: PokerKitState) -> Street:
     return _STREETS[state.street_index]
 
 
-def pots_from_pokerkit(state: PokerKitState) -> tuple[Pot, ...]:
+def pots_from_pokerkit(
+    state: PokerKitState,
+    *,
+    engine_to_public: tuple[int, ...],
+) -> tuple[Pot, ...]:
     pots = [
-        Pot(amount=pot.amount, eligible_seats=frozenset(pot.player_indices)) for pot in state.pots
+        Pot(
+            amount=pot.amount,
+            eligible_seats=frozenset(engine_to_public[seat] for seat in pot.player_indices),
+        )
+        for pot in state.pots
     ]
 
     outstanding_bets = sum(state.bets)
     if outstanding_bets:
-        eligible_seats = frozenset(seat for seat, active in enumerate(state.statuses) if active)
+        eligible_seats = frozenset(
+            engine_to_public[seat] for seat, active in enumerate(state.statuses) if active
+        )
         if eligible_seats:
             pots.append(Pot(amount=outstanding_bets, eligible_seats=eligible_seats))
 
@@ -91,28 +101,35 @@ def game_state_from_pokerkit(
     config: HoldemConfig,
     *,
     viewer_seat: int | None = None,
+    engine_to_public: tuple[int, ...] | None = None,
 ) -> GameState:
+    engine_to_public = engine_to_public or tuple(state.player_indices)
     legal_actions = legal_actions_from_pokerkit(state)
-    current_seat = state.turn_index if legal_actions else None
+    if legal_actions:
+        assert state.turn_index is not None
+        current_seat = engine_to_public[state.turn_index]
+    else:
+        current_seat = None
     to_call = state.checking_or_calling_amount or 0
     min_raise = state.min_completion_betting_or_raising_to_amount or config.big_blind
 
     players = tuple(
         PlayerState(
-            seat=seat,
-            stack=state.stacks[seat],
-            committed=max(0, -state.payoffs[seat]),
-            hole_cards=cards_from_pokerkit(state.hole_cards[seat]),
-            active=state.statuses[seat],
-            all_in=state.statuses[seat] and state.stacks[seat] == 0,
-            dealer=seat == config.button_seat,
-            small_blind=seat == config.small_blind_seat,
-            big_blind=seat == config.big_blind_seat,
+            seat=public_seat,
+            stack=state.stacks[engine_seat],
+            committed=max(0, -state.payoffs[engine_seat]),
+            hole_cards=cards_from_pokerkit(state.hole_cards[engine_seat]),
+            active=state.statuses[engine_seat],
+            all_in=state.statuses[engine_seat] and state.stacks[engine_seat] == 0,
+            dealer=public_seat == config.button_seat,
+            small_blind=public_seat == config.small_blind_seat,
+            big_blind=public_seat == config.big_blind_seat,
         )
-        for seat in state.player_indices
+        for engine_seat, public_seat in enumerate(engine_to_public)
     )
+    players = tuple(sorted(players, key=lambda player: player.seat))
     if viewer_seat is not None:
-        if viewer_seat not in state.player_indices:
+        if viewer_seat not in engine_to_public:
             raise KeyError(f"unknown seat: {viewer_seat}")
         players = tuple(
             player
@@ -126,7 +143,7 @@ def game_state_from_pokerkit(
         street=street_from_pokerkit(state),
         players=players,
         board=cards_from_pokerkit(state.get_board_cards(0)),
-        pots=pots_from_pokerkit(state),
+        pots=pots_from_pokerkit(state, engine_to_public=engine_to_public),
         current_seat=current_seat,
         button_seat=config.button_seat,
         small_blind=config.small_blind,
@@ -136,7 +153,16 @@ def game_state_from_pokerkit(
         legal_actions=legal_actions,
         deck_remaining=len(state.deck_cards),
         metadata={
-            "payoffs": tuple(state.payoffs),
+            "payoffs": tuple(
+                payoff
+                for _public_seat, payoff in sorted(
+                    (
+                        (public_seat, state.payoffs[engine_seat])
+                        for engine_seat, public_seat in enumerate(engine_to_public)
+                    ),
+                    key=lambda item: item[0],
+                )
+            ),
             "pokerkit_status": state.status,
             "viewer_seat": viewer_seat,
         },

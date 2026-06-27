@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from holdem_common import Action, ActionType, GameState
+from holdem_common import Action, ActionType, Card, GameState
 from pokerkit import Automation, Folding, Mode, NoLimitTexasHoldem
 from pokerkit import Card as PokerKitCard
 from pokerkit import State as PokerKitState
@@ -30,6 +30,7 @@ class PokerKitFacade:
     def __init__(self, config: HoldemConfig | None = None) -> None:
         self.config = config or HoldemConfig()
         self._state: PokerKitState | None = None
+        self._engine_to_public = self._build_engine_to_public(self.config)
 
     def reset(self) -> GameState:
         self._state = NoLimitTexasHoldem.create_state(
@@ -38,7 +39,7 @@ class PokerKitFacade:
             self.config.ante,
             (self.config.small_blind, self.config.big_blind),
             self.config.big_blind,
-            self.config.starting_stacks,
+            self._engine_ordered_stacks(),
             len(self.config.starting_stacks),
             mode=Mode.TOURNAMENT,
         )
@@ -48,7 +49,12 @@ class PokerKitFacade:
         return self.observe()
 
     def observe(self, seat: int | None = None) -> GameState:
-        return game_state_from_pokerkit(self._require_state(), self.config, viewer_seat=seat)
+        return game_state_from_pokerkit(
+            self._require_state(),
+            self.config,
+            viewer_seat=seat,
+            engine_to_public=self._engine_to_public,
+        )
 
     def legal_actions(self) -> tuple[Action, ...]:
         return legal_actions_from_pokerkit(self._require_state())
@@ -74,7 +80,26 @@ class PokerKitFacade:
     @property
     def payoffs(self) -> dict[int, int]:
         state = self._require_state()
-        return dict(enumerate(state.payoffs))
+        return {
+            public_seat: state.payoffs[engine_seat]
+            for engine_seat, public_seat in enumerate(self._engine_to_public)
+        }
+
+    def _build_engine_to_public(self, config: HoldemConfig) -> tuple[int, ...]:
+        player_count = len(config.starting_stacks)
+        if player_count == 2:
+            return (config.big_blind_seat, config.small_blind_seat)
+
+        seats_after_big_blind = tuple(
+            seat
+            for offset in range(1, player_count + 1)
+            if (seat := (config.big_blind_seat + offset) % player_count)
+            not in {config.small_blind_seat, config.big_blind_seat}
+        )
+        return (config.small_blind_seat, config.big_blind_seat, *seats_after_big_blind)
+
+    def _engine_ordered_stacks(self) -> tuple[int, ...]:
+        return tuple(self.config.starting_stacks[seat] for seat in self._engine_to_public)
 
     def _bet_to_amount(self, action: Action) -> int:
         """Return the PokerKit bet/raise-to amount.
@@ -133,8 +158,21 @@ class PokerKitFacade:
     def _install_fixed_deck(self) -> None:
         state = self._require_state()
         assert self.config.deck is not None
-        state.deck_cards = deque(
-            PokerKitCard.clean("".join(card.code for card in self.config.deck))
+        state.deck_cards = deque(PokerKitCard.clean("".join(card.code for card in self._deck())))
+
+    def _deck(self) -> tuple[Card, ...]:
+        assert self.config.deck is not None
+        player_count = len(self.config.starting_stacks)
+        if len(self.config.deck) < player_count * 2:
+            return self.config.deck
+
+        first_round = self.config.deck[:player_count]
+        second_round = self.config.deck[player_count : player_count * 2]
+        rest = self.config.deck[player_count * 2 :]
+        return (
+            *(first_round[public_seat] for public_seat in self._engine_to_public),
+            *(second_round[public_seat] for public_seat in self._engine_to_public),
+            *rest,
         )
 
     def _deal_initial_hole_cards(self) -> None:
