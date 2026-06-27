@@ -15,6 +15,12 @@ from holdem_ai.heuristic import (
     PolicyDecision,
     estimate_private_strength,
 )
+from holdem_ai.preflop import (
+    PREFLOP_ALLIN_EQUITY,
+    all_in_equity_vs_random,
+    hand_class,
+    preflop_equity,
+)
 from holdem_ai.profiles import (
     HEURISTIC_PROFILE_NAMES,
     PROFILE_NAMES,
@@ -25,6 +31,7 @@ from holdem_ai.profiles import (
 
 __all__ = [
     "HEURISTIC_PROFILE_NAMES",
+    "PREFLOP_ALLIN_EQUITY",
     "PROFILE_NAMES",
     "REFERENCE_PROFILE_NAMES",
     "AggressivePolicy",
@@ -36,10 +43,13 @@ __all__ = [
     "PolicyProfile",
     "RandomPolicy",
     "RockPolicy",
+    "all_in_equity_vs_random",
     "decide",
     "estimate_showdown_equity",
     "evaluate_best_hand",
     "explain_decision",
     "estimate_private_strength",
+    "hand_class",
+    "preflop_equity",
     "profile_from_name",
 ]

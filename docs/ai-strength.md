@@ -70,8 +70,17 @@
 
 - **S0（进行中）启发式 baseline + 绝对评估**：修明显漏洞、打磨到"像正常人"。仅 bootstrap，
   不追 GTO。产物：`holdem_ai.heuristic` + `holdem_ai.baselines` + `holdem-ai-evaluate-heads-up`。
-- **S1 preflop GTO 查表**：引入 HU（及 6-max）push/fold + 开池/3bet 范围（公开图表或小 CFR 解），
-  翻前直接查表，翻后仍走启发式。**性价比最高的单点强度提升**，正好补当前翻前最大漏洞。
+- **S1 preflop 真值表 + 查表**：
+  - **S1a（已落地）169 手牌类 + all-in 真值表**：`holdem_ai.preflop` 用本项目评估器（确定性蒙特卡洛、
+    12000 样本/类、无外部下载）算出 169 个等价类对随机手的 heads-up all-in 胜率
+    `PREFLOP_ALLIN_EQUITY`，并提供 `hand_class()` / `preflop_equity()` / `all_in_equity_vs_random()`
+    （同 seed 可精确复算）。这是 push/fold 与 **S2 CFR 抽象（card bucketing）所需的基础数据**。
+    实测发现：把它接进“开池范围选择”相对现有公式阈值并无可测增益（两者都开约 88%，参照池不惩罚边际
+    选牌差异，还引入 vs-random 回退风险），故**按“不回退”纪律暂不改动已验证的启发式开池**，先把真值表
+    作为基础设施沉淀。
+  - **S1b（下一步）push/fold + 开池/3bet 查表**：在该真值表上做短筹码 jam-or-fold 与开池/3bet 范围；
+    push/fold 是经典已解子博弈，在 ≤~12BB 短筹码下用真值表替代“min-open 再对 shove 弃牌”是明确的
+    正确性提升，且可在短筹码评估里量化（vs maniac/random 的 all-in 决策）。
 - **S2 CFR/CFR+/MCCFR（抽象 HUNL）**：用 OpenSpiel `universal_poker` + card bucketing + 有限
   bet sizing 抽象，自博弈求 blueprint；用 best-response/exploitability 评估；落成可被 `decide()`
   调用的查表策略。
@@ -94,5 +103,6 @@
 
 ## 8. 下一步
 
-S0 收尾（修 sizing / 翻前偷盲 / 多街收手，对参照对手不回退）后，进入 **S1 preflop 查表**。
-每个阶段以 exploitability（S2+）或参照对手 bb/100（S0/S1）量化，不靠主观感觉。
+S0 已修 sizing / 翻前偷盲（多街收手暂缓，见 S2 注）；S1a 真值表已落地。下一步 **S1b：在真值表上做
+短筹码 push/fold + 开池/3bet 查表**，用短筹码评估量化。每个阶段以 exploitability（S2+）或参照对手
+bb/100（S0/S1）量化，不靠主观感觉。
