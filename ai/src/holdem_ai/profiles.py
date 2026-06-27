@@ -10,14 +10,25 @@ from holdem_ai.baselines import (
     Policy,
     RandomPolicy,
     RockPolicy,
+    TAGPolicy,
+    ThreeBetJammerPolicy,
 )
 from holdem_ai.blueprint import PushFoldPolicy
 from holdem_ai.heuristic import HeuristicConfig, HeuristicPolicy
 
 #: Heuristic-family profiles (same policy, different thresholds).
 HEURISTIC_PROFILE_NAMES = ("current", "no_equity", "tight", "loose")
-#: Deterministic reference opponents that act as an absolute yardstick.
-REFERENCE_PROFILE_NAMES = ("random", "call_station", "rock", "maniac")
+#: Deterministic reference opponents that act as an absolute yardstick. The first
+#: four are deliberately one-dimensional; ``tag`` and ``three_bet_jammer`` are
+#: equity-grounded and actually punish loose / wide play.
+REFERENCE_PROFILE_NAMES = (
+    "random",
+    "call_station",
+    "rock",
+    "maniac",
+    "tag",
+    "three_bet_jammer",
+)
 #: CFR-solved blueprint policies.
 CFR_PROFILE_NAMES = ("pushfold",)
 PROFILE_NAMES = HEURISTIC_PROFILE_NAMES + REFERENCE_PROFILE_NAMES + CFR_PROFILE_NAMES
@@ -73,6 +84,10 @@ def profile_from_name(name: str) -> PolicyProfile:
             return PolicyProfile("rock", RockPolicy())
         case "maniac":
             return PolicyProfile("maniac", AggressivePolicy())
+        case "tag":
+            return PolicyProfile("tag", TAGPolicy())
+        case "three_bet_jammer":
+            return PolicyProfile("three_bet_jammer", ThreeBetJammerPolicy())
         case "pushfold":
             return PolicyProfile("pushfold", PushFoldPolicy())
         case _:

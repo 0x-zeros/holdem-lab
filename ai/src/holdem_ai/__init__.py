@@ -7,6 +7,8 @@ from holdem_ai.baselines import (
     Policy,
     RandomPolicy,
     RockPolicy,
+    TAGPolicy,
+    ThreeBetJammerPolicy,
 )
 from holdem_ai.blueprint import PushFoldPolicy
 from holdem_ai.cfr import CFRCheckpoint, CFRResult, nolimit_holdem_abstraction, train_cfr
@@ -52,6 +54,8 @@ __all__ = [
     "PushFoldPolicy",
     "RandomPolicy",
     "RockPolicy",
+    "TAGPolicy",
+    "ThreeBetJammerPolicy",
     "all_in_equity_vs_random",
     "bucket_of",
     "decide",
