@@ -55,7 +55,9 @@ def write_pygame_fixture(
 
     app = HoldemGameApp(
         HoldemConfig(
-            starting_stacks=(200, 200, 200),
+            starting_stacks=(1000, 1000, 1000),
+            small_blind=5,
+            big_blind=10,
             deck=tuple(Card.from_code(code) for code in DEFAULT_DECK),
         ),
         size=size,

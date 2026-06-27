@@ -19,6 +19,9 @@ uv run holdem-game --heads-up
 
 默认你控制 seat 0，对面 seat 1 由 `holdem_ai` 自动决策。
 
+默认牌局是 no-limit holdem，最小级别为小盲 `5` / 大盲 `10`，默认买入为 `100BB`
+（即 `1000` 筹码）。
+
 ## 多人桌
 
 默认启动是 3 人桌：
@@ -34,6 +37,13 @@ uv run holdem-game --players 4 --human-seat 2 --starting-stack 500 --small-blind
 ```
 
 除 `--human-seat` 之外的普通座位都会由本地 AI 自动行动。
+
+也可以用 stake level 从 `5/10` 开始按层翻倍：
+
+```bash
+uv run holdem-game-heads-up --stake-level 2   # 10/20，默认 2000 筹码
+uv run holdem-game-heads-up --stake-level 3   # 20/40，默认 4000 筹码
+```
 
 ## AI profile
 

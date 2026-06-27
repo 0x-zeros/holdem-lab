@@ -18,6 +18,10 @@ from holdem_engine import HoldemConfig, HoldemEnv
 from holdem_game.table_view import ActionButton, TableView, label_for_action
 
 DEFAULT_SIZE = (1180, 760)
+DEFAULT_SMALL_BLIND = 5
+DEFAULT_BIG_BLIND = 10
+DEFAULT_STARTING_BIG_BLINDS = 100
+DEFAULT_PLAYERS = 3
 _HAND_RANK_NAMES = {
     8: "straight flush",
     7: "quads",
@@ -52,7 +56,13 @@ class HoldemGameApp:
         self.bot_delay_ms = bot_delay_ms
         self.ai_profile = profile_from_name(ai_profile_name)
         self.last_bot_action_ms = 0
-        self.base_config = config or HoldemConfig(starting_stacks=(200, 200, 200))
+        self.base_config = config or HoldemConfig(
+            starting_stacks=tuple(
+                DEFAULT_BIG_BLIND * DEFAULT_STARTING_BIG_BLINDS for _ in range(DEFAULT_PLAYERS)
+            ),
+            small_blind=DEFAULT_SMALL_BLIND,
+            big_blind=DEFAULT_BIG_BLIND,
+        )
         if self.human_seat < 0 or self.human_seat >= len(self.base_config.starting_stacks):
             raise ValueError("human_seat is outside the table")
         if self.bot_seat is not None and (
@@ -556,16 +566,39 @@ class HoldemGameApp:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the holdem-lab pygame table.")
-    parser.add_argument("--players", type=int, default=3, help="Number of table seats.")
+    parser.add_argument(
+        "--players", type=_positive_int, default=DEFAULT_PLAYERS, help="Number of table seats."
+    )
     parser.add_argument(
         "--heads-up",
         action="store_true",
         help="Start a two-seat human-vs-AI table.",
     )
     parser.add_argument("--human-seat", type=int, default=0, help="Seat controlled by the player.")
-    parser.add_argument("--starting-stack", type=int, default=200, help="Starting stack per seat.")
-    parser.add_argument("--small-blind", type=int, default=1, help="Small blind amount.")
-    parser.add_argument("--big-blind", type=int, default=2, help="Big blind amount.")
+    parser.add_argument(
+        "--starting-stack",
+        type=_positive_int,
+        default=None,
+        help="Starting stack per seat. Defaults to 100 big blinds for the selected stake.",
+    )
+    parser.add_argument(
+        "--stake-level",
+        type=_positive_int,
+        default=1,
+        help="Blind level starting at 5/10 and doubling each level.",
+    )
+    parser.add_argument(
+        "--small-blind",
+        type=_positive_int,
+        default=None,
+        help="Override small blind amount.",
+    )
+    parser.add_argument(
+        "--big-blind",
+        type=_positive_int,
+        default=None,
+        help="Override big blind amount.",
+    )
     parser.add_argument(
         "--ai-profile",
         choices=PROFILE_NAMES,
@@ -591,14 +624,36 @@ def players_from_args(args: argparse.Namespace) -> int:
     return 2 if args.heads_up else int(args.players)
 
 
+def blinds_from_args(args: argparse.Namespace) -> tuple[int, int]:
+    multiplier = 2 ** (int(args.stake_level) - 1)
+    small_blind = args.small_blind or DEFAULT_SMALL_BLIND * multiplier
+    big_blind = args.big_blind or DEFAULT_BIG_BLIND * multiplier
+    if big_blind < small_blind:
+        raise ValueError("big blind must be at least the small blind")
+    return int(small_blind), int(big_blind)
+
+
+def starting_stack_from_args(args: argparse.Namespace, *, big_blind: int) -> int:
+    return int(args.starting_stack or big_blind * DEFAULT_STARTING_BIG_BLINDS)
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
 def main(argv: Sequence[str] | None = None) -> NoReturn:
     args = build_arg_parser().parse_args(argv)
     players = players_from_args(args)
+    small_blind, big_blind = blinds_from_args(args)
+    starting_stack = starting_stack_from_args(args, big_blind=big_blind)
     app = HoldemGameApp(
         HoldemConfig(
-            starting_stacks=tuple(args.starting_stack for _ in range(players)),
-            small_blind=args.small_blind,
-            big_blind=args.big_blind,
+            starting_stacks=tuple(starting_stack for _ in range(players)),
+            small_blind=small_blind,
+            big_blind=big_blind,
         ),
         human_seat=args.human_seat,
         bot_seat=args.bot_seat,

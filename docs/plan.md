@@ -265,11 +265,15 @@
   `uv run holdem-game-heads-up` 与 `uv run holdem-game --heads-up` 单人对 AI 入口，并支持
   `--ai-profile` 选择自动座位策略。`--bot-seat` 保持为 bot pipeline 接管座位的测试入口，不作为普通
   AI 对手开关。试玩说明见 `docs/local-game.md`。
+- 阶段 2 本地 no-limit stake 对齐：本地 pygame 默认级别改为 `5/10`，默认买入按 `100BB`
+  计算为 `1000`；新增 `--stake-level`，从 `5/10` 开始按层翻倍（如 `10/20`、`20/40`），仍可用
+  `--small-blind` / `--big-blind` / `--starting-stack` 手动覆盖。动作金额继续使用 no-limit
+  `bet/raise-to` 总投入语义。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  151 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current no_equity tight
+  153 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current no_equity tight
   --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、

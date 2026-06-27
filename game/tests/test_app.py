@@ -5,7 +5,13 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pygame
 from holdem_common import ActionType, Card
 from holdem_engine import HoldemConfig
-from holdem_game.app import HoldemGameApp, build_arg_parser, players_from_args
+from holdem_game.app import (
+    HoldemGameApp,
+    blinds_from_args,
+    build_arg_parser,
+    players_from_args,
+    starting_stack_from_args,
+)
 
 
 def cards(*codes: str) -> tuple[Card, ...]:
@@ -361,3 +367,24 @@ def test_arg_parser_accepts_table_and_bot_config() -> None:
     assert args.bot_seat == 0
     assert args.bot_delay_ms == 25
     assert args.ai_profile == "loose"
+    assert blinds_from_args(args) == (5, 10)
+    assert starting_stack_from_args(args, big_blind=10) == 500
+
+
+def test_arg_parser_defaults_to_five_ten_stake() -> None:
+    args = build_arg_parser().parse_args([])
+
+    small_blind, big_blind = blinds_from_args(args)
+
+    assert players_from_args(args) == 3
+    assert (small_blind, big_blind) == (5, 10)
+    assert starting_stack_from_args(args, big_blind=big_blind) == 1000
+
+
+def test_arg_parser_doubles_blinds_by_stake_level() -> None:
+    args = build_arg_parser().parse_args(["--stake-level", "3"])
+
+    small_blind, big_blind = blinds_from_args(args)
+
+    assert (small_blind, big_blind) == (20, 40)
+    assert starting_stack_from_args(args, big_blind=big_blind) == 4000

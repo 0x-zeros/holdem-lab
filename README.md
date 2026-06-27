@@ -77,6 +77,8 @@ scripts/dev/setup-dev-env.sh
 uv run holdem-game-heads-up
 ```
 
+默认是 no-limit holdem，最小级别为 `5/10`，默认买入为 `100BB`（`1000` 筹码）。
+
 等价命令：
 
 ```bash
@@ -93,6 +95,13 @@ uv run holdem-game
 
 ```bash
 uv run holdem-game --players 4 --human-seat 2 --starting-stack 500 --small-blind 5 --big-blind 10
+```
+
+从 `5/10` 开始按层翻倍：
+
+```bash
+uv run holdem-game-heads-up --stake-level 2   # 10/20，默认 2000 筹码
+uv run holdem-game-heads-up --stake-level 3   # 20/40，默认 4000 筹码
 ```
 
 选择 AI profile：
