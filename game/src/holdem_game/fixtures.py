@@ -61,6 +61,7 @@ def write_pygame_fixture(
         size=size,
     )
     try:
+        app.action_log = []
         app.draw()
         pygame.image.save(app.screen, image_path)
         annotation = build_table_annotation(app, image=image_name, source="holdem_game")

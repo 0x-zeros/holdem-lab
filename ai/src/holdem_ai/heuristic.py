@@ -32,12 +32,14 @@ _RANK_VALUES = {
 @dataclass(frozen=True, slots=True)
 class HeuristicConfig:
     value_raise_threshold: float = 0.78
+    protection_bet_threshold: float = 0.64
     semi_bluff_threshold: float = 0.58
     continue_threshold: float = 0.46
     marginal_threshold: float = 0.36
     marginal_call_price_fraction: float = 0.20
     value_bet_pot_fraction: float = 0.65
     strong_value_bet_pot_fraction: float = 0.85
+    protection_bet_pot_fraction: float = 0.50
     semi_bluff_pot_fraction: float = 0.45
     draw_call_discount_per_out: float = 0.012
 
@@ -91,6 +93,7 @@ class HeuristicPolicy:
                     self.config,
                     strength=strength,
                     semi_bluff=False,
+                    pot_fraction_override=None,
                 )
                 if pressure is not None:
                     return _decision(
@@ -131,9 +134,22 @@ class HeuristicPolicy:
                 self.config,
                 strength=strength,
                 semi_bluff=False,
+                pot_fraction_override=None,
             )
             if pressure is not None:
                 return _decision(pressure, "value_bet", state, assessment, None)
+
+        if _should_protection_bet(state, assessment, self.config):
+            pressure = _value_bet_or_raise(
+                state,
+                legal,
+                self.config,
+                strength=strength,
+                semi_bluff=False,
+                pot_fraction_override=self.config.protection_bet_pot_fraction,
+            )
+            if pressure is not None:
+                return _decision(pressure, "protection_bet", state, assessment, None)
 
         if assessment.has_strong_draw and strength >= self.config.semi_bluff_threshold:
             pressure = _value_bet_or_raise(
@@ -142,6 +158,7 @@ class HeuristicPolicy:
                 self.config,
                 strength=strength,
                 semi_bluff=True,
+                pot_fraction_override=None,
             )
             if pressure is not None:
                 return _decision(pressure, "semi_bluff", state, assessment, None)
@@ -266,6 +283,7 @@ def _value_bet_or_raise(
     *,
     strength: float,
     semi_bluff: bool,
+    pot_fraction_override: float | None,
 ) -> Action | None:
     action = legal.get(ActionType.BET) or legal.get(ActionType.RAISE)
     if action is None:
@@ -279,11 +297,14 @@ def _value_bet_or_raise(
         return None
 
     player = state.player(state.current_seat)
-    pot_fraction = config.value_bet_pot_fraction
-    if strength >= 0.90:
-        pot_fraction = config.strong_value_bet_pot_fraction
-    if semi_bluff:
+    if pot_fraction_override is not None:
+        pot_fraction = pot_fraction_override
+    elif semi_bluff:
         pot_fraction = config.semi_bluff_pot_fraction
+    elif strength >= 0.90:
+        pot_fraction = config.strong_value_bet_pot_fraction
+    else:
+        pot_fraction = config.value_bet_pot_fraction
 
     target = player.committed + max(
         state.big_blind,
@@ -299,6 +320,18 @@ def _value_bet_or_raise(
         min_amount=action.min_amount,
         max_amount=action.max_amount,
     )
+
+
+def _should_protection_bet(
+    state: GameState,
+    assessment: _HandAssessment,
+    config: HeuristicConfig,
+) -> bool:
+    if state.street is Street.PREFLOP or state.street is Street.RIVER:
+        return False
+    if assessment.strength < config.protection_bet_threshold:
+        return False
+    return assessment.made_hand in {"pair", "two_pair", "trips"}
 
 
 def _decision(

@@ -59,6 +59,7 @@ class TableView:
         human_seat: int,
         buttons: Sequence[ActionButton],
         message: str,
+        action_log: Sequence[str] = (),
     ) -> None:
         width, height = self.size
         surface.fill(BACKGROUND)
@@ -66,6 +67,7 @@ class TableView:
         self._draw_board(surface, state)
         self._draw_players(surface, state, human_seat=human_seat)
         self._draw_status(surface, state, message)
+        self._draw_action_log(surface, action_log)
         self._draw_buttons(surface, buttons)
         pygame.display.flip()
 
@@ -166,6 +168,24 @@ class TableView:
             pygame.draw.rect(surface, (79, 62, 24), button.rect, width=2, border_radius=8)
             self._draw_text(surface, button.label, self.body_font, BUTTON_TEXT, button.rect.center)
 
+    def _draw_action_log(self, surface: pygame.Surface, action_log: Sequence[str]) -> None:
+        if not action_log:
+            return
+        rect = self.action_log_rect()
+        pygame.draw.rect(surface, (24, 33, 35), rect, border_radius=8)
+        pygame.draw.rect(surface, (61, 76, 76), rect, width=2, border_radius=8)
+        self._draw_text_left(surface, "Actions", self.small_font, TEXT, (rect.x + 12, rect.y + 12))
+        line_y = rect.y + 38
+        for line in action_log[-5:]:
+            self._draw_text_left(
+                surface,
+                self._ellipsize(line, self.small_font, rect.width - 24),
+                self.small_font,
+                MUTED,
+                (rect.x + 12, line_y),
+            )
+            line_y += 22
+
     def _draw_card(
         self,
         surface: pygame.Surface,
@@ -197,6 +217,26 @@ class TableView:
         rendered = font.render(text, True, color)
         rect = rendered.get_rect(center=center)
         surface.blit(rendered, rect)
+
+    def _draw_text_left(
+        self,
+        surface: pygame.Surface,
+        text: str,
+        font: pygame.font.Font,
+        color: Color,
+        top_left: tuple[int, int],
+    ) -> None:
+        rendered = font.render(text, True, color)
+        surface.blit(rendered, rendered.get_rect(topleft=top_left))
+
+    def _ellipsize(self, text: str, font: pygame.font.Font, max_width: int) -> str:
+        if font.size(text)[0] <= max_width:
+            return text
+        suffix = "..."
+        remaining = text
+        while remaining and font.size(f"{remaining}{suffix}")[0] > max_width:
+            remaining = remaining[:-1]
+        return f"{remaining}{suffix}" if remaining else suffix
 
     def board_card_rects(self) -> tuple[pygame.Rect, ...]:
         width, height = self.size
@@ -259,6 +299,12 @@ class TableView:
         width, height = self.size
         rect = pygame.Rect(0, 0, min(720, width - 40), 34)
         rect.center = (width // 2, height - 104)
+        return rect
+
+    def action_log_rect(self) -> pygame.Rect:
+        width, height = self.size
+        rect = pygame.Rect(0, 0, min(260, width - 40), 158)
+        rect.topright = (width - 24, max(64, int(height * 0.10)))
         return rect
 
 

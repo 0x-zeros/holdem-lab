@@ -160,6 +160,25 @@ def test_decide_semi_bluff_bets_strong_flush_draw() -> None:
     assert decision.metadata["outs"] == 9
 
 
+def test_decide_protection_bets_top_pair_when_free() -> None:
+    state = state_with(
+        hole_cards=cards("Ah", "Qd"),
+        board=cards("Qs", "7h", "2c"),
+        legal_actions=(
+            Action(ActionType.CHECK),
+            Action(ActionType.BET, amount=6, min_amount=6, max_amount=100),
+        ),
+        pot=40,
+    )
+
+    decision = explain_decision(state)
+
+    assert decision.action.action_type is ActionType.BET
+    assert decision.action.amount == 20
+    assert decision.reason == "protection_bet"
+    assert decision.metadata["made_hand"] == "pair"
+
+
 def test_decide_calls_strong_draw_with_acceptable_price() -> None:
     state = state_with(
         hole_cards=cards("Ah", "Kh"),
