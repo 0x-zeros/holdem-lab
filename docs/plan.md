@@ -377,6 +377,20 @@
   门控、非法上下文填惰性 fold 默认；④ underwater 角落（stack<to_call+raise 钮）会出低于跟注的非法加注——无合法
   加注时丢弃 RAISE；⑤ v2 `max_game_length` 5→3（OpenSpiel 不计 chance）；⑥ 对手未知筹码会 crash 而非 fail-closed
   ——加 `missing_seat_stack` 闸；⑦ exploitability 文案夸大已据实修正（push/fold ~1e-5 量级、v2 默认 ~1e-4）。
+- 阶段 3 AI S4-lite（对手自适应，离线最高杠杆）：S2c-3 界定的"open-jam 是对手相关剥削、需对手建模"在此
+  交付第一块。`holdem_ai.adaptive.AdaptivePolicy`（profile `adaptive`）——纯路由器：跨手累积"面对激进度"频率
+  （只从自己行动时的 `GameState` 重建——翻前 `villain.committed>bb` 算加注、翻后任意 `to_call>0` 即对手下注；
+  `last_aggressor` 全仓库未赋值故弃用），暖机 20 次决策后频率≥0.55 判 maniac → 切完整 `pushfold`（open-jam），
+  否则恒走安全 `hybrid`。**CRN 指纹干净**（maniac 0.68 / random 0.45 / current 0.28 / tag 0.21 / rock·station 0），
+  0.55 阈值落 random 与 maniac 间。**fork 实测两头通吃**（seed 20260627，300 对，5/6/8/10bb）：对 tag 与 `current`
+  **逐位完全相同**（+33/+35/+35/+36，频率永不过阈→恒 hybrid，零成本继承启发式价值）；对 maniac 把启发式短筹码
+  大漏洞（−56/−46/−50/−28，`hybrid`=`current` 证实 call-floor 无济于事）收回到 ≈`pushfold`（−20/−18/+13/+18）。
+  静态二选一做不到此双赢；只新增"对手读数"一处状态、`reset()` 换对手清零，可直接挂 bot 同一 `ai.decide`。诚实修正：
+  S2c-3 旧记"open-jam vs tag −12..−26"是更早/pure 模式更噪估计，本次更紧的 CRN-300 mixed 下成本其实很小（近乎打平），
+  但 adaptive 双赢不依赖该值（靠 tag 侧按构造等同 current + maniac 侧漏洞大而符号稳健）；网格详见 `docs/ai-strength.md`
+  §6 S4-lite。验证：`verify-dev-env.sh` 全绿（ruff/mypy/**256 tests**，新增 `ai/tests/test_adaptive.py` 13 例）；
+  新 CLI 路径 `uv run holdem-ai-evaluate-heads-up --match adaptive maniac --pairs 300`。下一步：把同一对手读数接进
+  bot 侧（`bot/` 的 6-max 适配里按席位累积激进度），并在 host dry-run 验证多人桌的读数稳定性。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

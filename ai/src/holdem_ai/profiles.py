@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from holdem_ai.adaptive import AdaptivePolicy
 from holdem_ai.baselines import (
     AggressivePolicy,
     CallStationPolicy,
@@ -35,7 +36,14 @@ REFERENCE_PROFILE_NAMES = (
 #: floor (opening is left to the heuristic, which preserves value vs opponents
 #: that defend correctly).
 CFR_PROFILE_NAMES = ("pushfold", "hybrid")
-PROFILE_NAMES = HEURISTIC_PROFILE_NAMES + REFERENCE_PROFILE_NAMES + CFR_PROFILE_NAMES
+#: Opponent-adaptive policies. ``adaptive`` reads the opponent's aggression
+#: frequency and routes between the open-jam exploit (vs maniacs) and the safe
+#: ``hybrid`` guardrail (vs everyone else) — winning both matchups a static gate
+#: could not. See ``holdem_ai.adaptive``.
+ADAPTIVE_PROFILE_NAMES = ("adaptive",)
+PROFILE_NAMES = (
+    HEURISTIC_PROFILE_NAMES + REFERENCE_PROFILE_NAMES + CFR_PROFILE_NAMES + ADAPTIVE_PROFILE_NAMES
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,5 +104,7 @@ def profile_from_name(name: str) -> PolicyProfile:
             return PolicyProfile("pushfold", PushFoldPolicy())
         case "hybrid":
             return PolicyProfile("hybrid", PushFoldPolicy(defend_only=True))
+        case "adaptive":
+            return PolicyProfile("adaptive", AdaptivePolicy())
         case _:
             raise ValueError(f"unknown profile: {name}")

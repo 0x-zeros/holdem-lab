@@ -151,6 +151,31 @@
     > （精确去牌联合发桶 + 150k 对称胜率矩阵），exploitability 现在是该 8 桶抽象内有意义的近纳什值——
     > 但它仍只是**短筹码 push/fold 抽象**，不等于真实 6-max HUNL 的可被剥削度；评估硬化（S2c-4）到位前
     > 不上翻后 MCCFR。
+- **S4-lite 对手自适应（已落地）**：S2c-3 界定的"open-jam 是对手相关剥削、需对手建模才有安全门"，在此交付
+  第一块、且是**离线最高杠杆**。`holdem_ai.adaptive.AdaptivePolicy`——纯**路由器**：跨手累积"面对激进度"频率
+  （只能从自己行动时看到的 `GameState` 重建：翻前 `villain.committed > bb` 才算加注、翻后任意 `to_call>0` 即对手
+  下注；`last_aggressor` 全仓库**只声明从不赋值**故不可用），暖机（默认 20 次决策）后频率 ≥ 阈值（0.55）判为
+  maniac → 切**完整 open-jam**（`pushfold`），否则恒走**安全默认**（`hybrid`=启发式 + 不可剥削跟注下限）。
+  **频率指纹干净**（CRN 探针，150 对/桶，8bb）：maniac 0.68 / random 0.45 / current 0.28 / tag 0.21 /
+  rock·station 0.00——0.55 阈值落在 random 与 maniac 之间，连 random 都不误判。**fork 实测**（CRN，seed
+  20260627，300 对，bootstrap 95% CI，sb1/bb2；列为 5/6/8/10bb 点估计）：
+
+  | focal | vs maniac | vs tag |
+  |---|---|---|
+  | `current`＝`hybrid` | −56 / −46 / −50 / −28 | +33 / +35 / +35 / +36 |
+  | `pushfold`（盲开 open-jam） | −12 / −13 / **+17 / +31** | +28 / +24 / +35 / +21 |
+  | **`adaptive`** | **−20 / −18 / +13 / +18** | **+33 / +35 / +35 / +36** |
+
+  即 **adaptive 两头通吃**：对 tag 与 `current` **逐位完全相同**（频率 0.21 永不过阈、恒走 hybrid → 同样出牌，
+  零成本继承启发式价值——有 `test_adaptive_matches_hybrid_versus_tag_exactly` 钉死等同性）；对 maniac 把启发式的
+  **短筹码大漏洞**（−28..−56，且 `hybrid`＝`current` 证实 call-floor 从不触发故无济于事）收回到 ≈`pushfold`
+  （8/10bb +13/+18，CI 与 pushfold 大幅重叠）。静态二选一（全 hybrid 输 maniac、全 pushfold 让利 tag）做不到此
+  双赢；只新增"对手读数"一处状态、`reset()` 换对手清零，可直接挂到 bot 的同一 `ai.decide`。**诚实标注**：
+  短筹码 all-in 方差大（CI 常 ±30+bb），故 ① 上表点估计有噪声——S2c-3 旧记"open-jam vs tag −12..−26"是更早/更噪
+  （pure 模式）的估计，本次更紧的 CRN-300 mixed 下 open-jam 对 tag 的成本其实很小（近乎打平）；② 但 adaptive 的
+  双赢**不依赖**该成本大小——它靠 tag 侧"按构造逐位等同 `current`"+ maniac 侧"漏洞大而符号稳健（−28..−56）"；
+  ③ 5/6bb 对 maniac 仍 <0，是 `pushfold` 工具本身在该深度未净赢的局限（非路由问题，→ 后续可在 S2c-2 v2 博弈里
+  补 5/6bb jam 范围）。
 - **S3 Deep CFR / SD-CFR**：用 PokerRL / OpenSpiel 去掉手工抽象，提升精度；或 ReBeL 式
   depth-limited search 做实时再求解。
 - **S4 面向 Poker Legends 的实战形态**：Poker Legends 是 **6-max 多人 play-money**，终局更贴近
