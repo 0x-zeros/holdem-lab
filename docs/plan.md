@@ -341,9 +341,20 @@
   近纳什值），且短筹码越浅 jam 越宽（jam 5.75/4.0/3.0、BB call 4.26/3.0/2.0）。10bb 对照（1500 手）：pushfold
   胜 maniac **+40.5**、rock **+27.0**、启发式 **+5.0**（去噪前略负，现约打平偏赢）；一处有用观察：10bb 下启发式
   自身负于 maniac（−45.6）而 pushfold 胜 maniac，正是 S2c-3 护栏要补的短筹码漏洞。完整 S2c 计划见 `docs/ai-strength.md`。
+- 阶段 3 AI S2c-4（评估硬化）：让"谁更强"的结论可信，再谈翻后。① **CRN 配对评估**
+  `holdem_ai.evaluate.evaluate_match`：同一副牌换座各打一次（duplicate poker）抵消发牌方差，bb/100 配
+  **bootstrap 95% 置信区间**与 button/BB 位置切片，CLI `--match FOCAL OPP --pairs N`；抽出共享
+  `_play_hand`，`evaluate_heads_up` 行为不变。实证 CRN 很紧：current vs rock @10bb +69.0、CI[+66,+72.5]
+  仅 300 手。② **会惩罚的对手**：加 equity 接地的 `TAGPolicy`（紧凶 reg）与 `ThreeBetJammerPolicy`（短筹码
+  极化 3bet-jam），接进 `REFERENCE_PROFILE_NAMES`；CRN 证明它们有强度非送钱（10bb 下 `current` vs `tag`
+  +33.2 是真赢、不是白送）。③ **多人 smoke + HU 闸收紧**：闸由 `active_players!=2` 改
+  `players!=2`（按入座人数），修掉"3 人弃到 2 人剩者仍套 HU blueprint（死钱失真）"的潜在误用，加 `test_multiway`
+  3 人桌端到端（每手零和、pushfold 确有行动但绝不出 blueprint）。④ 可复现网格脚本 `ai/scripts/reference_eval.py`
+  → `docs/ai-reference-eval.md`（10/25/100bb，1200/800/300 对）。**头条**：10bb 启发式负 maniac（−18.8）而
+  pushfold 胜 maniac（+40.8）——GTO 短筹码下限；对被动/会防守对手 `current` 反赢更多（GTO≠榨取上限）。
+  后续 BB-defender / minraise / checkraise-bluffer 对手按需再加。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  211 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
-  random maniac --hands 2 --seed 9` 已跑通。
+  225 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match pushfold tag --pairs 20`（CRN+CI）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

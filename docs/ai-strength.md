@@ -118,9 +118,18 @@
       覆盖 BB-vs-minraise、SB 小注价值、jam-over-open；**先不进翻后**。
     - **S2c-3 CFR 作启发式护栏（混合）**：启发式出动作，CFR 只在覆盖到的高杠杆全下点否决明显错误，
       兼得弱场剥削收益与短筹码不可剥削下限。
-    - **S2c-4 评估硬化**：20k+ 手、共同随机数（CRN）配对、bootstrap 置信区间、按位置/筹码深度切片、
-      加入**会惩罚的对手**（3bet-jammer / BB defender / TAG / minraise / checkraise-bluffer）。这些到位
-      前不开翻后 MCCFR——否则分不清提升来自更强的牌力、桥接 artifact 还是方差。
+    - **S2c-4 评估硬化（已落地）**：① **CRN 配对评估** `evaluate_match`——同一副牌换座各打一次（duplicate
+      poker）抵消发牌方差，bb/100 给 **bootstrap 95% 置信区间** + 按 button/BB 位置切片；② **会惩罚的对手**
+      ——加 equity 接地的 `tag`（紧凶 reg：紧开、按 pot odds 跟注/下注、弃空气）与 `three_bet_jammer`（短筹码
+      极化 3bet-jam、不平跟），二者真正惩罚过松/过宽，而非送钱；③ **多人 smoke + HU 硬闸收紧**——闸从
+      `active_players!=2` 改为 `players!=2`（按入座人数判断），修掉"3 人底池弃到 2 人剩者仍套 HU blueprint"
+      （死钱使 pot odds 失真）的潜在误用，并加 3 人桌端到端 smoke。可复现 CRN 网格（10/25/100bb）见
+      `docs/ai-reference-eval.md`，**头条结论**：10bb 下启发式 `current` **负**于 maniac（−18.8，CI 触 0），
+      而 push/fold blueprint **胜** maniac（+40.8 [+20,+60]）——~60bb/100 的差正是 S2c-3 要嫁接的不可剥削下限；
+      反向地，对被动/能正确防守的对手（call_station、rock、`tag`）`current` 反而赢更多（vs tag +33.2 > pushfold
+      +7.3），印证"GTO 是下限不是榨取上限"且**盲目 open-jam 打不过会防守的对手**（→ S2c-2 的 limp/min-raise
+      更值钱）。**评估到位前不开翻后 MCCFR**——否则分不清提升来自更强牌力、桥接 artifact 还是方差（原计划的
+      BB-defender / minraise / checkraise-bluffer 对手按需再加）。
     > 外部 review 共识：架构 seam 与“自有 infostate”方向正确。**S2c-1 后**该抽象已**内部一致、低噪**
     > （精确去牌联合发桶 + 150k 对称胜率矩阵），exploitability 现在是该 8 桶抽象内有意义的近纳什值——
     > 但它仍只是**短筹码 push/fold 抽象**，不等于真实 6-max HUNL 的可被剥削度；评估硬化（S2c-4）到位前
