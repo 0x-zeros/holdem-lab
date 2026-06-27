@@ -8,6 +8,7 @@ from holdem_ai.baselines import (
     RandomPolicy,
     RockPolicy,
 )
+from holdem_ai.blueprint import PushFoldPolicy
 from holdem_ai.cfr import CFRCheckpoint, CFRResult, nolimit_holdem_abstraction, train_cfr
 from holdem_ai.equity import estimate_showdown_equity, evaluate_best_hand
 from holdem_ai.heuristic import (
@@ -48,6 +49,7 @@ __all__ = [
     "PolicyDecision",
     "PolicyProfile",
     "PushFoldBlueprint",
+    "PushFoldPolicy",
     "RandomPolicy",
     "RockPolicy",
     "all_in_equity_vs_random",

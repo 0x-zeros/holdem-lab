@@ -90,10 +90,20 @@
     入口 `uv run holdem-ai-train-cfr --game <kuhn_poker|leduc_poker|nlhe-small|...> --variant cfr_plus`。
     实测边界：全树 tabular CFR 可解 1 手牌缩减 NLHE（秒级），2 手牌即超时——**扩到真实 HUNL 需上
     MCCFR + card/bet 抽象**（S2b）。
-  - **S2b（下一步）抽象 HUNL blueprint**：用 OpenSpiel `universal_poker` + card bucketing（复用
-    `holdem_ai.preflop` 等价类/真值表）+ 有限 bet sizing 抽象，自博弈求 blueprint；用 best-response/
-    exploitability 评估抽象策略在真实博弈里的可被剥削度；落成可被 `decide()` 调用的查表策略
-    （动作经 `engine/adapters/openspiel.py` 的离散动作映射回 `Action`）。
+  - **S2b（已落地）自有抽象游戏 → CFR blueprint → `decide()` 桥接**：不逆向 `universal_poker` 的
+    infostate，而是写**自己掌控的 pyspiel 游戏** `holdem_ai.preflop_game`（heads-up push/fold、手牌
+    分 8 个 equity 桶、叶子用 `preflop.BUCKET_EQUITY` 桶间胜率矩阵），infostate 由我定义因而能从
+    `GameState` 精确复现。OpenSpiel CFR+ 把它解到 exploitability ~2e-5，得到阈值型 push/fold 策略
+    （按钮 jam 范围 ⊇ 大盲跟注范围、筹码越短 jam 越宽）。`holdem_ai.blueprint.PushFoldPolicy` 把它
+    包成同一个 `explain()/decide()` 接口：短筹码翻前查 blueprint、其余回退启发式——**第一个真正由
+    CFR 求解、game/bot 共用的 `decide()` 策略**。
+    诚实结果（10BB、400 手）：pushfold **赢所有参照对手**（random +45 / call_station +35 / rock +27 /
+    maniac +75），但**输给启发式 current（-31.6）**、且赢参照对手赢得比 current 少——因为它只 jam/fold、
+    不做小注价值剥削。这正实证了 §7 的判断：**GTO 是不可剥削下限、但对弱玩家池剥削式打法赢更多**。
+    唯一反例 vs maniac（pushfold +75 / current -25），jam 抓疯狂诈唬更稳。
+  - **S2c（下一步）扩抽象**：更细的桶 + 限注 bet sizing（limp/raise）+ 翻后街道（board bucketing），
+    或换 MCCFR；目标是 blueprint 在弱场也能逼近或超过剥削式启发式，并保留 exploitability 下限。
+    考虑“启发式为主 + 短筹码/关键节点查 blueprint”的混合，兼得剥削收益与不可剥削性。
 - **S3 Deep CFR / SD-CFR**：用 PokerRL / OpenSpiel 去掉手工抽象，提升精度；或 ReBeL 式
   depth-limited search 做实时再求解。
 - **S4 面向 Poker Legends 的实战形态**：Poker Legends 是 **6-max 多人 play-money**，终局更贴近

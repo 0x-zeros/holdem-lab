@@ -316,8 +316,20 @@
   MCCFR + card/bet 抽象。这是“先把求解+评估打通、再扩抽象 HUNL（S2b）”的标准路径；blueprint 落成后
   经 `engine/adapters/openspiel.py` 的离散动作映射回 `Action`，由同一个 `decide()` 消费。详见
   `docs/ai-strength.md` S2。
+- 阶段 3 AI S2b（自有抽象游戏 → CFR blueprint → `decide()` 桥接）：为了把 CFR 解出的策略可靠地接进
+  `decide()`，不逆向 `universal_poker` 的 infostate，而是写**自己掌控的 pyspiel 游戏**
+  `holdem_ai.preflop_game`（heads-up push/fold、手牌分 8 个 equity 桶、叶子用 `preflop.BUCKET_EQUITY`
+  桶间胜率矩阵）。infostate 由我定义，能从 `GameState` 精确复现。OpenSpiel CFR+ 解到 exploitability
+  ~2e-5、得到阈值型 push/fold 策略；`holdem_ai.blueprint.PushFoldPolicy` 把它包成同一个
+  `explain()/decide()`（短筹码翻前查 blueprint、其余回退启发式），并加入 `pushfold` profile。**这是
+  第一个真正由 CFR 求解、game/bot 共用的 `decide()` 策略。** 诚实结果（10BB、400 手）：pushfold 赢
+  所有参照对手（random +45 / call_station +35 / rock +27 / maniac +75），但输给启发式 current
+  （-31.6）、且赢参照对手赢得比 current 少——它只 jam/fold、不做小注价值剥削，实证了「GTO 是不可剥削
+  下限、对弱场剥削式打法赢更多」（`docs/ai-strength.md` §7）；唯一反例 vs maniac（pushfold +75 /
+  current -25）。下一步 S2c 扩抽象（更细桶 / 限注 sizing / 翻后街道 / MCCFR），或做「启发式为主 +
+  关键节点查 blueprint」的混合。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  188 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
+  201 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
   random maniac --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、

@@ -11,13 +11,16 @@ from holdem_ai.baselines import (
     RandomPolicy,
     RockPolicy,
 )
+from holdem_ai.blueprint import PushFoldPolicy
 from holdem_ai.heuristic import HeuristicConfig, HeuristicPolicy
 
 #: Heuristic-family profiles (same policy, different thresholds).
 HEURISTIC_PROFILE_NAMES = ("current", "no_equity", "tight", "loose")
 #: Deterministic reference opponents that act as an absolute yardstick.
 REFERENCE_PROFILE_NAMES = ("random", "call_station", "rock", "maniac")
-PROFILE_NAMES = HEURISTIC_PROFILE_NAMES + REFERENCE_PROFILE_NAMES
+#: CFR-solved blueprint policies.
+CFR_PROFILE_NAMES = ("pushfold",)
+PROFILE_NAMES = HEURISTIC_PROFILE_NAMES + REFERENCE_PROFILE_NAMES + CFR_PROFILE_NAMES
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,5 +73,7 @@ def profile_from_name(name: str) -> PolicyProfile:
             return PolicyProfile("rock", RockPolicy())
         case "maniac":
             return PolicyProfile("maniac", AggressivePolicy())
+        case "pushfold":
+            return PolicyProfile("pushfold", PushFoldPolicy())
         case _:
             raise ValueError(f"unknown profile: {name}")
