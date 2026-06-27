@@ -81,9 +81,16 @@
   - **S1b（下一步）push/fold + 开池/3bet 查表**：在该真值表上做短筹码 jam-or-fold 与开池/3bet 范围；
     push/fold 是经典已解子博弈，在 ≤~12BB 短筹码下用真值表替代“min-open 再对 shove 弃牌”是明确的
     正确性提升，且可在短筹码评估里量化（vs maniac/random 的 all-in 决策）。
-- **S2 CFR/CFR+/MCCFR（抽象 HUNL）**：用 OpenSpiel `universal_poker` + card bucketing + 有限
-  bet sizing 抽象，自博弈求 blueprint；用 best-response/exploitability 评估；落成可被 `decide()`
-  调用的查表策略。
+- **S2 CFR/CFR+/MCCFR（抽象 HUNL）**：
+  - **S2a（已落地）CFR + exploitability 管线**：`holdem_ai.cfr` 用 OpenSpiel 的 CFR/CFR+ 求解器与
+    exploitability 评估，在小博弈上验证 `solve -> average policy -> exploitability` 闭环：kuhn CFR+
+    200 iters → exploitability ~3e-4，leduc CFR+ → ~0.01-0.03，CFR+ 明显快于 vanilla（符合理论）。
+    入口 `uv run holdem-ai-train-cfr --game <kuhn_poker|leduc_poker|universal_poker> --variant
+    cfr_plus`。这是“先在已解小游戏上把求解+评估打通，再扩抽象 HUNL”的标准第一步。
+  - **S2b（下一步）抽象 HUNL blueprint**：用 OpenSpiel `universal_poker` + card bucketing（复用
+    `holdem_ai.preflop` 等价类/真值表）+ 有限 bet sizing 抽象，自博弈求 blueprint；用 best-response/
+    exploitability 评估抽象策略在真实博弈里的可被剥削度；落成可被 `decide()` 调用的查表策略
+    （动作经 `engine/adapters/openspiel.py` 的离散动作映射回 `Action`）。
 - **S3 Deep CFR / SD-CFR**：用 PokerRL / OpenSpiel 去掉手工抽象，提升精度；或 ReBeL 式
   depth-limited search 做实时再求解。
 - **S4 面向 Poker Legends 的实战形态**：Poker Legends 是 **6-max 多人 play-money**，终局更贴近

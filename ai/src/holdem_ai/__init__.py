@@ -8,6 +8,7 @@ from holdem_ai.baselines import (
     RandomPolicy,
     RockPolicy,
 )
+from holdem_ai.cfr import CFRCheckpoint, CFRResult, train_cfr
 from holdem_ai.equity import estimate_showdown_equity, evaluate_best_hand
 from holdem_ai.heuristic import (
     HeuristicConfig,
@@ -35,6 +36,8 @@ __all__ = [
     "PROFILE_NAMES",
     "REFERENCE_PROFILE_NAMES",
     "AggressivePolicy",
+    "CFRCheckpoint",
+    "CFRResult",
     "CallStationPolicy",
     "HeuristicConfig",
     "HeuristicPolicy",
@@ -52,4 +55,5 @@ __all__ = [
     "hand_class",
     "preflop_equity",
     "profile_from_name",
+    "train_cfr",
 ]
