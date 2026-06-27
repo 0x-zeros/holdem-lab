@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 holdem-game = "holdem_game.app:main"
+holdem-game-heads-up = "holdem_game.app:main_heads_up"
 holdem-game-capture-fixture = "holdem_game.fixtures:main"
 
 [tool.uv.sources]

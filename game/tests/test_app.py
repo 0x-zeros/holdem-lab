@@ -5,7 +5,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pygame
 from holdem_common import ActionType, Card
 from holdem_engine import HoldemConfig
-from holdem_game.app import HoldemGameApp, build_arg_parser
+from holdem_game.app import HoldemGameApp, build_arg_parser, players_from_args
 
 
 def cards(*codes: str) -> tuple[Card, ...]:
@@ -313,11 +313,27 @@ def test_app_hides_human_buttons_when_bot_controls_that_seat() -> None:
         app.close()
 
 
+def test_app_accepts_ai_profile() -> None:
+    app = HoldemGameApp(
+        HoldemConfig(
+            starting_stacks=(100, 100),
+            deck=cards("As", "Ks", "Ah", "Kh", "2c", "7d", "9s", "Jc", "3h"),
+        ),
+        ai_profile_name="tight",
+        size=(900, 620),
+    )
+    try:
+        assert app.ai_profile.name == "tight"
+    finally:
+        app.close()
+
+
 def test_arg_parser_accepts_table_and_bot_config() -> None:
     args = build_arg_parser().parse_args(
         [
             "--players",
             "4",
+            "--heads-up",
             "--human-seat",
             "2",
             "--starting-stack",
@@ -330,13 +346,18 @@ def test_arg_parser_accepts_table_and_bot_config() -> None:
             "0",
             "--bot-delay-ms",
             "25",
+            "--ai-profile",
+            "loose",
         ]
     )
 
     assert args.players == 4
+    assert args.heads_up
+    assert players_from_args(args) == 2
     assert args.human_seat == 2
     assert args.starting_stack == 500
     assert args.small_blind == 5
     assert args.big_blind == 10
     assert args.bot_seat == 0
     assert args.bot_delay_ms == 25
+    assert args.ai_profile == "loose"

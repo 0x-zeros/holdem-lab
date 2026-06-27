@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import NoReturn
 
 import pygame
-from holdem_ai import PolicyDecision, evaluate_best_hand, explain_decision
+from holdem_ai import PROFILE_NAMES, PolicyDecision, evaluate_best_hand, profile_from_name
 from holdem_bot import BotOrchestrator, BotStepResult
 from holdem_bot.adapters import ActionCallbackAutomator, StateCapture, StateRecognizer
 from holdem_common import Action, ActionType, GameState
@@ -38,6 +39,7 @@ class HoldemGameApp:
         human_seat: int = 0,
         bot_seat: int | None = None,
         bot_delay_ms: int = 450,
+        ai_profile_name: str = "current",
         size: tuple[int, int] = DEFAULT_SIZE,
     ) -> None:
         pygame.init()
@@ -48,6 +50,7 @@ class HoldemGameApp:
         self.human_seat = human_seat
         self.bot_seat = bot_seat
         self.bot_delay_ms = bot_delay_ms
+        self.ai_profile = profile_from_name(ai_profile_name)
         self.last_bot_action_ms = 0
         self.base_config = config or HoldemConfig(starting_stacks=(200, 200, 200))
         if self.human_seat < 0 or self.human_seat >= len(self.base_config.starting_stacks):
@@ -195,7 +198,7 @@ class HoldemGameApp:
             if steps >= 100:
                 raise RuntimeError("AI action loop exceeded 100 steps")
             seat = self.state.current_seat
-            policy_decision = explain_decision(self.env.observe(seat=seat))
+            policy_decision = self.ai_profile.policy.explain(self.env.observe(seat=seat))
             action = policy_decision.action
             result = self.env.step(action)
             self.state = result.observation
@@ -547,16 +550,28 @@ class HoldemGameApp:
             recognizer=StateRecognizer(),
             automator=ActionCallbackAutomator(self._apply_bot_action),
             seat=self.bot_seat,
+            policy_explainer=self.ai_profile.policy.explain,
         )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the holdem-lab pygame table.")
     parser.add_argument("--players", type=int, default=3, help="Number of table seats.")
+    parser.add_argument(
+        "--heads-up",
+        action="store_true",
+        help="Start a two-seat human-vs-AI table.",
+    )
     parser.add_argument("--human-seat", type=int, default=0, help="Seat controlled by the player.")
     parser.add_argument("--starting-stack", type=int, default=200, help="Starting stack per seat.")
     parser.add_argument("--small-blind", type=int, default=1, help="Small blind amount.")
     parser.add_argument("--big-blind", type=int, default=2, help="Big blind amount.")
+    parser.add_argument(
+        "--ai-profile",
+        choices=PROFILE_NAMES,
+        default="current",
+        help="AI policy profile for automated seats.",
+    )
     parser.add_argument(
         "--bot-seat",
         type=int,
@@ -572,19 +587,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def players_from_args(args: argparse.Namespace) -> int:
+    return 2 if args.heads_up else int(args.players)
+
+
 def main(argv: Sequence[str] | None = None) -> NoReturn:
     args = build_arg_parser().parse_args(argv)
+    players = players_from_args(args)
     app = HoldemGameApp(
         HoldemConfig(
-            starting_stacks=tuple(args.starting_stack for _ in range(args.players)),
+            starting_stacks=tuple(args.starting_stack for _ in range(players)),
             small_blind=args.small_blind,
             big_blind=args.big_blind,
         ),
         human_seat=args.human_seat,
         bot_seat=args.bot_seat,
         bot_delay_ms=args.bot_delay_ms,
+        ai_profile_name=args.ai_profile,
     )
     app.run()
+
+
+def main_heads_up(argv: Sequence[str] | None = None) -> NoReturn:
+    forwarded = tuple(sys.argv[1:] if argv is None else argv)
+    main(("--heads-up", *forwarded))
 
 
 if __name__ == "__main__":

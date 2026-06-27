@@ -10,13 +10,18 @@ from dataclasses import dataclass, field
 
 from holdem_engine import HoldemConfig, HoldemEnv
 
-from holdem_ai.heuristic import HeuristicConfig, HeuristicPolicy
+from holdem_ai.profiles import PROFILE_NAMES, PolicyProfile, profile_from_name
 
-
-@dataclass(frozen=True, slots=True)
-class PolicyProfile:
-    name: str
-    policy: HeuristicPolicy
+__all__ = [
+    "EvaluationMatrixResult",
+    "EvaluationResult",
+    "PolicyProfile",
+    "ProfileStats",
+    "evaluate_heads_up",
+    "evaluate_profile_matrix",
+    "main",
+    "profile_from_name",
+]
 
 
 @dataclass(slots=True)
@@ -243,46 +248,6 @@ def _leaderboard_score(item: Mapping[str, object]) -> float:
     return float(value)
 
 
-def profile_from_name(name: str) -> PolicyProfile:
-    match name:
-        case "current":
-            return PolicyProfile("current", HeuristicPolicy())
-        case "no_equity":
-            return PolicyProfile(
-                "no_equity",
-                HeuristicPolicy(HeuristicConfig(equity_samples=0, equity_weight=0.0)),
-            )
-        case "tight":
-            return PolicyProfile(
-                "tight",
-                HeuristicPolicy(
-                    HeuristicConfig(
-                        value_raise_threshold=0.84,
-                        protection_bet_threshold=0.70,
-                        semi_bluff_threshold=0.66,
-                        continue_threshold=0.52,
-                        marginal_threshold=0.42,
-                    )
-                ),
-            )
-        case "loose":
-            return PolicyProfile(
-                "loose",
-                HeuristicPolicy(
-                    HeuristicConfig(
-                        value_raise_threshold=0.72,
-                        protection_bet_threshold=0.58,
-                        semi_bluff_threshold=0.52,
-                        continue_threshold=0.40,
-                        marginal_threshold=0.30,
-                        marginal_call_price_fraction=0.28,
-                    )
-                ),
-            )
-        case _:
-            raise ValueError(f"unknown profile: {name}")
-
-
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate two local heads-up AI profiles.")
     parser.add_argument("--hands", type=int, default=100)
@@ -290,13 +255,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--starting-stack", type=int, default=200)
     parser.add_argument("--small-blind", type=int, default=1)
     parser.add_argument("--big-blind", type=int, default=2)
-    profile_choices = ("current", "no_equity", "tight", "loose")
-    parser.add_argument("--profile-a", default="current", choices=profile_choices)
-    parser.add_argument("--profile-b", default="no_equity", choices=profile_choices)
+    parser.add_argument("--profile-a", default="current", choices=PROFILE_NAMES)
+    parser.add_argument("--profile-b", default="no_equity", choices=PROFILE_NAMES)
     parser.add_argument(
         "--matrix",
         nargs="+",
-        choices=profile_choices,
+        choices=PROFILE_NAMES,
         help="Evaluate every pair among the listed profiles and output a leaderboard.",
     )
     return parser

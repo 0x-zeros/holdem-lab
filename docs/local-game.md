@@ -1,0 +1,70 @@
+# 本地 pygame 试玩
+
+本地游戏用于验证 engine、`GameState` 和 `holdem_ai` 共用决策入口。普通试玩不需要
+Poker Legends、截图识别或 Steam 环境。
+
+## 一人对 AI
+
+推荐先打一对一：
+
+```bash
+uv run holdem-game-heads-up
+```
+
+等价命令：
+
+```bash
+uv run holdem-game --heads-up
+```
+
+默认你控制 seat 0，对面 seat 1 由 `holdem_ai` 自动决策。
+
+## 多人桌
+
+默认启动是 3 人桌：
+
+```bash
+uv run holdem-game
+```
+
+也可以指定人数、座位、筹码和盲注：
+
+```bash
+uv run holdem-game --players 4 --human-seat 2 --starting-stack 500 --small-blind 5 --big-blind 10
+```
+
+除 `--human-seat` 之外的普通座位都会由本地 AI 自动行动。
+
+## AI profile
+
+本地游戏和 AI 评估器共用同一组 profile：
+
+```bash
+uv run holdem-game-heads-up --ai-profile tight
+uv run holdem-game-heads-up --ai-profile loose
+uv run holdem-game-heads-up --ai-profile no_equity
+```
+
+可选值：
+
+- `current`：当前默认启发式策略。
+- `tight`：更紧，继续和下注阈值更高。
+- `loose`：更松，更愿意跟注和下注。
+- `no_equity`：关闭 rollout equity，用于对比评估。
+
+## 操作
+
+- 鼠标点击底部动作按钮。
+- `F` fold。
+- `C` 或空格 call/check。
+- `B` 或 `R` bet/raise。
+- 有 bet/raise 时可直接输入数字作为总下注额。
+- Backspace/Delete 编辑下注额，Up/Down 按 big blind 调整，Enter 提交。
+- `P` 暂停/恢复 AI 自动推进。
+- `N` 开下一手。
+- Escape 退出。
+
+## bot-seat 说明
+
+`--bot-seat` 不是普通 AI 对手开关；它用于测试 bot 的
+Capture/Recognizer/Automator pipeline 接管某个座位。正常手玩时不要加 `--bot-seat`。

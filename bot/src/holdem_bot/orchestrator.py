@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from holdem_ai import PolicyDecision, explain_decision
@@ -33,6 +34,7 @@ class BotOrchestrator:
         automator: Automator,
         seat: int,
         min_confidence: float = 0.80,
+        policy_explainer: Callable[[GameState], PolicyDecision] | None = None,
     ) -> None:
         if seat < 0:
             raise ValueError("seat cannot be negative")
@@ -44,6 +46,7 @@ class BotOrchestrator:
         self.automator = automator
         self.seat = seat
         self.min_confidence = min_confidence
+        self.policy_explainer = policy_explainer or explain_decision
 
     def run_once(self) -> BotStepResult:
         frame = self.capture.capture()
@@ -68,7 +71,7 @@ class BotOrchestrator:
         state = decision.state
         if state is None:
             raise RuntimeError("safety gate allowed an action without a GameState")
-        policy_decision = explain_decision(state)
+        policy_decision = self.policy_explainer(state)
         action = policy_decision.action
         self.automator.perform(action, state)
         return BotStepResult(

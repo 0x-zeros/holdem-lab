@@ -1,4 +1,5 @@
 import pytest
+from holdem_ai import PolicyDecision
 from holdem_bot import BotOrchestrator, CapturedFrame, RecognitionResult, ScreenState
 from holdem_bot.adapters import ActionCallbackAutomator, StateCapture, StateRecognizer
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
@@ -66,6 +67,35 @@ def test_orchestrator_acts_when_it_is_controlled_seat_turn() -> None:
     assert result.action.action_type is ActionType.CHECK
     assert result.policy_decision is not None
     assert result.policy_decision.reason == "check"
+    assert performed == [result.action]
+
+
+def test_orchestrator_can_use_custom_policy_explainer() -> None:
+    state = make_state()
+    performed: list[Action] = []
+
+    def explain(state: GameState) -> PolicyDecision:
+        return PolicyDecision(
+            action=state.legal_actions[0],
+            reason="custom_profile",
+            strength=0.5,
+            required_equity=None,
+            metadata={},
+        )
+
+    orchestrator = BotOrchestrator(
+        capture=StateCapture(lambda: state),
+        recognizer=StateRecognizer(),
+        automator=ActionCallbackAutomator(performed.append),
+        seat=0,
+        policy_explainer=explain,
+    )
+
+    result = orchestrator.run_once()
+
+    assert result.acted
+    assert result.policy_decision is not None
+    assert result.policy_decision.reason == "custom_profile"
     assert performed == [result.action]
 
 
