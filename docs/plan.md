@@ -310,6 +310,8 @@
   一人对 AI 入口 + profile 选择）。Poker Legends host dry-run 继续暂停，不进入真实点击测试。
 
 **参考实现 / 论文（避免走偏，直接对标）**
+- **完整的 CFR / 求解器“上强度”路线 + 论文 + 官方开源 + 分阶段计划见 `docs/ai-strength.md`**
+  （Steam 上要真正赢过其他玩家，后续这些算法必须上；此处只列摘要）。
 - 里程碑：HU Limit 已被“解”（Cepheus，Bowling 等，Science 2015，CFR+）；HUNL 被 DeepStack（Alberta,
   2017）与 Libratus（CMU，Brown & Sandholm, 2017）攻克；6-max 由 Pluribus（2019）攻克。
 - 算法主线：CFR（Zinkevich 2007）→ CFR+（Tammelin 2014）→ MCCFR（Lanctot 2009）→ Deep CFR
