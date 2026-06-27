@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -15,9 +16,11 @@ from holdem_ai.profiles import PROFILE_NAMES, PolicyProfile, profile_from_name
 __all__ = [
     "EvaluationMatrixResult",
     "EvaluationResult",
+    "MatchReport",
     "PolicyProfile",
     "ProfileStats",
     "evaluate_heads_up",
+    "evaluate_match",
     "evaluate_profile_matrix",
     "main",
     "profile_from_name",
@@ -91,6 +94,76 @@ class EvaluationMatrixResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class MatchReport:
+    """A variance-reduced heads-up match: ``focal`` vs ``opponent``.
+
+    Each *pair* plays the same deck twice with the seats swapped (common random
+    numbers / "duplicate poker"), so card luck cancels between the two halves and
+    the bb/100 estimate is far tighter than naive play. The 95% interval is a
+    bootstrap over the per-pair nets; ``by_position`` splits the focal result into
+    the ``pairs`` button hands and ``pairs`` big-blind hands it played.
+    """
+
+    focal: str
+    opponent: str
+    pairs: int
+    hands: int
+    seed: int
+    starting_stack: int
+    small_blind: int
+    big_blind: int
+    focal_chips: int
+    bb_per_100: float
+    ci_low: float
+    ci_high: float
+    by_position: Mapping[str, dict[str, object]]
+    focal_actions: Mapping[str, int]
+    focal_reasons: Mapping[str, int]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "focal": self.focal,
+            "opponent": self.opponent,
+            "pairs": self.pairs,
+            "hands": self.hands,
+            "seed": self.seed,
+            "starting_stack": self.starting_stack,
+            "small_blind": self.small_blind,
+            "big_blind": self.big_blind,
+            "focal_chips": self.focal_chips,
+            "bb_per_100": self.bb_per_100,
+            "ci95_low": self.ci_low,
+            "ci95_high": self.ci_high,
+            "by_position": dict(self.by_position),
+            "focal_actions": dict(sorted(self.focal_actions.items())),
+            "focal_reasons": dict(sorted(self.focal_reasons.items())),
+        }
+
+
+def _play_hand(
+    config: HoldemConfig,
+    profile_by_seat: Mapping[int, PolicyProfile],
+    *,
+    deck_seed: int,
+    max_steps: int,
+) -> tuple[Mapping[int, int], dict[int, list[tuple[str, str]]]]:
+    """Play one hand to completion; return per-seat payoffs and (action, reason) logs."""
+    env = HoldemEnv(config)
+    state = env.reset(seed=deck_seed)
+    moves: dict[int, list[tuple[str, str]]] = {seat: [] for seat in profile_by_seat}
+    steps = 0
+    while state.current_seat is not None:
+        if steps >= max_steps:
+            raise RuntimeError(f"hand {config.hand_id} exceeded {max_steps} steps")
+        seat = state.current_seat
+        decision = profile_by_seat[seat].policy.explain(env.observe(seat=seat))
+        moves[seat].append((decision.action.action_type.value, decision.reason))
+        state = env.step(decision.action).observation
+        steps += 1
+    return env.facade.payoffs, moves
+
+
 def evaluate_heads_up(
     profile_a: PolicyProfile,
     profile_b: PolicyProfile,
@@ -127,23 +200,14 @@ def evaluate_heads_up(
             small_blind_seat=button_seat,
             big_blind_seat=(button_seat + 1) % 2,
         )
-        env = HoldemEnv(config)
-        state = env.reset(seed=seed + hand_index)
-        steps = 0
-        while state.current_seat is not None:
-            if steps >= max_steps_per_hand:
-                raise RuntimeError(f"hand {hand_index + 1} exceeded {max_steps_per_hand} steps")
-            seat = state.current_seat
-            profile = profile_by_seat[seat]
-            decision = profile.policy.explain(env.observe(seat=seat))
-            stats[profile.name].actions[decision.action.action_type.value] += 1
-            stats[profile.name].reasons[decision.reason] += 1
-            state = env.step(decision.action).observation
-            steps += 1
-
-        payoffs = env.facade.payoffs
+        payoffs, moves = _play_hand(
+            config, profile_by_seat, deck_seed=seed + hand_index, max_steps=max_steps_per_hand
+        )
         for seat, profile in profile_by_seat.items():
             profile_stats = stats[profile.name]
+            for action_value, reason in moves[seat]:
+                profile_stats.actions[action_value] += 1
+                profile_stats.reasons[reason] += 1
             payoff = payoffs[seat]
             profile_stats.hands += 1
             profile_stats.chips += payoff
@@ -241,6 +305,126 @@ def evaluate_profile_matrix(
     )
 
 
+def evaluate_match(
+    focal: PolicyProfile,
+    opponent: PolicyProfile,
+    *,
+    pairs: int = 1000,
+    seed: int = 1,
+    starting_stack: int = 200,
+    small_blind: int = 1,
+    big_blind: int = 2,
+    bootstrap: int = 2000,
+    confidence: float = 0.95,
+    max_steps_per_hand: int = 300,
+) -> MatchReport:
+    """Variance-reduced (CRN) heads-up match with a bootstrap confidence interval.
+
+    Plays ``pairs`` mirrored deck-pairs (``2 * pairs`` hands): the focal profile
+    sits on the button for one half of each pair and the big blind for the other,
+    over the *same* cards, so most of the dealing luck cancels and the bb/100
+    estimate is much tighter than naive alternating play at equal hand count.
+    """
+    if focal.name == opponent.name:
+        raise ValueError("profile names must be different")
+    if pairs <= 0:
+        raise ValueError("pairs must be positive")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must be in (0, 1)")
+
+    pair_nets: list[int] = []
+    actions: Counter[str] = Counter()
+    reasons: Counter[str] = Counter()
+    position_chips = {"button": 0, "big_blind": 0}
+    for pair_index in range(pairs):
+        deck_seed = seed + pair_index
+        net = 0
+        for focal_seat in (0, 1):  # button (seat 0), then big blind (seat 1), same deck
+            profile_by_seat = {focal_seat: focal, 1 - focal_seat: opponent}
+            config = HoldemConfig(
+                starting_stacks=(starting_stack, starting_stack),
+                small_blind=small_blind,
+                big_blind=big_blind,
+                hand_id=f"match-{pair_index + 1}-{focal_seat}",
+                button_seat=0,
+                small_blind_seat=0,
+                big_blind_seat=1,
+            )
+            payoffs, moves = _play_hand(
+                config, profile_by_seat, deck_seed=deck_seed, max_steps=max_steps_per_hand
+            )
+            for action_value, reason in moves[focal_seat]:
+                actions[action_value] += 1
+                reasons[reason] += 1
+            payoff = payoffs[focal_seat]
+            net += payoff
+            position_chips["button" if focal_seat == 0 else "big_blind"] += payoff
+        pair_nets.append(net)
+
+    hands = 2 * pairs
+    focal_chips = sum(pair_nets)
+    bb_per_100 = focal_chips / big_blind / hands * 100.0
+    rng = random.Random(seed ^ 0x9E3779B9)
+    ci_low, ci_high = _bootstrap_ci(
+        pair_nets, samples=bootstrap, confidence=confidence, rng=rng, big_blind=big_blind
+    )
+    by_position = {
+        position: _position_slice(chips, pairs, big_blind)
+        for position, chips in position_chips.items()
+    }
+    return MatchReport(
+        focal=focal.name,
+        opponent=opponent.name,
+        pairs=pairs,
+        hands=hands,
+        seed=seed,
+        starting_stack=starting_stack,
+        small_blind=small_blind,
+        big_blind=big_blind,
+        focal_chips=focal_chips,
+        bb_per_100=bb_per_100,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        by_position=by_position,
+        focal_actions=dict(actions),
+        focal_reasons=dict(reasons),
+    )
+
+
+def _position_slice(chips: int, hands: int, big_blind: int) -> dict[str, object]:
+    return {
+        "hands": hands,
+        "chips": chips,
+        "bb_per_100": (chips / big_blind / hands * 100.0) if hands else 0.0,
+    }
+
+
+def _bootstrap_ci(
+    pair_nets: Sequence[int],
+    *,
+    samples: int,
+    confidence: float,
+    rng: random.Random,
+    big_blind: int,
+) -> tuple[float, float]:
+    """Percentile bootstrap CI on bb/100, resampling per-pair nets (two hands each)."""
+    n = len(pair_nets)
+    if n == 0 or samples <= 0:
+        return (0.0, 0.0)
+    scale = 100.0 / (2 * big_blind)  # mean chips per pair -> bb/100 (a pair is two hands)
+    means: list[float] = []
+    for _ in range(samples):
+        total = 0
+        for _ in range(n):
+            total += pair_nets[rng.randrange(n)]
+        means.append(total / n * scale)
+    means.sort()
+    alpha = (1.0 - confidence) / 2.0
+    low_index = max(0, int(alpha * samples))
+    high_index = min(samples - 1, int((1.0 - alpha) * samples))
+    return (means[low_index], means[high_index])
+
+
 def _leaderboard_score(item: Mapping[str, object]) -> float:
     value = item["bb_per_100"]
     if not isinstance(value, int | float):
@@ -263,11 +447,37 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=PROFILE_NAMES,
         help="Evaluate every pair among the listed profiles and output a leaderboard.",
     )
+    parser.add_argument(
+        "--match",
+        nargs=2,
+        metavar=("FOCAL", "OPPONENT"),
+        choices=PROFILE_NAMES,
+        help="CRN-paired FOCAL vs OPPONENT match with a bootstrap bb/100 interval.",
+    )
+    parser.add_argument("--pairs", type=int, default=1000, help="CRN deck-pairs for --match.")
+    parser.add_argument(
+        "--bootstrap", type=int, default=2000, help="Bootstrap resamples for --match."
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
+    if args.match is not None:
+        focal_name, opponent_name = args.match
+        match_result = evaluate_match(
+            profile_from_name(focal_name),
+            profile_from_name(opponent_name),
+            pairs=args.pairs,
+            seed=args.seed,
+            starting_stack=args.starting_stack,
+            small_blind=args.small_blind,
+            big_blind=args.big_blind,
+            bootstrap=args.bootstrap,
+        )
+        print(json.dumps(match_result.to_dict(), indent=2, sort_keys=True))
+        return
+
     if args.matrix is not None:
         matrix_result = evaluate_profile_matrix(
             args.matrix,
