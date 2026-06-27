@@ -165,19 +165,20 @@ class RoiOcrRecognizer:
         return cast(str, pytesseract.image_to_string(threshold, config=config)).strip()
 
     def _ocr_card_code(self, image: RgbImage, rect: ScreenRect) -> str | None:
-        for pad in (0, 4):
-            roi = _crop(image, rect, pad)
-            for scale in (4, 5):
-                for psm in (10, 7):
-                    text = self._ocr_text_with_scale(
-                        roi,
-                        scale=scale,
-                        whitelist=_CARD_WHITELIST,
-                        psm=psm,
-                    )
-                    card = _card_code_from_text(text)
-                    if card is not None:
-                        return card
+        for candidate in _card_ocr_rects(rect):
+            for pad in (0, 4):
+                roi = _crop(image, candidate, pad)
+                for scale in (4, 5, 8):
+                    for psm in (6, 10, 7, 8, 11):
+                        text = self._ocr_text_with_scale(
+                            roi,
+                            scale=scale,
+                            whitelist=_CARD_WHITELIST,
+                            psm=psm,
+                        )
+                        card = _card_code_from_text(text)
+                        if card is not None:
+                            return card
         return None
 
     def _ocr_button_text(self, image: RgbImage) -> str:
@@ -215,6 +216,22 @@ class RoiOcrRecognizer:
         _, threshold = cv2.threshold(scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         config = f"--psm {psm} -c tessedit_char_whitelist={whitelist}"
         return cast(str, pytesseract.image_to_string(threshold, config=config)).strip()
+
+
+def _card_ocr_rects(rect: ScreenRect) -> tuple[ScreenRect, ...]:
+    left_width = max(24, rect.width // 2)
+    top_height = max(34, rect.height // 2)
+    return (
+        rect,
+        ScreenRect(
+            x=rect.x + 2,
+            y=rect.y + 2,
+            width=max(1, rect.width - 4),
+            height=max(1, rect.height - 4),
+        ),
+        ScreenRect(x=rect.x, y=rect.y, width=left_width, height=rect.height),
+        ScreenRect(x=rect.x, y=rect.y, width=left_width, height=top_height),
+    )
 
 
 def _load_rgb_image(path: str | Path) -> RgbImage:

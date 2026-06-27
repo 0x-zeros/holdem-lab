@@ -34,9 +34,9 @@ BUTTON_TEXT: Color = (25, 28, 25)
 
 BOARD_CARD_SIZE = (58, 82)
 BOARD_CARD_GAP = 12
-PLAYER_PANEL_SIZE = (190, 104)
-PLAYER_CARD_SIZE = (38, 50)
-PLAYER_CARD_GAP = 46
+PLAYER_PANEL_SIZE = (220, 148)
+PLAYER_CARD_SIZE = (58, 82)
+PLAYER_CARD_GAP = 66
 SUIT_SYMBOLS = {
     Suit.CLUBS: "♣",
     Suit.DIAMONDS: "♦",
@@ -499,8 +499,8 @@ class TableView:
 
     def player_hole_card_rects(self, panel: pygame.Rect) -> tuple[pygame.Rect, pygame.Rect]:
         card_y = panel.y + 58
-        card_x = panel.centerx - 44
         card_width, card_height = PLAYER_CARD_SIZE
+        card_x = panel.centerx - (PLAYER_CARD_GAP + card_width) // 2
         return (
             pygame.Rect(card_x, card_y, card_width, card_height),
             pygame.Rect(card_x + PLAYER_CARD_GAP, card_y, card_width, card_height),
@@ -522,7 +522,7 @@ class TableView:
     def message_text_rect(self) -> pygame.Rect:
         width, height = self.size
         rect = pygame.Rect(0, 0, min(720, width - 40), 34)
-        rect.center = (width // 2, height - 104)
+        rect.center = (width // 2, height - 96)
         return rect
 
     def action_log_rect(self) -> pygame.Rect:
@@ -540,7 +540,7 @@ class TableView:
     def amount_input_rect(self) -> pygame.Rect:
         width, height = self.size
         rect = pygame.Rect(0, 0, min(360, width - 80), 34)
-        rect.center = (width // 2, height - 148)
+        rect.center = (width // 2, height - 132)
         return rect
 
 
