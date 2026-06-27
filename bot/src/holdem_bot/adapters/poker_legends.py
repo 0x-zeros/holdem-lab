@@ -462,7 +462,9 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         hero_committed: int,
         big_blind: int,
     ) -> tuple[tuple[Action, ...], int, str | None]:
-        actions: list[Action] = []
+        # First pass: gate confidence and resolve the amount to call, so the raise
+        # floor is sized correctly regardless of where the call button appears.
+        resolved: list[ActionType] = []
         to_call = 0
         for button in buttons:
             if button.action_type is None:
@@ -477,16 +479,25 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 if amount is None:
                     return (), 0, "missing_call_amount"
                 to_call = amount
-                actions.append(Action(ActionType.CALL, amount=amount))
+            resolved.append(action_type)
+
+        # Second pass: a legal min raise must first match the current bet
+        # (hero_committed + to_call) and then add at least one big blind, capped at
+        # the all-in stack. The old floor ignored to_call and could fall below the
+        # call amount, i.e. propose an illegal raise.
+        max_raise_to = hero_stack + hero_committed
+        min_raise_to = min(max_raise_to, hero_committed + to_call + big_blind)
+        actions: list[Action] = []
+        for action_type in resolved:
+            if action_type is ActionType.CALL:
+                actions.append(Action(ActionType.CALL, amount=to_call))
             elif action_type is ActionType.RAISE:
-                max_amount = hero_stack + hero_committed
-                min_amount = min(max_amount, max(hero_committed + big_blind, big_blind))
                 actions.append(
                     Action(
                         ActionType.RAISE,
-                        amount=min_amount,
-                        min_amount=min_amount,
-                        max_amount=max_amount,
+                        amount=min_raise_to,
+                        min_amount=min_raise_to,
+                        max_amount=max_raise_to,
                     )
                 )
             else:

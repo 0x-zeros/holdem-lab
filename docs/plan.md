@@ -368,7 +368,7 @@
   对手 + 且零成本），完整 `pushfold` 留给已知激进桌；二者并存，并**界定 S4 对手自适应的必要性**。
   `test_blueprint` 加 defend_only 行为 + CFR profile 解析。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  239 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match hybrid maniac --pairs 20`（CRN+CI）。
+  240 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match hybrid maniac --pairs 20`（CRN+CI）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
@@ -420,8 +420,11 @@
   盲注写死 config——等于让启发式**永远以为自己在按钮位**，在真实 6-max 会**乱开一堆烂牌**。已：① `RecognizedSeat`
   加 `position`，从 truth 标注 thread 进来；② `_resolve_button_seat` 识别庄位，识别不到则**默认 hero 处于 OOP**
   （宁紧勿松，而非旧的"永远按钮"），来源记入 metadata；③ 盲注从 `table_state.small_blind/big_blind` 读取、否则
-  config，并驱动 legal raise 下限与 `min_raise`。实测影响真实：**18 手垃圾牌（94o/72s/54o/32s…）从 IP 开池
-  翻转为 OOP 弃牌**——正是旧硬编码会漏的钱。`test_poker_legends_table_recognizer` 加位置识别/OOP 默认/盲注 thread 三测。
+  config，并驱动 legal raise 下限与 `min_raise`；④ **修 raise 下限 bug**——`_legal_actions` 改两遍扫描：旧逻辑
+  `min_amount=committed+big_blind` **忽略 to_call**（committed=0/to_call=20/bb=10 时算出 10，**低于跟注额=非法
+  加注**），且依赖按钮顺序；现在先定 to_call、再按 `committed+to_call+big_blind` 定合法最小 raise-to。实测影响真实：
+  **18 手垃圾牌（94o/72s/54o/32s…）从 IP 开池翻转为 OOP 弃牌**。`test_poker_legends_table_recognizer` 加位置识别/
+  OOP 默认/盲注 thread/raise 下限 四测。
 - 按钮识别 v0 已覆盖 `check/call/raise/fold` 三主按钮；后续只有在需要快捷下注额时再处理
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 继续校准筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，
