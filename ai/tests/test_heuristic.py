@@ -89,7 +89,7 @@ def test_explain_decision_returns_action_reason_and_metadata() -> None:
     decision = explain_decision(state)
 
     assert decision.action.action_type is ActionType.CHECK
-    assert decision.reason == "check"
+    assert decision.reason == "preflop_check"
     assert decision.required_equity is None
     assert decision.metadata["made_hand"] == "high_card"
     assert decision.metadata["active_opponents"] == 1
@@ -183,6 +183,66 @@ def test_decide_protection_bets_top_pair_when_free() -> None:
     assert decision.action.amount == 20
     assert decision.reason == "protection_bet"
     assert decision.metadata["made_hand"] == "pair"
+
+
+def test_preflop_opens_playable_button_hand_instead_of_limping() -> None:
+    # Unraised pot, in position (button == current seat): a playable hand opens
+    # to ~2.5x rather than limping.
+    state = state_with(
+        hole_cards=cards("Kc", "9d"),
+        legal_actions=(
+            Action(ActionType.FOLD),
+            Action(ActionType.CALL, amount=1),
+            Action(ActionType.RAISE, amount=4, min_amount=4, max_amount=200),
+        ),
+        to_call=1,
+        pot=3,
+        committed=1,
+    )
+
+    decision = explain_decision(state)
+
+    assert decision.action.action_type is ActionType.RAISE
+    assert decision.action.amount == 5  # 2.5x the big blind of 2
+    assert decision.reason == "preflop_open"
+
+
+def test_preflop_folds_trash_button_when_it_cannot_open() -> None:
+    state = state_with(
+        hole_cards=cards("7c", "2d"),
+        legal_actions=(
+            Action(ActionType.FOLD),
+            Action(ActionType.CALL, amount=1),
+            Action(ActionType.RAISE, amount=4, min_amount=4, max_amount=200),
+        ),
+        to_call=1,
+        pot=3,
+        committed=1,
+    )
+
+    decision = explain_decision(state)
+
+    assert decision.action.action_type is ActionType.FOLD
+    assert decision.reason == "preflop_fold"
+
+
+def test_preflop_checks_trash_option_in_unraised_pot() -> None:
+    # Big-blind option (free to check) with trash: take the free card, never bet.
+    state = state_with(
+        hole_cards=cards("7c", "2d"),
+        legal_actions=(
+            Action(ActionType.CHECK),
+            Action(ActionType.RAISE, amount=4, min_amount=4, max_amount=200),
+        ),
+        to_call=0,
+        pot=4,
+        committed=2,
+    )
+
+    decision = explain_decision(state)
+
+    assert decision.action.action_type is ActionType.CHECK
+    assert decision.reason == "preflop_check"
 
 
 def test_decide_value_bets_big_not_min_in_low_spr() -> None:

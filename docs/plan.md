@@ -289,8 +289,18 @@
   **只弃牌/从不下注的 `rock` 仅 +4.6 bb/100**——暴露翻前按钮位只 limp 不加注、几乎不偷盲/不持续
   下注的被动漏洞；`no_equity` 与 `current` 对参照对手几乎同分，说明当前 160 样本 equity 采样对绝对
   收益贡献很小、却是主要算力开销。
+- 阶段 2/3 AI heuristic v2（按参照对手实测修漏洞）：基于绝对基线小步修两处明显漏洞，每步以“对
+  参照对手 bb/100 不回退”为准绳。① 价值下注 sizing：去掉“目标触顶时回落 min-bet”的塌缩（低 SPR
+  下一组 A 在 200 底池只剩 40 筹码竟 min-bet），改为正常 clamp / all-in。② 翻前改为 raise-or-fold
+  （取消 limp）：未加注底池按位置放宽开池范围（in-position base 0.30、OOP +0.06、每多一名对手
+  +0.05、开池 2.5x），实测扫描 + 换 seed 验证后定档。效果（250–300 手）：对**只弃牌的 rock 从
+  +4.6 跃升到约 +87 bb/100**、对 call_station 从约 +312 升到约 +837，同时仍碾压 random/maniac；
+  同族 self-play 的 bb/100 离散度从约 ±90 收敛到约 ±25、排序变正常（current 最优、no_equity 最差），
+  equity 混合在 self-play 中开始正向（current 反超 no_equity）。多街“收手 / 弃中等成牌”逻辑暂缓——
+  参照池里唯一多街进攻者是 maniac（疯狂诈唬），对它收手反而回退，需等 CFR/GTO 级理性对手才能正向
+  验证（见 `docs/ai-strength.md` S2）。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  169 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
+  173 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
   random maniac --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、

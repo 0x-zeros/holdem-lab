@@ -66,7 +66,7 @@ def test_orchestrator_acts_when_it_is_controlled_seat_turn() -> None:
     assert result.action is not None
     assert result.action.action_type is ActionType.CHECK
     assert result.policy_decision is not None
-    assert result.policy_decision.reason == "check"
+    assert result.policy_decision.reason == "preflop_check"
     assert performed == [result.action]
 
 

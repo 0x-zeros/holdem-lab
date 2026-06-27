@@ -46,6 +46,16 @@ class HeuristicConfig:
     draw_call_discount_per_out: float = 0.012
     equity_samples: int = 160
     equity_weight: float = 0.30
+    # Preflop open (unraised pot): raise-or-fold instead of limping. The bot
+    # opens whenever its preflop hand strength clears the (position-adjusted)
+    # threshold and otherwise checks its option or folds. The 0.30 in-position
+    # base opens a wide ~heads-up-button range; it was tuned against the
+    # reference opponents (vs a pure-folding rock this lifted +4.6 -> ~+87
+    # bb/100 by stealing instead of limping).
+    preflop_open_threshold: float = 0.30
+    preflop_open_oop_penalty: float = 0.06
+    preflop_open_multiway_penalty: float = 0.05
+    preflop_open_to_bb: float = 2.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +99,11 @@ class HeuristicPolicy:
         player = state.player(state.current_seat)
         assessment = _assess_hand(state, player.hole_cards, state.board, self.config)
         strength = assessment.strength
+
+        if state.street is Street.PREFLOP and _is_unraised_pot(state):
+            opened = _preflop_open(state, legal, assessment, self.config)
+            if opened is not None:
+                return opened
 
         if state.to_call > 0:
             if strength >= self.config.value_raise_threshold:
@@ -336,6 +351,65 @@ def _value_bet_or_raise(
         min_amount=action.min_amount,
         max_amount=action.max_amount,
     )
+
+
+def _is_unraised_pot(state: GameState) -> bool:
+    """Preflop open/limp spot: nobody has invested beyond the big blind yet."""
+    committed = [player.committed for player in state.active_players]
+    return max(committed, default=0) <= state.big_blind and state.to_call <= state.big_blind
+
+
+def _preflop_open(
+    state: GameState,
+    legal: dict[ActionType, Action],
+    assessment: _HandAssessment,
+    config: HeuristicConfig,
+) -> PolicyDecision | None:
+    """Raise-or-fold preflop (no limping) in an unraised pot.
+
+    Opens to a fixed size whenever the position-adjusted hand strength clears the
+    open threshold; otherwise checks the option or folds. Returns ``None`` when
+    the spot cannot actually be opened or checked (only fold/call available), so
+    the general call/fold pricing logic can handle it.
+    """
+
+    raise_action = legal.get(ActionType.RAISE) or legal.get(ActionType.BET)
+    check = legal.get(ActionType.CHECK)
+    if raise_action is None and check is None:
+        return None
+
+    open_threshold = config.preflop_open_threshold
+    if state.current_seat != state.button_seat:
+        open_threshold += config.preflop_open_oop_penalty
+    open_threshold += config.preflop_open_multiway_penalty * max(0, assessment.active_opponents - 1)
+
+    if (
+        assessment.preflop_strength >= open_threshold
+        and raise_action is not None
+        and raise_action.min_amount is not None
+        and raise_action.max_amount is not None
+    ):
+        target = max(raise_action.min_amount, round(config.preflop_open_to_bb * state.big_blind))
+        amount = min(raise_action.max_amount, target)
+        return _decision(
+            Action(
+                raise_action.action_type,
+                amount=amount,
+                min_amount=raise_action.min_amount,
+                max_amount=raise_action.max_amount,
+            ),
+            "preflop_open",
+            state,
+            assessment,
+            None,
+        )
+
+    if check is not None:
+        return _decision(check, "preflop_check", state, assessment, None)
+    fold = legal.get(ActionType.FOLD)
+    if fold is not None:
+        return _decision(fold, "preflop_fold", state, assessment, None)
+    return None
 
 
 def _should_protection_bet(
