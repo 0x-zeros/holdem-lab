@@ -34,6 +34,9 @@ class RecognizedSeat:
     current: bool
     hole_cards: tuple[RecognizedCard, ...]
     confidence: float = 1.0
+    #: Table position label if recognized (e.g. "button"/"sb"/"bb"/"hero"); None
+    #: when unknown. Used to place the dealer button instead of assuming hero.
+    position: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

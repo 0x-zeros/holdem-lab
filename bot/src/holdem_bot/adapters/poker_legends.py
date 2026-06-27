@@ -382,12 +382,16 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             for prediction in card_predictions
         ):
             return None, "low_card_confidence"
+        small_blind, big_blind = _blinds_from_annotation(
+            annotation, default_small=self.small_blind, default_big=self.big_blind
+        )
         legal_actions, to_call, action_block_reason = self._legal_actions(
             table.buttons,
             annotation=annotation,
             number_predictions=number_predictions,
             hero_stack=hero.stack,
             hero_committed=hero.committed,
+            big_blind=big_blind,
         )
         if action_block_reason is not None:
             return None, action_block_reason
@@ -415,6 +419,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         )
         if len(players) < 2:
             return None, "not_enough_players"
+        button_seat, button_seat_source = _resolve_button_seat(table.seats, self.controlled_seat)
         return (
             GameState(
                 hand_id=table.hand_id,
@@ -428,16 +433,20 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                     ),
                 ),
                 current_seat=self.controlled_seat,
-                button_seat=self.controlled_seat,
-                small_blind=self.small_blind,
-                big_blind=self.big_blind,
-                min_raise=self.big_blind,
+                button_seat=button_seat,
+                small_blind=small_blind,
+                big_blind=big_blind,
+                min_raise=big_blind,
                 to_call=to_call,
                 legal_actions=legal_actions,
                 metadata={
                     "source": "poker_legends_prototype",
                     "recognizer": "PokerLegendsTableRecognizer",
                     "screen_kind": screen.kind.value,
+                    "button_seat": button_seat,
+                    "button_seat_source": button_seat_source,
+                    "small_blind": small_blind,
+                    "big_blind": big_blind,
                 },
             ),
             None,
@@ -451,6 +460,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         number_predictions: tuple[PokerLegendsNumberPrediction, ...],
         hero_stack: int,
         hero_committed: int,
+        big_blind: int,
     ) -> tuple[tuple[Action, ...], int, str | None]:
         actions: list[Action] = []
         to_call = 0
@@ -470,7 +480,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 actions.append(Action(ActionType.CALL, amount=amount))
             elif action_type is ActionType.RAISE:
                 max_amount = hero_stack + hero_committed
-                min_amount = min(max_amount, max(hero_committed + self.big_blind, self.big_blind))
+                min_amount = min(max_amount, max(hero_committed + big_blind, big_blind))
                 actions.append(
                     Action(
                         ActionType.RAISE,
@@ -612,6 +622,7 @@ def _recognized_seats_from_annotation(
                 current=False if current is None else current,
                 hole_cards=hero_hole_cards if seat_number == controlled_seat else (),
                 confidence=_to_float(item.get("confidence"), default=0.0),
+                position=_normalize_position(item.get("position") or item.get("name")),
             )
         )
     if _seat_by_number(tuple(seats), controlled_seat) is None and hero_hole_cards:
@@ -791,6 +802,63 @@ def _current_seat(seats: tuple[RecognizedSeat, ...]) -> int | None:
         if seat.current:
             return seat.seat
     return None
+
+
+#: Position labels that mark the dealer button (avoid ambiguous single letters
+#: like "b", which collides with the big blind).
+_BUTTON_LABELS = frozenset({"button", "btn", "bu", "dealer", "dlr", "d"})
+
+
+def _normalize_position(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower()
+    return text or None
+
+
+def _resolve_button_seat(
+    seats: tuple[RecognizedSeat, ...],
+    controlled_seat: int,
+) -> tuple[int, str]:
+    """Find the dealer-button seat, or fall back so hero is treated as out of position.
+
+    Only "is hero on the button" changes the heuristic's position handling, so when
+    the dealer button is not recognized we deliberately place it on another seat:
+    that makes the bot play the tighter, safer out-of-position ranges instead of
+    over-opening as if it were always on the button (the old hardcoded behaviour).
+    """
+    for seat in seats:
+        if seat.position in _BUTTON_LABELS:
+            return seat.seat, "recognized"
+    for seat in seats:
+        if seat.seat != controlled_seat and seat.active:
+            return seat.seat, "default_oop"
+    for seat in seats:
+        if seat.seat != controlled_seat:
+            return seat.seat, "default_oop"
+    return controlled_seat, "default_hero"
+
+
+def _blinds_from_annotation(
+    annotation: Mapping[str, object],
+    *,
+    default_small: int,
+    default_big: int,
+) -> tuple[int, int]:
+    """Read blinds from the annotation when present, else fall back to the config."""
+    small, big = default_small, default_big
+    table_state = annotation.get("table_state")
+    sources: tuple[Mapping[str, object], ...] = (
+        (cast(Mapping[str, object], table_state),) if isinstance(table_state, Mapping) else ()
+    ) + (annotation,)
+    for source in sources:
+        small_value = _optional_int(source.get("small_blind"))
+        big_value = _optional_int(source.get("big_blind"))
+        if small_value is not None and small_value >= 0:
+            small = small_value
+        if big_value is not None and big_value > 0:
+            big = big_value
+    return small, big
 
 
 def _pot_from_annotation(annotation: Mapping[str, object] | None) -> int | None:

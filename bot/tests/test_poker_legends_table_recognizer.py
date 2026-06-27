@@ -3,6 +3,7 @@ from typing import cast
 
 from holdem_bot import CapturedFrame, ScreenKind
 from holdem_bot.adapters import PokerLegendsTableRecognizer
+from holdem_bot.recognize import RecognitionResult
 from holdem_bot.vision import PokerLegendsCardConsensusPrediction, PokerLegendsNumberPrediction
 from holdem_bot.vision.poker_legends_buttons import PokerLegendsButtonPrediction
 from holdem_common import Action, ActionType, Street
@@ -60,6 +61,74 @@ def test_poker_legends_table_recognizer_builds_prototype_state(tmp_path: Path) -
     assert isinstance(table, dict)
     assert table["pot"] == 150
     assert result.confidence == 0.90
+
+
+def _recognize_actionable(tmp_path: Path, annotation: dict[str, object]) -> RecognitionResult:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer(
+            (
+                button_prediction("primary_left", "check", 0.90),
+                button_prediction("primary_middle", "raise", 0.90),
+                button_prediction("primary_right", "fold", 0.90),
+            )
+        ),
+        controlled_seat=0,
+    )
+    return recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {
+                    "image": str(image),
+                    "regions": {"cards": [], "board": [], "buttons": []},
+                },
+            },
+        )
+    )
+
+
+def test_button_seat_recognized_from_annotation_position(tmp_path: Path) -> None:
+    annotation = actionable_truth()
+    seats = cast(list[dict[str, object]], annotation["seats"])
+    seats[0]["position"] = "button"  # hero is on the button this hand
+    result = _recognize_actionable(tmp_path, annotation)
+    assert result.state is not None
+    assert result.state.button_seat == 0
+    assert result.state.current_seat == result.state.button_seat
+    assert result.state.metadata["button_seat_source"] == "recognized"
+
+
+def test_button_seat_defaults_to_out_of_position_when_unknown(tmp_path: Path) -> None:
+    # The base fixture has no position info: the bot must NOT assume hero is the
+    # button (the old hardcoded bug). It treats hero as out of position instead, so
+    # the heuristic uses its tighter, safer ranges.
+    result = _recognize_actionable(tmp_path, actionable_truth())
+    assert result.state is not None
+    assert result.state.button_seat != result.state.current_seat
+    assert result.state.metadata["button_seat_source"] == "default_oop"
+
+
+def test_blinds_are_threaded_from_annotation(tmp_path: Path) -> None:
+    annotation = actionable_truth()
+    annotation["table_state"] = {"street": "flop", "small_blind": 25, "big_blind": 50}
+    result = _recognize_actionable(tmp_path, annotation)
+    assert result.state is not None
+    assert result.state.small_blind == 25
+    assert result.state.big_blind == 50
+    assert result.state.min_raise == 50
 
 
 def test_poker_legends_table_recognizer_skips_non_actionable_without_image_work(
