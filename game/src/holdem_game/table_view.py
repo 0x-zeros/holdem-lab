@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from math import cos, pi, sin
 
 import pygame
-from holdem_common import Action, ActionType, Card, GameState, PlayerState
+from holdem_common import Action, ActionType, Card, GameState, PlayerState, Rank, Suit
 
 Color = tuple[int, int, int]
 
@@ -20,10 +20,14 @@ PANEL_ACTIVE: Color = (44, 83, 70)
 TEXT: Color = (239, 244, 238)
 MUTED: Color = (166, 181, 174)
 CARD_FACE: Color = (244, 241, 232)
-CARD_BACK: Color = (39, 73, 131)
+CARD_FACE_HIGHLIGHT: Color = (252, 250, 244)
+CARD_BACK: Color = (24, 28, 54)
 CARD_EDGE: Color = (22, 24, 25)
 RED_SUIT: Color = (185, 45, 58)
 BLACK_SUIT: Color = (24, 24, 24)
+CYAN_ACCENT: Color = (64, 220, 236)
+MAGENTA_ACCENT: Color = (236, 72, 174)
+GOLD_ACCENT: Color = (215, 171, 73)
 BUTTON_FILL: Color = (220, 190, 92)
 BUTTON_HOVER: Color = (238, 210, 118)
 BUTTON_TEXT: Color = (25, 28, 25)
@@ -33,6 +37,12 @@ BOARD_CARD_GAP = 12
 PLAYER_PANEL_SIZE = (190, 104)
 PLAYER_CARD_SIZE = (38, 50)
 PLAYER_CARD_GAP = 46
+SUIT_SYMBOLS = {
+    Suit.CLUBS: "♣",
+    Suit.DIAMONDS: "♦",
+    Suit.HEARTS: "♥",
+    Suit.SPADES: "♠",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +60,7 @@ class TableView:
         self.body_font = pygame.font.SysFont("dejavusans", 20)
         self.small_font = pygame.font.SysFont("dejavusans", 16)
         self.card_font = pygame.font.SysFont("dejavusans", 22, bold=True)
+        self._font_cache: dict[tuple[int, bool], pygame.font.Font] = {}
 
     def draw(
         self,
@@ -221,16 +232,203 @@ class TableView:
         hidden: bool = False,
     ) -> None:
         if hidden or card is None:
-            pygame.draw.rect(surface, CARD_BACK, rect, border_radius=6)
-            pygame.draw.rect(surface, CARD_EDGE, rect, width=2, border_radius=6)
-            pygame.draw.line(surface, (93, 135, 201), rect.topleft, rect.bottomright, width=2)
-            pygame.draw.line(surface, (93, 135, 201), rect.topright, rect.bottomleft, width=2)
+            self._draw_card_shadow(surface, rect)
+            self._draw_card_back(surface, rect)
             return
 
-        pygame.draw.rect(surface, CARD_FACE, rect, border_radius=6)
-        pygame.draw.rect(surface, CARD_EDGE, rect, width=2, border_radius=6)
-        color = RED_SUIT if card.suit.value in {"h", "d"} else BLACK_SUIT
-        self._draw_text(surface, card.code, self.card_font, color, rect.center)
+        self._draw_card_shadow(surface, rect)
+        self._draw_card_face(surface, rect, card)
+
+    def _draw_card_shadow(self, surface: pygame.Surface, rect: pygame.Rect) -> None:
+        offset = max(2, rect.width // 18)
+        shadow = rect.move(offset, offset + 1)
+        pygame.draw.rect(surface, (7, 10, 15), shadow, border_radius=max(5, rect.width // 8))
+
+    def _draw_card_back(self, surface: pygame.Surface, rect: pygame.Rect) -> None:
+        radius = max(5, rect.width // 8)
+        pygame.draw.rect(surface, CARD_BACK, rect, border_radius=radius)
+        pygame.draw.rect(
+            surface,
+            CYAN_ACCENT,
+            rect,
+            width=max(1, rect.width // 28),
+            border_radius=radius,
+        )
+        inner = rect.inflate(-max(6, rect.width // 7), -max(6, rect.width // 7))
+        pygame.draw.rect(surface, (31, 37, 76), inner, border_radius=max(3, radius - 2))
+        pygame.draw.line(surface, MAGENTA_ACCENT, inner.topleft, inner.bottomright, width=1)
+        pygame.draw.line(surface, CYAN_ACCENT, inner.topright, inner.bottomleft, width=1)
+        self._draw_text(
+            surface,
+            "HL",
+            self._card_font(max(9, rect.height // 5), bold=True),
+            (211, 221, 234),
+            rect.center,
+        )
+
+    def _draw_card_face(self, surface: pygame.Surface, rect: pygame.Rect, card: Card) -> None:
+        radius = max(5, rect.width // 8)
+        suit_color = RED_SUIT if card.suit in {Suit.HEARTS, Suit.DIAMONDS} else BLACK_SUIT
+        accent = MAGENTA_ACCENT if card.suit in {Suit.HEARTS, Suit.DIAMONDS} else CYAN_ACCENT
+        margin = max(3, rect.width // 12)
+
+        pygame.draw.rect(surface, CARD_FACE, rect, border_radius=radius)
+        highlight = rect.inflate(-2, -2)
+        pygame.draw.rect(surface, CARD_FACE_HIGHLIGHT, highlight, border_radius=max(3, radius - 1))
+        pygame.draw.rect(surface, CARD_EDGE, rect, width=1, border_radius=radius)
+        pygame.draw.rect(
+            surface, accent, rect.inflate(-2, -2), width=1, border_radius=max(3, radius - 1)
+        )
+        self._draw_card_corner_lines(surface, rect, accent)
+
+        if rect.width < 52:
+            self._draw_text(
+                surface, _card_code_label(card), self.card_font, suit_color, rect.center
+            )
+            return
+
+        rank = _rank_label(card.rank)
+        suit_symbol = SUIT_SYMBOLS[card.suit]
+        index_font = self._card_font(max(11, int(rect.height * 0.22)), bold=True)
+        suit_font = self._card_font(max(8, int(rect.height * 0.16)), bold=True)
+        code_font = self._card_font(max(7, int(rect.height * 0.11)), bold=True)
+
+        self._draw_text_left(
+            surface,
+            rank,
+            index_font,
+            suit_color,
+            (rect.x + margin, rect.y + margin),
+        )
+        self._draw_text_left(
+            surface,
+            card.suit.value.upper(),
+            code_font,
+            suit_color,
+            (rect.x + margin + 1, rect.y + margin + index_font.get_height() - 2),
+        )
+
+        rank_surface = index_font.render(rank, True, suit_color)
+        suit_letter_surface = code_font.render(card.suit.value.upper(), True, suit_color)
+        rotated_rank = pygame.transform.rotate(rank_surface, 180)
+        surface.blit(
+            rotated_rank,
+            rotated_rank.get_rect(bottomright=(rect.right - margin, rect.bottom - margin)),
+        )
+        rotated_suit_letter = pygame.transform.rotate(suit_letter_surface, 180)
+        surface.blit(
+            rotated_suit_letter,
+            rotated_suit_letter.get_rect(
+                bottomright=(
+                    rect.right - margin - 1,
+                    rect.bottom - margin - index_font.get_height() + 2,
+                )
+            ),
+        )
+
+        if rect.width >= 52:
+            self._draw_card_pips(surface, rect, card, suit_symbol, suit_color, suit_font)
+
+    def _draw_card_corner_lines(
+        self,
+        surface: pygame.Surface,
+        rect: pygame.Rect,
+        accent: Color,
+    ) -> None:
+        inset = max(5, rect.width // 8)
+        cut = max(8, rect.width // 5)
+        pygame.draw.line(
+            surface,
+            accent,
+            (rect.x + inset, rect.y + 3),
+            (rect.x + cut, rect.y + 3),
+            width=1,
+        )
+        pygame.draw.line(
+            surface,
+            accent,
+            (rect.x + 3, rect.y + inset),
+            (rect.x + 3, rect.y + cut),
+            width=1,
+        )
+        pygame.draw.line(
+            surface,
+            accent,
+            (rect.right - cut, rect.bottom - 3),
+            (rect.right - inset, rect.bottom - 3),
+            width=1,
+        )
+        pygame.draw.line(
+            surface,
+            accent,
+            (rect.right - 3, rect.bottom - cut),
+            (rect.right - 3, rect.bottom - inset),
+            width=1,
+        )
+
+    def _draw_card_pips(
+        self,
+        surface: pygame.Surface,
+        rect: pygame.Rect,
+        card: Card,
+        suit_symbol: str,
+        color: Color,
+        fallback_font: pygame.font.Font,
+    ) -> None:
+        if card.rank in {Rank.JACK, Rank.QUEEN, Rank.KING}:
+            self._draw_face_card_mark(surface, rect, card, suit_symbol, color)
+            return
+
+        pip_count = _pip_count(card.rank)
+        if pip_count is None:
+            self._draw_text(surface, suit_symbol, fallback_font, color, rect.center)
+            return
+
+        pip_font = self._card_font(max(14, int(rect.height * 0.21)), bold=True)
+        for x_factor, y_factor in _pip_positions(pip_count):
+            center = (
+                rect.x + int(rect.width * x_factor),
+                rect.y + int(rect.height * y_factor),
+            )
+            self._draw_text(surface, suit_symbol, pip_font, color, center)
+
+    def _draw_face_card_mark(
+        self,
+        surface: pygame.Surface,
+        rect: pygame.Rect,
+        card: Card,
+        suit_symbol: str,
+        color: Color,
+    ) -> None:
+        center_box = rect.inflate(-rect.width // 3, -rect.height // 3)
+        pygame.draw.rect(
+            surface, (239, 232, 213), center_box, border_radius=max(3, rect.width // 12)
+        )
+        pygame.draw.rect(
+            surface, GOLD_ACCENT, center_box, width=1, border_radius=max(3, rect.width // 12)
+        )
+        self._draw_text(
+            surface,
+            _rank_label(card.rank),
+            self._card_font(max(16, int(rect.height * 0.25)), bold=True),
+            color,
+            (center_box.centerx, center_box.centery - max(6, rect.height // 12)),
+        )
+        self._draw_text(
+            surface,
+            suit_symbol,
+            self._card_font(max(16, int(rect.height * 0.24)), bold=True),
+            color,
+            (center_box.centerx, center_box.centery + max(8, rect.height // 10)),
+        )
+
+    def _card_font(self, size: int, *, bold: bool) -> pygame.font.Font:
+        key = (size, bold)
+        font = self._font_cache.get(key)
+        if font is None:
+            font = pygame.font.SysFont("dejavusans", size, bold=bold)
+            self._font_cache[key] = font
+        return font
 
     def _draw_text(
         self,
@@ -344,6 +542,121 @@ class TableView:
         rect = pygame.Rect(0, 0, min(360, width - 80), 34)
         rect.center = (width // 2, height - 148)
         return rect
+
+
+def _rank_label(rank: Rank) -> str:
+    if rank is Rank.TEN:
+        return "10"
+    return rank.value
+
+
+def _card_code_label(card: Card) -> str:
+    return f"{card.rank.value}{card.suit.value.upper()}"
+
+
+def _pip_count(rank: Rank) -> int | None:
+    match rank:
+        case Rank.ACE:
+            return 1
+        case Rank.TWO:
+            return 2
+        case Rank.THREE:
+            return 3
+        case Rank.FOUR:
+            return 4
+        case Rank.FIVE:
+            return 5
+        case Rank.SIX:
+            return 6
+        case Rank.SEVEN:
+            return 7
+        case Rank.EIGHT:
+            return 8
+        case Rank.NINE:
+            return 9
+        case Rank.TEN:
+            return 10
+        case _:
+            return None
+
+
+def _pip_positions(count: int) -> tuple[tuple[float, float], ...]:
+    left, center, right = 0.36, 0.50, 0.64
+    top, high, mid, low, bottom = 0.30, 0.40, 0.52, 0.64, 0.74
+    match count:
+        case 1:
+            return ((center, mid),)
+        case 2:
+            return ((center, high), (center, low))
+        case 3:
+            return ((center, top), (center, mid), (center, bottom))
+        case 4:
+            return ((left, high), (right, high), (left, low), (right, low))
+        case 5:
+            return (
+                (left, high),
+                (right, high),
+                (center, mid),
+                (left, low),
+                (right, low),
+            )
+        case 6:
+            return (
+                (left, top),
+                (right, top),
+                (left, mid),
+                (right, mid),
+                (left, bottom),
+                (right, bottom),
+            )
+        case 7:
+            return (
+                (left, top),
+                (right, top),
+                (center, high),
+                (left, mid),
+                (right, mid),
+                (left, bottom),
+                (right, bottom),
+            )
+        case 8:
+            return (
+                (left, top),
+                (right, top),
+                (center, high),
+                (left, mid),
+                (right, mid),
+                (center, low),
+                (left, bottom),
+                (right, bottom),
+            )
+        case 9:
+            return (
+                (left, top),
+                (right, top),
+                (left, high),
+                (right, high),
+                (center, mid),
+                (left, low),
+                (right, low),
+                (left, bottom),
+                (right, bottom),
+            )
+        case 10:
+            return (
+                (left, top),
+                (right, top),
+                (center, 0.36),
+                (left, high),
+                (right, high),
+                (left, low),
+                (right, low),
+                (center, 0.68),
+                (left, bottom),
+                (right, bottom),
+            )
+        case _:
+            return ()
 
 
 def label_for_action(action: Action) -> str:
