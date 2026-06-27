@@ -299,8 +299,15 @@
   equity 混合在 self-play 中开始正向（current 反超 no_equity）。多街“收手 / 弃中等成牌”逻辑暂缓——
   参照池里唯一多街进攻者是 maniac（疯狂诈唬），对它收手反而回退，需等 CFR/GTO 级理性对手才能正向
   验证（见 `docs/ai-strength.md` S2）。
+- 阶段 3 AI S1a（preflop 真值表基础设施）：新增 `holdem_ai.preflop`，把 169 个等价类（13 对子 /
+  78 同花 / 78 不同花）规范化，并用本项目评估器（确定性蒙特卡洛、12000 样本/类、无外部下载）算出
+  `PREFLOP_ALLIN_EQUITY`——每类对随机手的 heads-up all-in 胜率（AA 0.855…32o 0.324，与公认值吻合）；
+  `hand_class()` / `preflop_equity()` / `all_in_equity_vs_random()`（同 seed 可精确复算）使其可审计、
+  可再生。这是 push/fold 与 S2 CFR card bucketing 的基础数据。**刻意没有接进启发式开池决策**：实测
+  显示用真实 equity 选 ~88% 开池范围相对现有公式阈值无可测增益、且有 vs-random 回退风险，按“对参照
+  对手不回退”纪律暂不改动已验证的开池；真值表留待短筹码 all-in 决策（S1b）等明确正确性场景再消费。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  173 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
+  180 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
   random maniac --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
