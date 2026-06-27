@@ -8,6 +8,7 @@ from holdem_ai.adaptive import AdaptivePolicy
 from holdem_ai.baselines import (
     AggressivePolicy,
     CallStationPolicy,
+    LoosePassivePolicy,
     Policy,
     RandomPolicy,
     RockPolicy,
@@ -30,6 +31,7 @@ REFERENCE_PROFILE_NAMES = (
     "maniac",
     "tag",
     "three_bet_jammer",
+    "loose_passive",
 )
 #: CFR-solved blueprint policies. ``pushfold`` fully takes over short-stack
 #: heads-up preflop (open-jam + call); ``hybrid`` is the strict-safe guardrail —
@@ -110,6 +112,8 @@ def profile_from_name(name: str) -> PolicyProfile:
             return PolicyProfile("tag", TAGPolicy())
         case "three_bet_jammer":
             return PolicyProfile("three_bet_jammer", ThreeBetJammerPolicy())
+        case "loose_passive":
+            return PolicyProfile("loose_passive", LoosePassivePolicy())
         case "pushfold":
             return PolicyProfile("pushfold", PushFoldPolicy())
         case "hybrid":

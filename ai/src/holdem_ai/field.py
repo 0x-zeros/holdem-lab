@@ -32,7 +32,7 @@ from holdem_common import Action, GameState
 from holdem_ai.heuristic import HeuristicConfig, HeuristicPolicy, PolicyDecision
 from holdem_ai.opponents import OpponentModel, OpponentProfile
 
-__all__ = ["FieldExploitPolicy", "station_config"]
+__all__ = ["FieldExploitPolicy", "nit_config", "station_config"]
 
 
 def station_config(base: HeuristicConfig) -> HeuristicConfig:
@@ -47,8 +47,33 @@ def station_config(base: HeuristicConfig) -> HeuristicConfig:
     )
 
 
+def nit_config(base: HeuristicConfig) -> HeuristicConfig:
+    """Derive the fold-to-a-nit config: a tight player's bet is value, so fold the
+    marginal hands the base heuristic would call down with."""
+    return replace(
+        base,
+        continue_threshold=0.60,
+        marginal_threshold=0.55,
+        marginal_call_price_fraction=0.12,
+    )
+
+
 class FieldExploitPolicy:
-    """Heuristic that exploits calling stations, gated by a per-seat opponent read."""
+    """Heuristic that exploits the field per a per-seat opponent read.
+
+    Two gated adjustments, picked by who is in the decision:
+
+    * **fold to a nit** — facing a bet from a seat read as a *nit* (tight, low
+      VPIP), treat its aggression as value and fold the marginal hands the base
+      heuristic would call down with. The low-VPIP gate excludes a maniac (high
+      VPIP) by construction, so it never folds to a bluffer.
+    * **value a station** — with a *station* (loose-passive caller) live and no
+      nit bet to answer, value-bet thinner, never bluff, and size up.
+
+    A maniac needs no adjustment: at 100bb the base heuristic already value-owns it
+    (calling it down *lighter* measured strictly negative), so there is no maniac
+    config — see ``docs/ai-strength.md``.
+    """
 
     def __init__(
         self,
@@ -56,11 +81,13 @@ class FieldExploitPolicy:
         base_config: HeuristicConfig | None = None,
         model: OpponentModel | None = None,
         station_overrides: HeuristicConfig | None = None,
+        nit_overrides: HeuristicConfig | None = None,
     ) -> None:
         base = base_config or HeuristicConfig()
         self._model = model or OpponentModel()
         self._base_policy = HeuristicPolicy(base)
         self._station_policy = HeuristicPolicy(station_overrides or station_config(base))
+        self._nit_policy = HeuristicPolicy(nit_overrides or nit_config(base))
 
     @property
     def model(self) -> OpponentModel:
@@ -74,10 +101,25 @@ class FieldExploitPolicy:
 
     def explain(self, state: GameState) -> PolicyDecision:
         self._model.observe(state)
-        station = self._station_live(state)
-        policy = self._station_policy if station else self._base_policy
+        exploit = self._exploit(state)
+        policy = {
+            "nit": self._nit_policy,
+            "station": self._station_policy,
+        }.get(exploit, self._base_policy)
         decision = policy.explain(state)
-        return _annotate(decision, station=station, model=self._model, state=state)
+        return _annotate(decision, exploit=exploit, model=self._model, state=state)
+
+    def _exploit(self, state: GameState) -> str:
+        if state.current_seat is None:
+            return "base"
+        # Folding to a nit's bet takes priority over valuing a station behind it.
+        if state.to_call > 0:
+            aggressor = _aggressor_seat(state)
+            if aggressor is not None and self._model.classify(aggressor) is OpponentProfile.NIT:
+                return "nit"
+        if self._station_live(state):
+            return "station"
+        return "base"
 
     def _station_live(self, state: GameState) -> bool:
         if state.current_seat is None:
@@ -89,15 +131,24 @@ class FieldExploitPolicy:
         )
 
 
+def _aggressor_seat(state: GameState) -> int | None:
+    """The opponent we owe chips to: the active non-hero seat with the top commit."""
+    opponents = [p for p in state.active_players if p.seat != state.current_seat]
+    if not opponents:
+        return None
+    top = max(opponents, key=lambda p: p.committed)
+    return top.seat if top.committed > 0 else None
+
+
 def _annotate(
     decision: PolicyDecision,
     *,
-    station: bool,
+    exploit: str,
     model: OpponentModel,
     state: GameState,
 ) -> PolicyDecision:
     metadata = dict(decision.metadata)
-    metadata["exploit"] = "station" if station else "base"
+    metadata["exploit"] = exploit
     if state.current_seat is not None:
         metadata["opponent_profiles"] = {
             player.seat: model.classify(player.seat).value

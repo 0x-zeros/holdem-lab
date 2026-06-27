@@ -27,6 +27,7 @@ from holdem_ai.preflop import preflop_equity
 __all__ = [
     "AggressivePolicy",
     "CallStationPolicy",
+    "LoosePassivePolicy",
     "Policy",
     "RandomPolicy",
     "RockPolicy",
@@ -288,6 +289,77 @@ class ThreeBetJammerPolicy:
         if fold is not None:
             return _grounded(fold, "jammer_fold", state, equity)
         return _grounded(state.legal_actions[0], "jammer_fallback", state, equity)
+
+
+class LoosePassivePolicy:
+    """A loose-passive "fish": plays far too many hands and rarely raises or folds.
+
+    The canonical weak Poker Legends opponent — limps a huge range, calls down far
+    too light, value-bets made hands thinly, and almost never raises or bluffs. It
+    is *not* one-dimensional like ``CallStationPolicy`` (it does bet made hands and
+    fold pure air), but it leaks the same way: it pays off value and never punishes,
+    so it reads as a calling STATION (high VPIP, ~no PFR) and is the realistic
+    target the station exploit is built for.
+    """
+
+    def __init__(self, *, samples: int = 120) -> None:
+        self._samples = samples
+
+    def decide(self, state: GameState) -> Action:
+        return self.explain(state).action
+
+    def explain(self, state: GameState) -> PolicyDecision:
+        _require_decidable(state)
+        legal = _by_type(state.legal_actions)
+        if state.street is Street.PREFLOP:
+            return self._preflop(state, legal)
+        return self._postflop(state, legal)
+
+    def _preflop(self, state: GameState, legal: dict[ActionType, Action]) -> PolicyDecision:
+        equity = preflop_equity(_hole(state))
+        if _facing_raise(state):
+            call = legal.get(ActionType.CALL)
+            if call is not None and equity >= 0.40:  # calls raises far too wide
+                return _grounded(call, "fish_call", state, equity)
+            check = legal.get(ActionType.CHECK)
+            if check is not None:
+                return _grounded(check, "fish_check", state, equity)
+            fold = legal.get(ActionType.FOLD)
+            if fold is not None:
+                return _grounded(fold, "fish_fold", state, equity)
+        else:
+            # Open/limp spot: see flops cheaply, essentially never raise.
+            check = legal.get(ActionType.CHECK)
+            if check is not None:
+                return _grounded(check, "fish_limp_check", state, equity)
+            call = legal.get(ActionType.CALL)
+            if call is not None and equity >= 0.30:  # limps a huge range
+                return _grounded(call, "fish_limp", state, equity)
+            fold = legal.get(ActionType.FOLD)
+            if fold is not None:
+                return _grounded(fold, "fish_fold", state, equity)
+        return _grounded(state.legal_actions[0], "fish_fallback", state, equity)
+
+    def _postflop(self, state: GameState, legal: dict[ActionType, Action]) -> PolicyDecision:
+        equity = estimate_showdown_equity(state, samples=self._samples)
+        if state.to_call > 0:
+            call = legal.get(ActionType.CALL)
+            if call is not None and equity >= _pot_odds(state) - 0.08:  # calls too light
+                return _grounded(call, "fish_call_down", state, equity)
+            fold = legal.get(ActionType.FOLD)
+            if fold is not None:
+                return _grounded(fold, "fish_fold", state, equity)
+            if call is not None:
+                return _grounded(call, "fish_call_forced", state, equity)
+        else:
+            bet = legal.get(ActionType.BET) or legal.get(ActionType.RAISE)
+            if bet is not None and bet.min_amount is not None and equity >= 0.58:
+                amount = _pot_sized_amount(state, bet, 0.5)  # thin, small value bets
+                return _grounded(_resize(bet, amount), "fish_value", state, equity)
+            check = legal.get(ActionType.CHECK)
+            if check is not None:
+                return _grounded(check, "fish_check", state, equity)
+        return _grounded(state.legal_actions[0], "fish_fallback", state, equity)
 
 
 def _equity_postflop(

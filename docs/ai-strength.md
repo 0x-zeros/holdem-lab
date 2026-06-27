@@ -176,31 +176,39 @@
   双赢**不依赖**该成本大小——它靠 tag 侧"按构造逐位等同 `current`"+ maniac 侧"漏洞大而符号稳健（−28..−56）"；
   ③ 5/6bb 对 maniac 仍 <0，是 `pushfold` 工具本身在该深度未净赢的局限（非路由问题，→ 后续可在 S2c-2 v2 博弈里
   补 5/6bb jam 范围）。
-- **S4 弱场剥削（6-max，Phase 1：对站薄价值，已落地）**：S4-lite 是 HU 短筹码；Poker Legends 实景是另一端——
+- **S4 弱场剥削（6-max，Phase 1–2：对站薄价值 + 对 nit 多弃，已落地）**：S4-lite 是 HU 短筹码；Poker Legends 实景是另一端——
   **~100bb 6-max 弱玩家池**，钱不来自 GTO 下限而来自**针对每个对手漏洞的剥削**。新增三件套：① **6-max CRN 评估器**
   `evaluate_field`（每副牌焦点轮转坐遍 6 座位 = duplicate poker 的多人版，抵消焦点发牌运，bootstrap CI）；
   ② **per-seat `OpponentModel`**（`holdem_ai.opponents`）——只从自己行动的快照重建每座位 **VPIP/PFR**：VPIP=投入超过自身盲注
   （自愿入池），PFR=**唯一最高投入且 >bb**（纯跟注者只会与加注者持平、永不唯一最高 → 干净排除"跟注被当加注"的污染）；
   二者**只取翻前快照**（`committed` 整手累计，翻后跟注者总额会膨胀过 bb 而伪装成加注）；③ **`FieldExploitPolicy`**
-  （`holdem_ai.field`，profile `field_exploit`）——读到**跟注站**（松被动鱼：高 VPIP、~不加注）在场时切剥削配置:
-  **价值门槛 0.78→0.62（薄价值）、半诈唬门槛→0.99（不诈唬，站不弃牌）、价值尺寸加大（站会跟大注）**。
+  （`holdem_ai.field`，profile `field_exploit`）——**按"当前相关对手 + 上下文"切两套剥削配置**：① 读到**跟注站**
+  （松被动鱼：高 VPIP、~不加注）在场 → **薄价值**（价值门槛 0.78→0.62、半诈唬→0.99 不诈唬、价值尺寸加大）；
+  ② 面对**被判 nit**（紧、低 VPIP）的下注 → **多弃**（continue 0.46→0.60、marginal 0.36→0.55——紧手的下注=价值，
+  弃掉启发式本会跟到底的边际牌）。**nit 门用"低 VPIP"判定，天然排除高 VPIP 的 maniac → 绝不对诈唬者弃牌**（设计要点）。
   **诚实大背景**：`current` 对纯弱场参照**本就海赢**（6-max 100bb，200 副牌=1200 手：vs 5×call_station **+875**
-  [609,1226]、rock +76、maniac +1120），却**输给 5×tag −228**[−354,−121]（竞争对手需 GTO/CFR，非本层职责）——
-  所以剥削是**在已巨大的弱场基线上的增量**，最干净的度量是**同副牌的"剥削−current"差**。**实测（CRN，seed 20260627）**：
+  [609,1226]、rock +76、maniac +1120），却**输给 5×tag −228**[−354,−121]（付掉 tag 的价值下注）——所以剥削是
+  **在已巨大的弱场基线上的增量**，最干净的度量是**同副牌的"剥削−current"差**。**实测（CRN，seed 20260627，200 副牌）**：
 
   | vs 场 | `current` | `field_exploit` | delta |
   |---|---|---|---|
-  | 5×call_station | +875 [609,1226] | **+1566 [1149,2056]** | **+691** |
-  | 5×rock / 5×maniac / 5×tag | +76 / +1120 / −228 | +76 / +1120 / −228 | **+0** |
+  | 5×call_station | +875 [609,1226] | **+1566 [1149,2056]** | **+691**（站薄价值） |
+  | 5×tag | −228 [−354,−121] | **+62 [−54,174]** | **+290**（nit 多弃，**把最大漏洞翻成小赢**） |
+  | 5×loose_passive（鱼） | +125 [−97,356] | **+290 [−3,628]** | **+165**（站薄价值，泛化到真实鱼） |
+  | 5×rock / 5×maniac | +76 / +1120 | +76 / +1120 | **+0**（安全：rock 不下注、maniac 高 VPIP 被排除） |
 
-  即 **field_exploit 对站 +691 bb/100（CI 不重叠 → CRN 显著），对 rock/maniac/tag 逐字节相同**（模型只在站在场时触发，
-  对竞争型 tag **零误伤**——这是门控的全部意义）。**指纹**（轮转后）：5 个站座位一致 VPIP 0.50 / PFR 0.00 → 全判
-  STATION（固定焦点座位会有强位置混淆梯度 s1:0.17→s5:0.83，焦点轮转把它抹平）。**诚实标注**：① observed VPIP 被
+  即 **field_exploit 对站 +691、把 tag 漏洞 −228 翻成 +62（+290）、对真实鱼 +165**，而**对 rock/maniac 逐字节相同**
+  （nit 门的低 VPIP 判定排除高 VPIP 的 maniac，绝不对其诈唬弃牌；rock 从不下注无 nit 门可触发）。**maniac 无专用配置**：
+  实测"对 maniac 更轻跟到底" delta **−448**（100bb 深码 `current` 已 value-own maniac，再轻跟反流血）——**测试后明确砍掉**。
+  **指纹**（轮转后）：5 个站座位一致 VPIP 0.50 / PFR 0.00 → 全判 STATION（固定焦点座位会有强位置混淆梯度 s1:0.17→s5:0.83，
+  焦点轮转把它抹平）。**诚实标注**：① observed VPIP 被
   观察时序系统性低估（看不到自己最后行动之后的对手动作，站理论 ~0.85 实测 ~0.50），但**相对分离**仍干净（站 0.50 ≫
   tag/current 0.17–0.26），阈值按观测值定（`station_vpip=0.40`、`station_pfr_max=0.14` 正好挡住 maniac 的 PFR 0.18
-  不被误判成站）；② 现实 Poker Legends 鱼**本质就是跟注站**，故这是**主要杠杆**；③ Phase 1 只做站，**nit（弃多→多偷、
-  对其下注多弃）/ maniac（深筹码更轻跟到底）复用同一模型，是下一片**（现有 rock 从不下注，无法干净演示 fold-vs-nit）。
-  新 CLI：`uv run holdem-ai-evaluate-heads-up --field field_exploit call_station --decks 500`。
+  不被误判成站）；② 现实 Poker Legends 鱼**本质就是跟注站**（`loose_passive` 参照——松、跛入、跟太轻、下注成手牌、
+  几乎不加注/不弃；被判 STATION），故站剥削是**主要杠杆**；③ **端到端 nit/鱼增益高方差**（tag 在 100bb 打大底池，需
+  ~100+ 副牌才稳定显现：12 副牌上 delta 甚至翻负），故**不进快测**——门**逻辑**由瞬时单元测试钉死
+  （`test_folds_to_a_nits_bet` / `test_does_not_fold_to_a_maniacs_bet`），**增益**由本文大样本测量背书；站剥削效应巨大
+  （+691）稳健，保留为集成测试。新 CLI：`uv run holdem-ai-evaluate-heads-up --field field_exploit tag --decks 500`。
 - **S3 Deep CFR / SD-CFR**：用 PokerRL / OpenSpiel 去掉手工抽象，提升精度；或 ReBeL 式
   depth-limited search 做实时再求解。
 - **S4 面向 Poker Legends 的实战形态**：Poker Legends 是 **6-max 多人 play-money**，终局更贴近

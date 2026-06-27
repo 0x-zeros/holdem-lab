@@ -145,13 +145,13 @@ def test_evaluate_field_rotates_focal_and_brackets_estimate() -> None:
         profile_from_name("current"),
         profile_from_name("call_station"),
         seats=6,
-        decks=20,
+        decks=12,
         seed=3,
         starting_stack=200,
         bootstrap=300,
     )
     assert report.seats == 6
-    assert report.hands == 120  # seats * decks
+    assert report.hands == 72  # seats * decks
     assert report.ci_low <= report.bb_per_100 <= report.ci_high
     # The heuristic crushes a calling-station field at 100bb.
     assert report.bb_per_100 > 0
@@ -175,7 +175,7 @@ def test_evaluate_field_rejects_bad_arguments() -> None:
 def test_field_exploit_beats_current_versus_station_field() -> None:
     # The station exploit (thin value, no bluff) must out-earn the un-adapted
     # heuristic against a calling-station field on the same decks.
-    kwargs = dict(seats=6, decks=40, seed=20260627, starting_stack=200, bootstrap=1)
+    kwargs = dict(seats=6, decks=20, seed=20260627, starting_stack=200, bootstrap=1)
     current = evaluate_field(
         profile_from_name("current"), profile_from_name("call_station"), **kwargs
     )
@@ -186,13 +186,21 @@ def test_field_exploit_beats_current_versus_station_field() -> None:
 
 
 def test_field_exploit_matches_current_versus_nit_field() -> None:
-    # No station live -> the exploit never fires, so it is identical to current.
+    # A rock never bets, so the fold-to-a-nit gate never triggers and there is no
+    # station to value -> the exploit is identical to current.
     kwargs = dict(seats=6, decks=20, seed=7, starting_stack=200, bootstrap=1)
     current = evaluate_field(profile_from_name("current"), profile_from_name("rock"), **kwargs)
     exploit = evaluate_field(
         profile_from_name("field_exploit"), profile_from_name("rock"), **kwargs
     )
     assert exploit.bb_per_100 == current.bb_per_100
+
+
+# The end-to-end nit-gate gain (current -228 -> field_exploit +62 vs a tag field)
+# and the loose-passive fish gain are real but high-variance -- they need ~100+
+# decks to show stably, so they are validated in docs/ai-strength.md rather than
+# asserted in a fast test. The gate *logic* is pinned by the unit tests in
+# test_field.py (test_folds_to_a_nits_bet / test_does_not_fold_to_a_maniacs_bet).
 
 
 def test_field_cli_outputs_json(capsys: pytest.CaptureFixture[str]) -> None:

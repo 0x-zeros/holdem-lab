@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from holdem_ai.field import FieldExploitPolicy, station_config
+from holdem_ai.field import FieldExploitPolicy, nit_config, station_config
 from holdem_ai.heuristic import HeuristicConfig, PolicyDecision
 from holdem_ai.opponents import OpponentModel, OpponentProfile
 from holdem_common import Action, ActionType, GameState, PlayerState, Street
@@ -160,6 +160,14 @@ def test_station_config_is_thinner_value_and_no_bluff() -> None:
     assert exploit.strong_value_bet_pot_fraction >= base.strong_value_bet_pot_fraction
 
 
+def test_nit_config_folds_more() -> None:
+    base = HeuristicConfig()
+    exploit = nit_config(base)
+    assert exploit.continue_threshold > base.continue_threshold
+    assert exploit.marginal_threshold > base.marginal_threshold
+    assert exploit.marginal_call_price_fraction < base.marginal_call_price_fraction
+
+
 # --- FieldExploitPolicy routing ----------------------------------------------
 
 
@@ -205,6 +213,67 @@ def test_exploits_only_when_a_station_is_live() -> None:
     )
     policy.explain(station_live)
     assert (base_spy.calls, station_spy.calls) == (1, 1)
+
+
+def _facing_bet_state(
+    *, aggressor: int, aggressor_committed: int = 10, seats: int = 4
+) -> GameState:
+    """Postflop state where hero (0) owes chips to a single bettor `aggressor`."""
+    players = tuple(
+        PlayerState(
+            seat=seat,
+            stack=200,
+            committed=aggressor_committed if seat == aggressor else 0,
+        )
+        for seat in range(seats)
+    )
+    return GameState(
+        hand_id="postflop",
+        street=Street.FLOP,
+        players=players,
+        board=(),
+        pots=(),
+        current_seat=0,
+        button_seat=0,
+        small_blind=1,
+        big_blind=2,
+        min_raise=2,
+        to_call=aggressor_committed,
+        legal_actions=(
+            Action(ActionType.FOLD),
+            Action(ActionType.CALL, amount=aggressor_committed),
+        ),
+    )
+
+
+def test_folds_to_a_nits_bet() -> None:
+    model = OpponentModel(min_hands=4)
+    _feed(model, opp_seat=2, opp_committed=0, hands=10)  # nit: never voluntarily in
+    assert model.classify(2) is OpponentProfile.NIT
+
+    policy = FieldExploitPolicy(model=model)
+    base, station, nit = _Spy("base"), _Spy("station"), _Spy("nit")
+    policy._base_policy = base  # type: ignore[assignment]
+    policy._station_policy = station  # type: ignore[assignment]
+    policy._nit_policy = nit  # type: ignore[assignment]
+
+    policy.explain(_facing_bet_state(aggressor=2))
+    assert (nit.calls, station.calls, base.calls) == (1, 0, 0)
+
+
+def test_does_not_fold_to_a_maniacs_bet() -> None:
+    # A maniac (high VPIP) is never read as a nit, so we never fold to its bluffs.
+    model = OpponentModel(min_hands=4)
+    _feed(model, opp_seat=2, opp_committed=6, hands=10)  # raises every hand
+    assert model.classify(2) is OpponentProfile.MANIAC
+
+    policy = FieldExploitPolicy(model=model)
+    base, nit = _Spy("base"), _Spy("nit")
+    policy._base_policy = base  # type: ignore[assignment]
+    policy._nit_policy = nit  # type: ignore[assignment]
+
+    policy.explain(_facing_bet_state(aggressor=2))
+    assert (nit.calls, base.calls) == (0, 1)
 
 
 def test_metadata_exposes_exploit_and_profiles() -> None:
