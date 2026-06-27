@@ -23,12 +23,17 @@ from holdem_ai.equity import evaluate_best_hand
 
 __all__ = [
     "BUCKET_EQUITY",
+    "BUCKET_PAIR_WEIGHTS",
     "PREFLOP_ALLIN_EQUITY",
     "PREFLOP_BUCKET_COUNT",
     "all_in_equity_vs_random",
+    "bucket_deal_conditional",
+    "bucket_deal_marginals",
     "bucket_equity",
     "bucket_of",
+    "bucket_pair_weights",
     "bucket_weights",
+    "compute_bucket_pair_weights",
     "hand_class",
     "preflop_bucket",
     "preflop_equity",
@@ -329,19 +334,83 @@ def bucket_weights() -> tuple[float, ...]:
     return tuple(total / _TOTAL_COMBOS for total in totals)
 
 
+#: ``BUCKET_PAIR_WEIGHTS[i][j]`` = exact joint probability that two hands dealt from
+#: one shared 52-card deck (disjoint cards) fall in buckets (i, j). Computed by full
+#: enumeration of all 1326*1225 ordered disjoint two-card combo pairs — no Monte
+#: Carlo, so it is exactly symmetric and its row sums equal the single-hand bucket
+#: marginals. Unlike ``bucket_weights()`` squared, it captures **card removal**: two
+#: strong hands co-occur LESS than independence predicts (they compete for the same
+#: high cards), while strong-vs-weak co-occurs slightly MORE. Regenerate / audit
+#: with :func:`compute_bucket_pair_weights`.
+BUCKET_PAIR_WEIGHTS: tuple[tuple[float, ...], ...] = (
+    (0.014276, 0.015046, 0.015174, 0.015699, 0.016134, 0.015999, 0.017080, 0.015780),
+    (0.015046, 0.015771, 0.015671, 0.016115, 0.016452, 0.016196, 0.017159, 0.015795),
+    (0.015174, 0.015671, 0.015009, 0.015396, 0.015770, 0.015502, 0.016309, 0.014849),
+    (0.015699, 0.016115, 0.015396, 0.015306, 0.015807, 0.015571, 0.016410, 0.014886),
+    (0.016134, 0.016452, 0.015770, 0.015807, 0.015573, 0.015514, 0.016413, 0.015034),
+    (0.015999, 0.016196, 0.015502, 0.015571, 0.015514, 0.014822, 0.015647, 0.014430),
+    (0.017080, 0.017159, 0.016309, 0.016410, 0.016413, 0.015647, 0.016166, 0.014529),
+    (0.015780, 0.015795, 0.014849, 0.014886, 0.015034, 0.014430, 0.014529, 0.012345),
+)
+
+
+def bucket_pair_weights() -> tuple[tuple[float, ...], ...]:
+    """Joint P(bucket i, bucket j) for two hands dealt from one shared deck."""
+    return BUCKET_PAIR_WEIGHTS
+
+
+def bucket_deal_marginals() -> tuple[float, ...]:
+    """Marginal P(a dealt hand is in each bucket); the joint's normalized row sums."""
+    rows = [sum(row) for row in BUCKET_PAIR_WEIGHTS]
+    total = sum(rows)
+    return tuple(value / total for value in rows)
+
+
+def bucket_deal_conditional(hero_bucket: int) -> tuple[float, ...]:
+    """Card-removal-aware P(villain bucket | hero bucket = ``hero_bucket``); sums to 1."""
+    row = BUCKET_PAIR_WEIGHTS[hero_bucket]
+    total = sum(row)
+    return tuple(value / total for value in row)
+
+
+def compute_bucket_pair_weights() -> tuple[tuple[float, ...], ...]:
+    """Exact regeneration of :data:`BUCKET_PAIR_WEIGHTS` by full enumeration.
+
+    Counts every ordered pair of disjoint two-card combos (1326 * 1225 of them),
+    bucketed and normalized — deterministic and exact, no Monte Carlo. Embedded as
+    a constant because the double loop is ~1.7M iterations; this reproduces it.
+    """
+    deck = _full_deck()
+    combos = [(i, j) for i in range(len(deck)) for j in range(i + 1, len(deck))]
+    masks = [(1 << i) | (1 << j) for i, j in combos]
+    buckets = [_BUCKET_MAP[hand_class(deck[i], deck[j])] for i, j in combos]
+    counts = [[0] * PREFLOP_BUCKET_COUNT for _ in range(PREFLOP_BUCKET_COUNT)]
+    for x in range(len(combos)):
+        mask_x = masks[x]
+        row = counts[buckets[x]]
+        for y in range(len(combos)):
+            if not (mask_x & masks[y]):
+                row[buckets[y]] += 1
+    total = sum(sum(row) for row in counts)
+    return tuple(tuple(round(value / total, 6) for value in row) for row in counts)
+
+
 #: ``BUCKET_EQUITY[i][j]`` = P(bucket i beats bucket j) at an all-in preflop
-#: showdown (heads-up, full board, card removal), Monte Carlo 6000 samples/pair,
-#: bucket 0 = strongest. Forced exactly symmetric: ``[i][j] + [j][i] == 1`` and a
-#: bucket vs itself is exactly 0.5 (no Monte-Carlo same-bucket bias).
+#: showdown (heads-up, full board), bucket 0 = strongest. Monte Carlo 150000
+#: samples/pair, sampled **consistently with the joint deal**: hero uniform in
+#: bucket i, villain uniform in bucket j, rejection-resampled until disjoint, then
+#: a random board — so the same card-removal universe as BUCKET_PAIR_WEIGHTS. At
+#: 150k the per-entry std is ~0.0013 (was ~0.0065 at 6000). Forced exactly
+#: symmetric: ``[i][j] + [j][i] == 1`` and a bucket vs itself is exactly 0.5.
 BUCKET_EQUITY: tuple[tuple[float, ...], ...] = (
-    (0.5000, 0.6617, 0.6721, 0.6931, 0.7037, 0.7037, 0.7082, 0.7240),
-    (0.3383, 0.5000, 0.5894, 0.6234, 0.6518, 0.6595, 0.6572, 0.6760),
-    (0.3279, 0.4106, 0.5000, 0.5866, 0.6329, 0.6392, 0.6482, 0.6690),
-    (0.3069, 0.3766, 0.4134, 0.5000, 0.5807, 0.6259, 0.6522, 0.6681),
-    (0.2963, 0.3482, 0.3671, 0.4193, 0.5000, 0.5947, 0.6388, 0.6496),
-    (0.2963, 0.3405, 0.3608, 0.3741, 0.4053, 0.5000, 0.5862, 0.6464),
-    (0.2918, 0.3428, 0.3518, 0.3478, 0.3612, 0.4138, 0.5000, 0.5972),
-    (0.2760, 0.3240, 0.3310, 0.3319, 0.3504, 0.3536, 0.4028, 0.5000),
+    (0.5000, 0.6530, 0.6695, 0.6860, 0.6957, 0.7009, 0.7131, 0.7233),
+    (0.3470, 0.5000, 0.5794, 0.6233, 0.6465, 0.6455, 0.6575, 0.6706),
+    (0.3305, 0.4206, 0.5000, 0.5760, 0.6166, 0.6337, 0.6480, 0.6683),
+    (0.3140, 0.3767, 0.4240, 0.5000, 0.5767, 0.6194, 0.6406, 0.6570),
+    (0.3043, 0.3535, 0.3834, 0.4233, 0.5000, 0.5854, 0.6282, 0.6602),
+    (0.2991, 0.3545, 0.3663, 0.3806, 0.4146, 0.5000, 0.5810, 0.6456),
+    (0.2869, 0.3425, 0.3520, 0.3594, 0.3718, 0.4190, 0.5000, 0.5994),
+    (0.2767, 0.3294, 0.3317, 0.3430, 0.3398, 0.3544, 0.4006, 0.5000),
 )
 
 

@@ -1,12 +1,16 @@
 import pytest
 from holdem_ai.preflop import (
     BUCKET_EQUITY,
+    BUCKET_PAIR_WEIGHTS,
     PREFLOP_ALLIN_EQUITY,
     PREFLOP_BUCKET_COUNT,
     all_in_equity_vs_random,
+    bucket_deal_conditional,
+    bucket_deal_marginals,
     bucket_equity,
     bucket_of,
     bucket_weights,
+    compute_bucket_pair_weights,
     hand_class,
     preflop_bucket,
     preflop_equity,
@@ -70,6 +74,43 @@ def test_buckets_rank_strong_hands_below_weak_ones() -> None:
 def test_preflop_bucket_from_hole_cards() -> None:
     assert preflop_bucket((Card.from_code("Ah"), Card.from_code("Ad"))) == 0
     assert preflop_bucket((Card.from_code("3c"), Card.from_code("2d"))) == PREFLOP_BUCKET_COUNT - 1
+
+
+def test_bucket_pair_weights_is_an_exact_symmetric_joint() -> None:
+    assert len(BUCKET_PAIR_WEIGHTS) == PREFLOP_BUCKET_COUNT
+    for i in range(PREFLOP_BUCKET_COUNT):
+        assert len(BUCKET_PAIR_WEIGHTS[i]) == PREFLOP_BUCKET_COUNT
+        for j in range(PREFLOP_BUCKET_COUNT):
+            # Dealing two hands is symmetric: P(i, j) == P(j, i), exactly.
+            assert BUCKET_PAIR_WEIGHTS[i][j] == BUCKET_PAIR_WEIGHTS[j][i]
+    total = sum(sum(row) for row in BUCKET_PAIR_WEIGHTS)
+    assert total == pytest.approx(1.0, abs=1e-4)
+
+
+def test_bucket_pair_weights_recomputes_exactly() -> None:
+    # The embedded constant is exact full enumeration, not Monte Carlo: reproduce it.
+    assert compute_bucket_pair_weights() == BUCKET_PAIR_WEIGHTS
+
+
+def test_bucket_deal_marginals_match_single_hand_weights() -> None:
+    # Marginally, the hero's hand is uniform over all combos, so the joint's row
+    # sums must equal the plain single-hand bucket weights (card removal only
+    # affects the *conditional*, not the marginal).
+    marginals = bucket_deal_marginals()
+    weights = bucket_weights()
+    assert sum(marginals) == pytest.approx(1.0)
+    for got, want in zip(marginals, weights, strict=True):
+        assert got == pytest.approx(want, abs=1e-3)
+
+
+def test_bucket_deal_conditional_reflects_card_removal() -> None:
+    conditional = bucket_deal_conditional(0)
+    marginals = bucket_deal_marginals()
+    assert sum(conditional) == pytest.approx(1.0)
+    # Given the hero holds the strongest bucket, the villain is LESS likely to also
+    # hold it (shared high cards) and MORE likely to hold the weakest bucket.
+    assert conditional[0] < marginals[0]
+    assert conditional[-1] > marginals[-1]
 
 
 def test_bucket_equity_matrix_is_symmetric_and_monotone() -> None:

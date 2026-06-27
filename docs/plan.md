@@ -332,11 +332,17 @@
   `PushFoldPolicy` 仅在恰好 2 人局面生效，绝不把 HU push/fold 套到 6-max（release-blocker）；② **覆盖式
   jam 检测**——对手 all-in 即便我方更深也识别、用有效筹码（旧逻辑只在「跟注=自己全下」时触发，实测中
   BB 跟注表几乎从未被检验）；③ 默认按信息态种子**采样混合策略**（保留 exploitability 性质），
-  `mode="pure"` 才取 argmax（标注剥削式投影）；④ `BUCKET_EQUITY` 对角线强制 0.5。待办（S2c-1 剩余）：
-  发桶改精确联合/条件分布（去牌自洽）、矩阵提采样去噪。完整 S2c 计划（v2 game / 混合护栏 / 评估硬化）见
-  `docs/ai-strength.md`。
+  `mode="pure"` 才取 argmax（标注剥削式投影）；④ `BUCKET_EQUITY` 对角线强制 0.5；⑤ **精确联合发桶**——
+  `preflop_game` 改两段 chance：先按边际发 button 桶、再按去牌**条件分布**（`preflop.bucket_deal_conditional`）
+  发 BB 桶，乘积等于全枚举 1326×1225 不相交组合对得到的精确联合 `BUCKET_PAIR_WEIGHTS`（`compute_bucket_pair_weights`
+  可 0.06s 精确复算），消除「独立发桶」与去牌胜率矩阵的不自洽——hero 拿最强桶时 villain 同样最强桶概率
+  0.1252→0.114；⑥ **矩阵去噪**——`BUCKET_EQUITY` 用 150k 样本（与发桶同一去牌采样 + 强制对称）重算，每格
+  std 由 ±0.0065 降到 ±0.0013。重解后 6/10/16bb exploitability ~2e-6…2e-5（现为「一致、低噪抽象内」有意义的
+  近纳什值），且短筹码越浅 jam 越宽（jam 5.75/4.0/3.0、BB call 4.26/3.0/2.0）。10bb 对照（1500 手）：pushfold
+  胜 maniac **+40.5**、rock **+27.0**、启发式 **+5.0**（去噪前略负，现约打平偏赢）；一处有用观察：10bb 下启发式
+  自身负于 maniac（−45.6）而 pushfold 胜 maniac，正是 S2c-3 护栏要补的短筹码漏洞。完整 S2c 计划见 `docs/ai-strength.md`。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  207 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
+  211 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
   random maniac --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、

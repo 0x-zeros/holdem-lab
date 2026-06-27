@@ -8,10 +8,14 @@ equity buckets and showdowns are resolved by the precomputed
 near-Nash push/fold strategy in milliseconds.
 
 Game: button/small blind (player 0) posts 0.5, big blind (player 1) posts 1.0,
-both with an effective ``stack`` (in big blinds). Player 0 folds or jams all-in;
-facing a jam, player 1 folds or calls. Showdown equity comes from the bucket
-matrix. Construct directly (``PushFoldGame(stack=10)``) and hand it to a CFR
-solver — it does not need registration or game parameters.
+both with an effective ``stack`` (in big blinds). Two chance nodes deal the
+buckets from one shared deck — the button's by its marginal, the big blind's by
+the card-removal-aware conditional ``preflop.bucket_deal_conditional`` — so the
+joint deal matches ``preflop.BUCKET_PAIR_WEIGHTS`` exactly rather than treating
+the two hands as independent. Player 0 folds or jams all-in; facing a jam, player
+1 folds or calls. Showdown equity comes from the bucket matrix. Construct directly
+(``PushFoldGame(stack=10)``) and hand it to a CFR solver — it does not need
+registration or game parameters.
 """
 
 from __future__ import annotations
@@ -23,7 +27,12 @@ import numpy as np
 import pyspiel  # type: ignore[import-not-found]
 from open_spiel.python.algorithms import cfr, exploitability  # type: ignore[import-untyped]
 
-from holdem_ai.preflop import PREFLOP_BUCKET_COUNT, bucket_equity, bucket_weights
+from holdem_ai.preflop import (
+    PREFLOP_BUCKET_COUNT,
+    bucket_deal_conditional,
+    bucket_deal_marginals,
+    bucket_equity,
+)
 
 __all__ = [
     "CALL",
@@ -117,7 +126,13 @@ class PushFoldState(pyspiel.State):  # type: ignore[misc]
 
     def chance_outcomes(self) -> list[tuple[int, float]]:
         assert self.is_chance_node()
-        return [(bucket, weight) for bucket, weight in enumerate(bucket_weights())]
+        # Deal from one shared deck: the button's bucket by its marginal, then the
+        # big blind's bucket by the card-removal-aware conditional. The product of
+        # the two equals the exact joint BUCKET_PAIR_WEIGHTS, so a strong button
+        # makes a strong big blind slightly less likely (they share high cards).
+        if not self.buckets:
+            return list(enumerate(bucket_deal_marginals()))
+        return list(enumerate(bucket_deal_conditional(self.buckets[0])))
 
     def _apply_action(self, action: int) -> None:
         if self.is_chance_node():

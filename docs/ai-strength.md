@@ -102,12 +102,18 @@
     不做小注价值剥削。这正实证了 §7 的判断：**GTO 是不可剥削下限、但对弱玩家池剥削式打法赢更多**。
     唯一反例 vs maniac（pushfold +75 / current -25），jam 抓疯狂诈唬更稳。
   - **S2c（经外部 review 重排，按“先做对 → 再扩 → 再混合 → 评估硬化”推进）**：
-    - **S2c-1 桥接/抽象硬化（部分已落地）**：① **HU 硬闸**——非 2 人局面绝不套用 HU push/fold 模型
+    - **S2c-1 桥接/抽象硬化（已落地）**：① **HU 硬闸**——非 2 人局面绝不套用 HU push/fold 模型
       （修复 6-max 误用，release-blocker）；② **覆盖式 jam 检测**——对手 all-in 即便我方筹码更深也识别，
       blueprint 用有效（较短）筹码；③ 默认按信息态种子**采样混合策略**（保留 exploitability 性质），
       `mode="pure"` 才取 0.5 argmax（标注为剥削式投影，非均衡策略）；④ `BUCKET_EQUITY` 对角线强制
-      0.5（去掉同桶假优势）。**待办**：发桶改为按去牌的**精确联合/条件桶分布**（消除与胜率矩阵的不自洽）、
-      矩阵**提采样去噪**（当前 6000 样本 ±0.65pp 远大于报告的 2e-5 exploitability）。
+      0.5（去掉同桶假优势）；⑤ **精确联合发桶**——改两段 chance：先按边际发 button 桶，再按**去牌条件
+      分布** `bucket_deal_conditional` 发 BB 桶，二者乘积等于全枚举（1326×1225 不相交组合对）得到的精确联合
+      `BUCKET_PAIR_WEIGHTS`，消除"独立发桶"与去牌胜率矩阵的不自洽（hero 拿最强桶时 villain 同样最强桶
+      概率 0.1252→0.114）；⑥ **矩阵去噪**——`BUCKET_EQUITY` 用 150k 样本（与发桶**同一去牌采样** + 强制
+      对称）重算，每格 std 由 ±0.0065 降到 ±0.0013。重解后 6/10/16bb exploitability ~2e-6…2e-5（现为
+      "一致、低噪抽象内"有意义的近纳什值）；10bb 对照（1500 手）pushfold vs maniac **+40.5**、vs rock
+      **+27.0**、vs 启发式 **+5.0**（去噪前为略负，现约打平偏赢）。一处有用观察：10bb 下启发式自身负于
+      maniac（−45.6），而 pushfold 胜 maniac（+40.5）——正是 S2c-3 护栏要补的短筹码漏洞。
     - **S2c-2 短筹码 preflop game v2**：在 push/fold 之上加 limp / min-raise / 2.5x / jam 与 BB 应对，
       覆盖 BB-vs-minraise、SB 小注价值、jam-over-open；**先不进翻后**。
     - **S2c-3 CFR 作启发式护栏（混合）**：启发式出动作，CFR 只在覆盖到的高杠杆全下点否决明显错误，
@@ -115,8 +121,10 @@
     - **S2c-4 评估硬化**：20k+ 手、共同随机数（CRN）配对、bootstrap 置信区间、按位置/筹码深度切片、
       加入**会惩罚的对手**（3bet-jammer / BB defender / TAG / minraise / checkraise-bluffer）。这些到位
       前不开翻后 MCCFR——否则分不清提升来自更强的牌力、桥接 artifact 还是方差。
-    > 外部 review 共识：架构 seam 与“自有 infostate”方向正确；当前 blueprint 是**管线验证**而非可信牌谱；
-    > exploitability ~2e-5 只在这个有噪声、独立发桶的小游戏内成立，不是真实扑克的可被剥削度。
+    > 外部 review 共识：架构 seam 与“自有 infostate”方向正确。**S2c-1 后**该抽象已**内部一致、低噪**
+    > （精确去牌联合发桶 + 150k 对称胜率矩阵），exploitability 现在是该 8 桶抽象内有意义的近纳什值——
+    > 但它仍只是**短筹码 push/fold 抽象**，不等于真实 6-max HUNL 的可被剥削度；评估硬化（S2c-4）到位前
+    > 不上翻后 MCCFR。
 - **S3 Deep CFR / SD-CFR**：用 PokerRL / OpenSpiel 去掉手工抽象，提升精度；或 ReBeL 式
   depth-limited search 做实时再求解。
 - **S4 面向 Poker Legends 的实战形态**：Poker Legends 是 **6-max 多人 play-money**，终局更贴近
