@@ -309,13 +309,15 @@
 - 阶段 3 AI S2a（CFR + exploitability 管线）：新增 `holdem_ai.cfr`，用 OpenSpiel（官方 PyPI
   `open-spiel>=1.6.15`，已是 engine 依赖）的 CFR/CFR+ 求解器与 exploitability 评估，在小博弈上验证
   `solve -> average policy -> exploitability` 闭环：kuhn CFR+ 200 iters → exploitability ~3e-4、
-  leduc CFR+ → ~0.01-0.03、CFR+ 明显快于 vanilla。CLI `uv run holdem-ai-train-cfr --game
-  <kuhn_poker|leduc_poker|universal_poker> --variant cfr_plus --iterations N`。这是“先在已解小游戏
-  上把求解+评估打通、再扩抽象 HUNL（S2b）”的标准第一步；blueprint 落成后经
-  `engine/adapters/openspiel.py` 的离散动作映射回 `Action`，由同一个 `decide()` 消费。详见
+  leduc CFR+ → ~0.01-0.03、CFR+ 明显快于 vanilla。已从玩具游戏扩到**真正的无限注德扑抽象**：
+  `nolimit_holdem_abstraction()` 生成 `universal_poker` 的 `fcpa`（fold/call/pot/allin）缩减牌堆游戏，
+  CLI `uv run holdem-ai-train-cfr --game nlhe-small --variant cfr_plus` 80 iters → exploitability
+  ~0.006。实测：全树 tabular CFR 可解 1 手牌缩减 NLHE（秒级），2 手牌即超时——扩真实 HUNL 需上
+  MCCFR + card/bet 抽象。这是“先把求解+评估打通、再扩抽象 HUNL（S2b）”的标准路径；blueprint 落成后
+  经 `engine/adapters/openspiel.py` 的离散动作映射回 `Action`，由同一个 `decide()` 消费。详见
   `docs/ai-strength.md` S2。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  186 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
+  188 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
   random maniac --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、

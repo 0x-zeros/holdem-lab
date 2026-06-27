@@ -23,11 +23,37 @@ __all__ = [
     "CFRResult",
     "build_arg_parser",
     "main",
+    "nolimit_holdem_abstraction",
     "train_cfr",
 ]
 
 CFR_VARIANTS = ("cfr", "cfr_plus")
 DEFAULT_GAME = "leduc_poker"
+#: CLI shortcut name for a small, CFR-solvable no-limit hold'em abstraction.
+NLHE_SMALL = "nlhe-small"
+
+
+def nolimit_holdem_abstraction(
+    *,
+    suits: int = 2,
+    ranks: int = 4,
+    hole_cards: int = 1,
+    stack: int = 6,
+) -> str:
+    """Build an OpenSpiel ``universal_poker`` string for a small no-limit hold'em
+    abstraction: two betting rounds (one private + one board card) with ``fcpa``
+    betting (fold / call / pot / all-in).
+
+    Full HUNL is intractable for tabular CFR, so a reduced deck and short stack
+    keep it solvable while staying genuine *no-limit* hold'em (unlike the
+    limit-betting ``leduc_poker``). Scale these up — or move to MCCFR — toward the
+    real game. The defaults solve to <0.02 exploitability in a couple of seconds.
+    """
+    return (
+        "universal_poker(betting=nolimit,numPlayers=2,numRounds=2,blind=1 2,"
+        f"firstPlayer=2 1,numSuits={suits},numRanks={ranks},numHoleCards={hole_cards},"
+        f"numBoardCards=0 1,stack={stack} {stack},bettingAbstraction=fcpa)"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +127,14 @@ def train_cfr(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train CFR and report exploitability.")
-    parser.add_argument("--game", default=DEFAULT_GAME, help="OpenSpiel game name")
+    parser.add_argument(
+        "--game",
+        default=DEFAULT_GAME,
+        help=(
+            f"OpenSpiel game name / string, or {NLHE_SMALL!r} for the small "
+            "no-limit hold'em abstraction"
+        ),
+    )
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--variant", default="cfr_plus", choices=CFR_VARIANTS)
     parser.add_argument(
@@ -115,8 +148,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
+    game = nolimit_holdem_abstraction() if args.game == NLHE_SMALL else args.game
     result = train_cfr(
-        args.game,
+        game,
         iterations=args.iterations,
         variant=args.variant,
         eval_every=args.eval_every,

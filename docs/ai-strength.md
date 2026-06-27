@@ -82,11 +82,14 @@
     push/fold 是经典已解子博弈，在 ≤~12BB 短筹码下用真值表替代“min-open 再对 shove 弃牌”是明确的
     正确性提升，且可在短筹码评估里量化（vs maniac/random 的 all-in 决策）。
 - **S2 CFR/CFR+/MCCFR（抽象 HUNL）**：
-  - **S2a（已落地）CFR + exploitability 管线**：`holdem_ai.cfr` 用 OpenSpiel 的 CFR/CFR+ 求解器与
-    exploitability 评估，在小博弈上验证 `solve -> average policy -> exploitability` 闭环：kuhn CFR+
-    200 iters → exploitability ~3e-4，leduc CFR+ → ~0.01-0.03，CFR+ 明显快于 vanilla（符合理论）。
-    入口 `uv run holdem-ai-train-cfr --game <kuhn_poker|leduc_poker|universal_poker> --variant
-    cfr_plus`。这是“先在已解小游戏上把求解+评估打通，再扩抽象 HUNL”的标准第一步。
+  - **S2a（已落地）CFR + exploitability 管线 + 小型 NLHE 抽象**：`holdem_ai.cfr` 用 OpenSpiel 的
+    CFR/CFR+ 求解器与 exploitability 评估，验证 `solve -> average policy -> exploitability` 闭环：
+    kuhn CFR+ 200 iters → ~3e-4，leduc CFR+ → ~0.01-0.03，CFR+ 明显快于 vanilla。并已从玩具游戏扩到
+    **真正的无限注德扑抽象**：`nolimit_holdem_abstraction()` 生成 `universal_poker` 的 `fcpa`
+    （fold/call/pot/allin）缩减牌堆游戏，`--game nlhe-small` 80 iters → exploitability ~0.006。
+    入口 `uv run holdem-ai-train-cfr --game <kuhn_poker|leduc_poker|nlhe-small|...> --variant cfr_plus`。
+    实测边界：全树 tabular CFR 可解 1 手牌缩减 NLHE（秒级），2 手牌即超时——**扩到真实 HUNL 需上
+    MCCFR + card/bet 抽象**（S2b）。
   - **S2b（下一步）抽象 HUNL blueprint**：用 OpenSpiel `universal_poker` + card bucketing（复用
     `holdem_ai.preflop` 等价类/真值表）+ 有限 bet sizing 抽象，自博弈求 blueprint；用 best-response/
     exploitability 评估抽象策略在真实博弈里的可被剥削度；落成可被 `decide()` 调用的查表策略
