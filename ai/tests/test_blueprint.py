@@ -67,3 +67,96 @@ def test_blueprints_are_cached_per_stack() -> None:
     policy.explain(button_open_state(cards("As", "Ah"), effective=18))  # 9bb -> solves once
     policy.explain(button_open_state(cards("Ks", "Kh"), effective=18))  # 9bb -> cached
     assert set(policy._cache) == {9}
+
+
+def six_max_button_state(hole: tuple[Card, ...]) -> GameState:
+    # Three active players: the button is NOT the small blind, so the heads-up
+    # push/fold model must not apply.
+    return GameState(
+        hand_id="6max",
+        street=Street.PREFLOP,
+        players=(
+            PlayerState(seat=0, stack=17, committed=1, hole_cards=hole),
+            PlayerState(seat=1, stack=16, committed=2, hole_cards=()),
+            PlayerState(seat=2, stack=18, committed=0, hole_cards=()),
+        ),
+        board=(),
+        pots=(Pot(amount=3, eligible_seats=frozenset({0, 1, 2})),),
+        current_seat=0,
+        button_seat=0,
+        small_blind=1,
+        big_blind=2,
+        min_raise=4,
+        to_call=1,
+        legal_actions=(
+            Action(ActionType.FOLD),
+            Action(ActionType.CALL, amount=1),
+            Action(ActionType.ALL_IN, amount=17, min_amount=17, max_amount=17),
+        ),
+    )
+
+
+def facing_jam_state(hole: tuple[Card, ...], *, hero_stack: int = 90) -> GameState:
+    # Big blind facing an all-in button that we *cover* (hero stack > villain jam).
+    villain_jam = 20
+    return GameState(
+        hand_id="jam",
+        street=Street.PREFLOP,
+        players=(
+            PlayerState(seat=0, stack=0, committed=villain_jam, hole_cards=(), all_in=True),
+            PlayerState(seat=1, stack=hero_stack, committed=2, hole_cards=hole),
+        ),
+        board=(),
+        pots=(Pot(amount=villain_jam + 2, eligible_seats=frozenset({0, 1})),),
+        current_seat=1,
+        button_seat=0,
+        small_blind=1,
+        big_blind=2,
+        min_raise=4,
+        to_call=villain_jam - 2,
+        legal_actions=(Action(ActionType.FOLD), Action(ActionType.CALL, amount=villain_jam - 2)),
+    )
+
+
+def test_six_max_spot_never_uses_pushfold() -> None:
+    decision = PushFoldPolicy().explain(six_max_button_state(cards("As", "Ah")))
+    assert not decision.reason.startswith("pushfold")  # hard heads-up guard
+
+
+def test_big_blind_handles_a_covered_jam() -> None:
+    policy = PushFoldPolicy()
+    call = policy.explain(facing_jam_state(cards("As", "Ah")))
+    assert call.action.action_type is ActionType.CALL
+    assert call.reason == "pushfold_call"
+    assert call.metadata["effective_bb"] == 10.0  # min(20, 92) / 2, not hero's 46bb
+
+    fold = policy.explain(facing_jam_state(cards("3c", "2d")))
+    assert fold.action.action_type is ActionType.FOLD
+    assert fold.reason == "pushfold_overfold"
+
+
+def test_decision_metadata_carries_probability_and_mode() -> None:
+    decision = PushFoldPolicy(mode="mixed").explain(button_open_state(cards("As", "Ah")))
+    assert decision.metadata["mode"] == "mixed"
+    assert decision.metadata["blueprint_stack_key"] == 9
+    assert 0.0 <= float(decision.metadata["blueprint_action_prob"]) <= 1.0  # type: ignore[arg-type]
+
+
+def test_mixed_mode_is_reproducible_per_state() -> None:
+    policy = PushFoldPolicy(mode="mixed")
+    state = button_open_state(cards("As", "Ah"))
+    assert policy.decide(state) == policy.decide(state)
+
+
+def test_pure_mode_takes_argmax() -> None:
+    decision = PushFoldPolicy(mode="pure").explain(button_open_state(cards("As", "Ah")))
+    assert decision.action.action_type is ActionType.ALL_IN
+    assert decision.metadata["mode"] == "pure"
+
+
+def test_invalid_mode_rejected() -> None:
+    try:
+        PushFoldPolicy(mode="nope")
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for invalid mode")

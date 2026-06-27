@@ -326,10 +326,17 @@
   所有参照对手（random +45 / call_station +35 / rock +27 / maniac +75），但输给启发式 current
   （-31.6）、且赢参照对手赢得比 current 少——它只 jam/fold、不做小注价值剥削，实证了「GTO 是不可剥削
   下限、对弱场剥削式打法赢更多」（`docs/ai-strength.md` §7）；唯一反例 vs maniac（pushfold +75 /
-  current -25）。下一步 S2c 扩抽象（更细桶 / 限注 sizing / 翻后街道 / MCCFR），或做「启发式为主 +
-  关键节点查 blueprint」的混合。
+  current -25）。
+- 阶段 3 AI S2c-1（外部 review 驱动的桥接/抽象硬化）：ChatGPT PRO 评审确认架构 seam 与「自有 infostate」
+  方向正确，但指出当前 blueprint 是管线验证而非可信牌谱，并发现真 bug。已修：① **HU 硬闸**——
+  `PushFoldPolicy` 仅在恰好 2 人局面生效，绝不把 HU push/fold 套到 6-max（release-blocker）；② **覆盖式
+  jam 检测**——对手 all-in 即便我方更深也识别、用有效筹码（旧逻辑只在「跟注=自己全下」时触发，实测中
+  BB 跟注表几乎从未被检验）；③ 默认按信息态种子**采样混合策略**（保留 exploitability 性质），
+  `mode="pure"` 才取 argmax（标注剥削式投影）；④ `BUCKET_EQUITY` 对角线强制 0.5。待办（S2c-1 剩余）：
+  发桶改精确联合/条件分布（去牌自洽）、矩阵提采样去噪。完整 S2c 计划（v2 game / 混合护栏 / 评估硬化）见
+  `docs/ai-strength.md`。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  201 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
+  207 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
   random maniac --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、

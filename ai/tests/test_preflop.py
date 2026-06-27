@@ -75,7 +75,7 @@ def test_preflop_bucket_from_hole_cards() -> None:
 def test_bucket_equity_matrix_is_symmetric_and_monotone() -> None:
     assert len(BUCKET_EQUITY) == PREFLOP_BUCKET_COUNT
     for i in range(PREFLOP_BUCKET_COUNT):
-        assert bucket_equity(i, i) == pytest.approx(0.5, abs=0.03)  # same bucket ~ coinflip
+        assert bucket_equity(i, i) == 0.5  # same bucket forced to an exact coinflip
         for j in range(PREFLOP_BUCKET_COUNT):
             if i != j:  # off-diagonal is exactly symmetric by construction
                 assert bucket_equity(i, j) + bucket_equity(j, i) == pytest.approx(1.0, abs=0.001)

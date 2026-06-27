@@ -101,9 +101,22 @@
     maniac +75），但**输给启发式 current（-31.6）**、且赢参照对手赢得比 current 少——因为它只 jam/fold、
     不做小注价值剥削。这正实证了 §7 的判断：**GTO 是不可剥削下限、但对弱玩家池剥削式打法赢更多**。
     唯一反例 vs maniac（pushfold +75 / current -25），jam 抓疯狂诈唬更稳。
-  - **S2c（下一步）扩抽象**：更细的桶 + 限注 bet sizing（limp/raise）+ 翻后街道（board bucketing），
-    或换 MCCFR；目标是 blueprint 在弱场也能逼近或超过剥削式启发式，并保留 exploitability 下限。
-    考虑“启发式为主 + 短筹码/关键节点查 blueprint”的混合，兼得剥削收益与不可剥削性。
+  - **S2c（经外部 review 重排，按“先做对 → 再扩 → 再混合 → 评估硬化”推进）**：
+    - **S2c-1 桥接/抽象硬化（部分已落地）**：① **HU 硬闸**——非 2 人局面绝不套用 HU push/fold 模型
+      （修复 6-max 误用，release-blocker）；② **覆盖式 jam 检测**——对手 all-in 即便我方筹码更深也识别，
+      blueprint 用有效（较短）筹码；③ 默认按信息态种子**采样混合策略**（保留 exploitability 性质），
+      `mode="pure"` 才取 0.5 argmax（标注为剥削式投影，非均衡策略）；④ `BUCKET_EQUITY` 对角线强制
+      0.5（去掉同桶假优势）。**待办**：发桶改为按去牌的**精确联合/条件桶分布**（消除与胜率矩阵的不自洽）、
+      矩阵**提采样去噪**（当前 6000 样本 ±0.65pp 远大于报告的 2e-5 exploitability）。
+    - **S2c-2 短筹码 preflop game v2**：在 push/fold 之上加 limp / min-raise / 2.5x / jam 与 BB 应对，
+      覆盖 BB-vs-minraise、SB 小注价值、jam-over-open；**先不进翻后**。
+    - **S2c-3 CFR 作启发式护栏（混合）**：启发式出动作，CFR 只在覆盖到的高杠杆全下点否决明显错误，
+      兼得弱场剥削收益与短筹码不可剥削下限。
+    - **S2c-4 评估硬化**：20k+ 手、共同随机数（CRN）配对、bootstrap 置信区间、按位置/筹码深度切片、
+      加入**会惩罚的对手**（3bet-jammer / BB defender / TAG / minraise / checkraise-bluffer）。这些到位
+      前不开翻后 MCCFR——否则分不清提升来自更强的牌力、桥接 artifact 还是方差。
+    > 外部 review 共识：架构 seam 与“自有 infostate”方向正确；当前 blueprint 是**管线验证**而非可信牌谱；
+    > exploitability ~2e-5 只在这个有噪声、独立发桶的小游戏内成立，不是真实扑克的可被剥削度。
 - **S3 Deep CFR / SD-CFR**：用 PokerRL / OpenSpiel 去掉手工抽象，提升精度；或 ReBeL 式
   depth-limited search 做实时再求解。
 - **S4 面向 Poker Legends 的实战形态**：Poker Legends 是 **6-max 多人 play-money**，终局更贴近
