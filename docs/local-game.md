@@ -71,7 +71,8 @@ uv run holdem-game-heads-up --ai-profile no_equity
 - 有 bet/raise 时可直接输入数字作为总下注额。
 - Backspace/Delete 编辑下注额，Up/Down 按 big blind 调整，Enter 提交。
 - `P` 暂停/恢复 AI 自动推进。
-- `N` 开下一手。
+- 一手结束后会停在结算面板，显示赢家、payoff 和摊牌牌型。
+- `N` 或点击 `Next hand` 开下一手。
 - Escape 退出。
 
 ## bot-seat 说明

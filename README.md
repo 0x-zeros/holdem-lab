@@ -124,6 +124,9 @@ uv run holdem-game-heads-up --ai-profile no_equity
 
 更多操作说明见 [`docs/local-game.md`](docs/local-game.md)。
 
+一手结束后游戏会停在结算面板，显示赢家、你的本手输赢、各座位 payoff 和摊牌牌型；按 `N` 或点击
+`Next hand` 才进入下一手。
+
 ## AI 评估
 
 两组 profile heads-up 对战：

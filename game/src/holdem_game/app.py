@@ -15,7 +15,7 @@ from holdem_bot.adapters import ActionCallbackAutomator, StateCapture, StateReco
 from holdem_common import Action, ActionType, GameState
 from holdem_engine import HoldemConfig, HoldemEnv
 
-from holdem_game.table_view import ActionButton, TableView, label_for_action
+from holdem_game.table_view import ActionButton, SettlementView, TableView, label_for_action
 
 DEFAULT_SIZE = (1180, 760)
 DEFAULT_SMALL_BLIND = 5
@@ -142,6 +142,7 @@ class HoldemGameApp:
             action_log=self.action_log,
             amount_text=self._amount_text(),
             session_text=self._session_text() if self.show_session_panel else None,
+            settlement=self._settlement_view(),
         )
 
     def visible_state(self) -> GameState:
@@ -257,7 +258,7 @@ class HoldemGameApp:
         if self.state.current_seat is None:
             self.bet_input = ""
             self.buttons = self._layout_buttons(
-                (("New hand", None, "new_hand"),),
+                (("Next hand", None, "new_hand"),),
             )
             return
 
@@ -498,6 +499,44 @@ class HoldemGameApp:
         payoff_text = " ".join(f"{seat}:{payoff:+d}" for seat, payoff in enumerate(payoffs))
         return f"Hand complete  Winners {winner_text}  Payoffs {payoff_text}"
 
+    def _settlement_view(self) -> SettlementView | None:
+        if self.state.current_seat is not None:
+            return None
+        raw_payoffs = self.state.metadata.get("payoffs")
+        if not isinstance(raw_payoffs, tuple):
+            return SettlementView(
+                title="Hand complete",
+                subtitle="Press N or click Next hand",
+                rows=(),
+            )
+
+        payoffs = tuple(int(payoff) for payoff in raw_payoffs)
+        winners = tuple(index for index, payoff in enumerate(payoffs) if payoff > 0)
+        hero_payoff = payoffs[self.human_seat]
+        title = self._settlement_title(hero_payoff, winners)
+        winner_text = (
+            ", ".join(self._seat_label(seat) for seat in winners) if winners else "Split pot"
+        )
+        subtitle = f"Winners: {winner_text}   Press N or click Next hand"
+        hand_rows = self._showdown_rows()
+        rows = tuple(
+            f"{self._seat_label(seat)}  Payoff {payoff:+d}  Stack {self.state.player(seat).stack}"
+            for seat, payoff in enumerate(payoffs)
+        )
+        return SettlementView(title=title, subtitle=subtitle, rows=(*rows, *hand_rows))
+
+    def _settlement_title(self, hero_payoff: int, winners: tuple[int, ...]) -> str:
+        if hero_payoff > 0:
+            return f"You win {hero_payoff:+d}"
+        if hero_payoff < 0:
+            return f"You lose {hero_payoff:+d}"
+        if self.human_seat in winners:
+            return "You split the pot"
+        return "You break even"
+
+    def _seat_label(self, seat: int) -> str:
+        return "You" if seat == self.human_seat else f"AI {seat}"
+
     def _settle_session_stacks(self) -> None:
         if self.hand_settled:
             return
@@ -521,15 +560,21 @@ class HoldemGameApp:
     def _showdown_summary(self) -> str | None:
         if len(self.state.board) < 5:
             return None
+        hands = self._showdown_rows()
+        if not hands:
+            return None
+        return f"Showdown  {'  '.join(row.replace('  ', ': ', 1) for row in hands)}"
+
+    def _showdown_rows(self) -> tuple[str, ...]:
+        if len(self.state.board) < 5:
+            return ()
         hands: list[str] = []
         for player in self.state.players:
             if len(player.hole_cards) < 2:
                 continue
             rank = evaluate_best_hand((*player.hole_cards[:2], *self.state.board))[0]
-            hands.append(f"{player.seat}:{_HAND_RANK_NAMES[rank]}")
-        if not hands:
-            return None
-        return f"Showdown  {'  '.join(hands)}"
+            hands.append(f"{self._seat_label(player.seat)}  {_HAND_RANK_NAMES[rank]}")
+        return tuple(hands)
 
     def _session_text(self) -> str:
         profit_text = " ".join(

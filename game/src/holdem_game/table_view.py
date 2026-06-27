@@ -53,6 +53,13 @@ class ActionButton:
     command: str = "action"
 
 
+@dataclass(frozen=True, slots=True)
+class SettlementView:
+    title: str
+    subtitle: str
+    rows: tuple[str, ...]
+
+
 class TableView:
     def __init__(self, size: tuple[int, int]) -> None:
         self.size = size
@@ -73,16 +80,18 @@ class TableView:
         action_log: Sequence[str] = (),
         amount_text: str | None = None,
         session_text: str | None = None,
+        settlement: SettlementView | None = None,
     ) -> None:
         width, height = self.size
         surface.fill(BACKGROUND)
         self._draw_table(surface)
         self._draw_board(surface, state)
         self._draw_players(surface, state, human_seat=human_seat)
-        self._draw_status(surface, state, message)
+        self._draw_status(surface, state, message, show_title=settlement is None)
         self._draw_session(surface, session_text)
         self._draw_action_log(surface, action_log)
         self._draw_amount_input(surface, amount_text)
+        self._draw_settlement(surface, settlement)
         self._draw_buttons(surface, buttons)
         pygame.display.flip()
 
@@ -163,11 +172,21 @@ class TableView:
                     hidden=True,
                 )
 
-    def _draw_status(self, surface: pygame.Surface, state: GameState, message: str) -> None:
-        title = (
-            f"{state.street.value.upper()}  To call {state.to_call}  Min raise {state.min_raise}"
-        )
-        self._draw_text(surface, title, self.title_font, TEXT, self.title_text_rect().center)
+    def _draw_status(
+        self,
+        surface: pygame.Surface,
+        state: GameState,
+        message: str,
+        *,
+        show_title: bool,
+    ) -> None:
+        if show_title:
+            title = (
+                f"{state.street.value.upper()}  "
+                f"To call {state.to_call}  "
+                f"Min raise {state.min_raise}"
+            )
+            self._draw_text(surface, title, self.title_font, TEXT, self.title_text_rect().center)
         self._draw_text(surface, message, self.body_font, MUTED, self.message_text_rect().center)
 
     def _draw_buttons(self, surface: pygame.Surface, buttons: Sequence[ActionButton]) -> None:
@@ -222,6 +241,52 @@ class TableView:
         pygame.draw.rect(surface, (24, 33, 35), rect, border_radius=8)
         pygame.draw.rect(surface, BUTTON_FILL, rect, width=2, border_radius=8)
         self._draw_text(surface, amount_text, self.small_font, TEXT, rect.center)
+
+    def _draw_settlement(
+        self,
+        surface: pygame.Surface,
+        settlement: SettlementView | None,
+    ) -> None:
+        if settlement is None:
+            return
+        rect = self.settlement_rect()
+        pygame.draw.rect(surface, (18, 26, 31), rect, border_radius=8)
+        pygame.draw.rect(surface, GOLD_ACCENT, rect, width=2, border_radius=8)
+        pygame.draw.line(
+            surface,
+            CYAN_ACCENT,
+            (rect.x + 16, rect.y + 2),
+            (rect.centerx - 24, rect.y + 2),
+            width=2,
+        )
+        pygame.draw.line(
+            surface,
+            MAGENTA_ACCENT,
+            (rect.centerx + 24, rect.y + 2),
+            (rect.right - 16, rect.y + 2),
+            width=2,
+        )
+
+        self._draw_text(
+            surface, settlement.title, self.body_font, TEXT, (rect.centerx, rect.y + 28)
+        )
+        self._draw_text(
+            surface,
+            settlement.subtitle,
+            self.small_font,
+            MUTED,
+            (rect.centerx, rect.y + 54),
+        )
+        line_y = rect.y + 82
+        for row in settlement.rows[:6]:
+            self._draw_text_left(
+                surface,
+                self._ellipsize(row, self.small_font, rect.width - 32),
+                self.small_font,
+                TEXT,
+                (rect.x + 16, line_y),
+            )
+            line_y += 22
 
     def _draw_card(
         self,
@@ -541,6 +606,12 @@ class TableView:
         width, height = self.size
         rect = pygame.Rect(0, 0, min(360, width - 80), 34)
         rect.center = (width // 2, height - 132)
+        return rect
+
+    def settlement_rect(self) -> pygame.Rect:
+        width, height = self.size
+        rect = pygame.Rect(0, 0, min(500, width - 120), 220)
+        rect.center = (width // 2, int(height * 0.50))
         return rect
 
 

@@ -200,6 +200,12 @@ def test_app_reports_readable_terminal_summary() -> None:
         assert "Winners" in app.message
         assert "Payoffs" in app.message
         assert app.action_log[-1] == app.message
+        assert [button.label for button in app.buttons] == ["Next hand"]
+        settlement = app._settlement_view()
+        assert settlement is not None
+        assert settlement.title.startswith("You lose")
+        assert "AI 1" in settlement.subtitle
+        assert any(row.startswith("You  Payoff") for row in settlement.rows)
         assert sum(app.session_profit) == 0
         assert app.session_stacks == tuple(player.stack for player in app.state.players)
 
@@ -235,6 +241,9 @@ def test_app_logs_showdown_hand_categories() -> None:
 
         assert app.state.current_seat is None
         assert any(line.startswith("Showdown") for line in app.action_log)
+        settlement = app._settlement_view()
+        assert settlement is not None
+        assert any("straight" in row or "flush" in row or "pair" in row for row in settlement.rows)
         assert sum(app.session_profit) == 0
         assert any(line.startswith("Seat ") and "rebuy" in line for line in app.action_log)
         assert all(stack > 0 for stack in app.session_stacks)

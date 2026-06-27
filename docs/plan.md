@@ -269,6 +269,8 @@
   计算为 `1000`；新增 `--stake-level`，从 `5/10` 开始按层翻倍（如 `10/20`、`20/40`），仍可用
   `--small-blind` / `--big-blind` / `--starting-stack` 手动覆盖。动作金额继续使用 no-limit
   `bet/raise-to` 总投入语义。
+- 阶段 2 本地结算 UX：一手结束后停在中心结算面板，明确显示赢家、hero 本手输赢、各座位 payoff /
+  stack 与摊牌牌型；只有按 `N` 或点击 `Next hand` 才进入下一手。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
