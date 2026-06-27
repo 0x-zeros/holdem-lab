@@ -443,6 +443,9 @@
   `low_confidence`。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
+- **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
+  解读 + 回报清单）。Step 1（`--image` 跑 bundled 帧，无需 macOS）已在容器内验证：keyframe_000042 正确
+  fail-closed 为 `blocked_overlay`（buy_in_prompt），证明 capture→recognize→安全闸→输出 全链路接通。
 - 第一轮 host 测试建议先用 `uv run holdem-bot-run-poker-legends-dry-run --image ...` 跑已保存截图和
   reviewed annotation，确认输出里的 `screen`、`state`、`policy_decision`、`dry_run_record` 一致。
 - 第二轮再用 `--capture-out-dir ... --window-id ...` 对 Poker Legends 当前窗口截图；没有 reviewed
