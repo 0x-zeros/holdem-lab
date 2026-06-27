@@ -11,16 +11,20 @@ from holdem_bot.adapters.poker_legends import (
 )
 from holdem_bot.adapters.poker_legends_host import (
     MacOSScreenCapture,
+    PokerLegendsCaptureMetadata,
     PokerLegendsClickPlan,
     PokerLegendsDryRunAutomator,
+    PokerLegendsImageCapture,
     PokerLegendsLayoutClickPlanner,
 )
 
 __all__ = [
     "ActionCallbackAutomator",
     "MacOSScreenCapture",
+    "PokerLegendsCaptureMetadata",
     "PokerLegendsClickPlan",
     "PokerLegendsDryRunAutomator",
+    "PokerLegendsImageCapture",
     "PokerLegendsLayoutClickPlanner",
     "PokerLegendsScreenStateRecognizer",
     "PokerLegendsTableRecognizer",

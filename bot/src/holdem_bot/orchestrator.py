@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from holdem_ai import decide
+from holdem_ai import PolicyDecision, explain_decision
 from holdem_common import Action, GameState
 
 from holdem_bot.automate import Automator
@@ -19,6 +19,7 @@ class BotStepResult:
     reason: str
     state: GameState | None = None
     action: Action | None = None
+    policy_decision: PolicyDecision | None = None
     confidence: float = 0.0
     screen: ScreenState | None = None
 
@@ -67,13 +68,15 @@ class BotOrchestrator:
         state = decision.state
         if state is None:
             raise RuntimeError("safety gate allowed an action without a GameState")
-        action = decide(state)
+        policy_decision = explain_decision(state)
+        action = policy_decision.action
         self.automator.perform(action, state)
         return BotStepResult(
             acted=True,
             reason="acted",
             state=state,
             action=action,
+            policy_decision=policy_decision,
             confidence=decision.confidence,
             screen=decision.screen,
         )

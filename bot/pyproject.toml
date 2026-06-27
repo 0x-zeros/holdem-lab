@@ -32,6 +32,7 @@ holdem-bot-build-poker-legends-session-timeline = "holdem_bot.vision.poker_legen
 holdem-bot-ingest-video = "holdem_bot.vision.video:main"
 holdem-bot-llm-annotate = "holdem_bot.vision.llm_annotation:main"
 holdem-bot-plan-poker-legends-click = "holdem_bot.adapters.poker_legends_host:plan_click_main"
+holdem-bot-run-poker-legends-dry-run = "holdem_bot.adapters.poker_legends_host:dry_run_once_main"
 holdem-bot-select-keyframes = "holdem_bot.vision.selection:main"
 
 [tool.uv.sources]

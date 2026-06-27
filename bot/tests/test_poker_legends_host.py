@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 from holdem_bot.adapters import (
     MacOSScreenCapture,
+    PokerLegendsCaptureMetadata,
     PokerLegendsDryRunAutomator,
+    PokerLegendsImageCapture,
     PokerLegendsLayoutClickPlanner,
 )
 from holdem_bot.adapters.poker_legends_host import plan_click_main
@@ -38,6 +40,48 @@ def test_macos_screen_capture_rejects_non_macos(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="macOS"):
         capture.capture()
+
+
+def test_poker_legends_image_capture_adds_recognizer_metadata(tmp_path: Path) -> None:
+    image_path = tmp_path / "frame.png"
+    layout_path = tmp_path / "layout.json"
+    annotation_path = tmp_path / "annotation.json"
+    capture = PokerLegendsImageCapture(
+        image_path=image_path,
+        layout_annotation_path=layout_path,
+        annotation_path=annotation_path,
+    )
+
+    frame = capture.capture()
+
+    assert frame.payload == image_path
+    assert frame.source == "poker_legends_image"
+    assert frame.metadata["poker_legends_image_path"] == str(image_path)
+    assert frame.metadata["poker_legends_layout_annotation_path"] == str(layout_path)
+    assert frame.metadata["poker_legends_annotation_path"] == str(annotation_path)
+    assert frame.metadata["coordinate_space"] == "image"
+
+
+def test_poker_legends_capture_metadata_wraps_macos_capture(tmp_path: Path) -> None:
+    commands: list[list[str]] = []
+    macos_capture = MacOSScreenCapture(
+        output_dir=tmp_path,
+        runner=lambda command: commands.append(list(command)),
+        now=lambda: 1.0,
+        system_name=lambda: "Darwin",
+    )
+    capture = PokerLegendsCaptureMetadata(
+        capture=macos_capture,
+        layout_annotation_path=tmp_path / "layout.json",
+        annotation_path=tmp_path / "annotation.json",
+    )
+
+    frame = capture.capture()
+
+    assert commands == [["screencapture", "-x", str(tmp_path / "frame_1000.png")]]
+    assert frame.payload == tmp_path / "frame_1000.png"
+    assert frame.metadata["poker_legends_layout_annotation_path"] == str(tmp_path / "layout.json")
+    assert frame.metadata["poker_legends_annotation_path"] == str(tmp_path / "annotation.json")
 
 
 def test_poker_legends_layout_click_planner_maps_primary_buttons() -> None:

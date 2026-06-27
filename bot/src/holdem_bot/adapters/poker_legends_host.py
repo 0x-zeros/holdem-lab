@@ -14,7 +14,9 @@ from typing import Protocol, cast
 
 from holdem_common import Action, ActionType, GameState
 
-from holdem_bot.capture import CapturedFrame
+from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
+from holdem_bot.capture import Capture, CapturedFrame
+from holdem_bot.orchestrator import BotOrchestrator, BotStepResult
 from holdem_bot.vision.annotations import ScreenRect
 
 _Runner = Callable[[Sequence[str]], None]
@@ -75,6 +77,65 @@ class MacOSScreenCapture:
                 "capture_command": command,
                 "coordinate_space": "image",
             },
+        )
+
+
+class PokerLegendsImageCapture:
+    """Capture adapter for one saved Poker Legends image."""
+
+    def __init__(
+        self,
+        *,
+        image_path: str | Path,
+        layout_annotation_path: str | Path,
+        annotation_path: str | Path | None = None,
+        source: str = "poker_legends_image",
+    ) -> None:
+        self.image_path = Path(image_path)
+        self.layout_annotation_path = Path(layout_annotation_path)
+        self.annotation_path = Path(annotation_path) if annotation_path is not None else None
+        self.source = source
+
+    def capture(self) -> CapturedFrame:
+        metadata: dict[str, object] = {
+            "poker_legends_image_path": str(self.image_path),
+            "poker_legends_layout_annotation_path": str(self.layout_annotation_path),
+            "coordinate_space": "image",
+        }
+        if self.annotation_path is not None:
+            metadata["poker_legends_annotation_path"] = str(self.annotation_path)
+        return CapturedFrame(
+            payload=self.image_path,
+            source=self.source,
+            metadata=metadata,
+        )
+
+
+class PokerLegendsCaptureMetadata:
+    """Attach Poker Legends recognizer metadata to another capture source."""
+
+    def __init__(
+        self,
+        *,
+        capture: Capture,
+        layout_annotation_path: str | Path,
+        annotation_path: str | Path | None = None,
+    ) -> None:
+        self.capture_source = capture
+        self.layout_annotation_path = Path(layout_annotation_path)
+        self.annotation_path = Path(annotation_path) if annotation_path is not None else None
+
+    def capture(self) -> CapturedFrame:
+        frame = self.capture_source.capture()
+        metadata = dict(frame.metadata)
+        metadata["poker_legends_layout_annotation_path"] = str(self.layout_annotation_path)
+        metadata["coordinate_space"] = "image"
+        if self.annotation_path is not None:
+            metadata["poker_legends_annotation_path"] = str(self.annotation_path)
+        return CapturedFrame(
+            payload=frame.payload,
+            source=frame.source,
+            metadata=metadata,
         )
 
 
@@ -198,6 +259,69 @@ def plan_click_main(argv: Sequence[str] | None = None) -> None:
     print(json.dumps(record, indent=2, sort_keys=True))
 
 
+def dry_run_once_main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Run one safe Poker Legends recognize -> AI -> dry-run step."
+    )
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--image")
+    source.add_argument("--capture-out-dir")
+    parser.add_argument("--window-id", type=int)
+    parser.add_argument("--annotation")
+    parser.add_argument("--layout-annotation", required=True)
+    parser.add_argument("--card-part-manifest", required=True)
+    parser.add_argument("--card-classifier-manifest", required=True)
+    parser.add_argument("--button-manifest", required=True)
+    parser.add_argument("--card-template-manifest")
+    parser.add_argument("--seat", type=int, default=0)
+    parser.add_argument("--min-confidence", type=float, default=0.80)
+    parser.add_argument("--log-jsonl", required=True)
+    args = parser.parse_args(argv)
+
+    capture: Capture
+    if args.image is not None:
+        capture = PokerLegendsImageCapture(
+            image_path=args.image,
+            layout_annotation_path=args.layout_annotation,
+            annotation_path=args.annotation,
+        )
+    else:
+        capture = PokerLegendsCaptureMetadata(
+            capture=MacOSScreenCapture(
+                output_dir=args.capture_out_dir,
+                window_id=args.window_id,
+            ),
+            layout_annotation_path=args.layout_annotation,
+            annotation_path=args.annotation,
+        )
+
+    recognizer = PokerLegendsTableRecognizer.from_manifests(
+        card_part_manifest=args.card_part_manifest,
+        card_classifier_manifest=args.card_classifier_manifest,
+        button_manifest=args.button_manifest,
+        card_template_manifest=args.card_template_manifest,
+        controlled_seat=args.seat,
+    )
+    planner = PokerLegendsLayoutClickPlanner.from_annotation_path(args.layout_annotation)
+    automator = PokerLegendsDryRunAutomator(
+        planner=planner,
+        log_path=args.log_jsonl,
+    )
+    orchestrator = BotOrchestrator(
+        capture=capture,
+        recognizer=recognizer,
+        automator=automator,
+        seat=args.seat,
+        min_confidence=args.min_confidence,
+    )
+    result = orchestrator.run_once()
+    record = _bot_step_result_to_dict(
+        result,
+        dry_run_record=automator.records[-1] if automator.records else None,
+    )
+    print(json.dumps(record, indent=2, sort_keys=True))
+
+
 def _command_for_action(action: Action) -> str:
     if action.action_type in {ActionType.CHECK, ActionType.CALL}:
         return "primary_left"
@@ -206,6 +330,71 @@ def _command_for_action(action: Action) -> str:
     if action.action_type is ActionType.FOLD:
         return "primary_right"
     raise ValueError(f"unsupported Poker Legends action: {action.action_type.value}")
+
+
+def _bot_step_result_to_dict(
+    result: BotStepResult,
+    *,
+    dry_run_record: Mapping[str, object] | None,
+) -> dict[str, object]:
+    return {
+        "acted": result.acted,
+        "reason": result.reason,
+        "confidence": result.confidence,
+        "screen": _screen_to_dict(result),
+        "state": _state_summary(result.state),
+        "action": _action_to_dict(result.action),
+        "policy_decision": _policy_decision_to_dict(result),
+        "dry_run_record": dict(dry_run_record) if dry_run_record is not None else None,
+    }
+
+
+def _screen_to_dict(result: BotStepResult) -> dict[str, object] | None:
+    if result.screen is None:
+        return None
+    return {
+        "kind": result.screen.kind.value,
+        "confidence": result.screen.confidence,
+        "reason": result.screen.reason,
+        "blocking_reason": result.screen.blocking_reason,
+        "hero_turn": result.screen.hero_turn,
+    }
+
+
+def _state_summary(state: GameState | None) -> dict[str, object] | None:
+    if state is None:
+        return None
+    return {
+        "hand_id": state.hand_id,
+        "street": state.street.value,
+        "current_seat": state.current_seat,
+        "pot_total": state.pot_total,
+        "to_call": state.to_call,
+        "legal_actions": [_action_to_dict(action) for action in state.legal_actions],
+    }
+
+
+def _policy_decision_to_dict(result: BotStepResult) -> dict[str, object] | None:
+    if result.policy_decision is None:
+        return None
+    return {
+        "reason": result.policy_decision.reason,
+        "strength": result.policy_decision.strength,
+        "required_equity": result.policy_decision.required_equity,
+        "metadata": dict(result.policy_decision.metadata),
+        "action": _action_to_dict(result.policy_decision.action),
+    }
+
+
+def _action_to_dict(action: Action | None) -> dict[str, object] | None:
+    if action is None:
+        return None
+    return {
+        "type": action.action_type.value,
+        "amount": action.amount,
+        "min_amount": action.min_amount,
+        "max_amount": action.max_amount,
+    }
 
 
 def _button_rect(annotation: Mapping[str, object], name: str) -> ScreenRect:
