@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-27 阶段 4 Poker Legends seat/action fallback v1）
+## 当前进度（截至 2026-06-27 阶段 4 Poker Legends host dry-run v0）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -217,16 +217,24 @@
   `missing_call_amount` 3 -> 1，`missing_pot` 3 -> 2，`board_count_mismatch` 3 -> 0，
   `hero_not_current` 仍为 1。产物在
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_seat_action_v1/`。
+- 阶段 4 Poker Legends host dry-run v0：已新增 macOS host 侧捕获/点击规划骨架，不引入第三方下载。
+  `MacOSScreenCapture` 只调用 macOS 自带 `screencapture -x`（可选 `-l <window_id>`），输出
+  `CapturedFrame` 与 image 坐标系 metadata；`PokerLegendsLayoutClickPlanner` 把通用 `Action`
+  保守映射到三主按钮中心：`check/call -> primary_left`、`bet/raise/all_in -> primary_middle`、
+  `fold -> primary_right`；`PokerLegendsDryRunAutomator` 只写 JSONL 审计日志，`executed=false`，
+  不做真实点击。命令行入口为 `uv run holdem-bot-capture-macos-screen --out-dir ...` 与
+  `uv run holdem-bot-plan-poker-legends-click --layout-annotation ... --action ...`。该阶段仍停在
+  dry-run，不进入真 Poker Legends 点击测试。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  119 tests）。
+  125 tests）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：Poker Legends truth 复核与牌面/按钮/筹码识别到 GameState**
+**下一步：AI 策略升级与 dry-run 集成收口**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 reviewed truth overlay（session_001 v1 /
   session_002 v5 / session_002 auto review v2）评估，不让可疑帧进入 `ai.decide()`。
 - 继续在更多样本上验证右下买入提示、左侧活动栏、中心弹窗等 blocked overlay 信号；安全口径仍是
@@ -250,7 +258,11 @@
 - 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：对剩余 10 个 fail-closed actionable
   帧逐一归类；能用 reviewed truth 明确修正的继续收敛，无法确认的保留停手。只有当 screen、牌面、
   按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` /
-  `low_confidence`。离线 state 稳定性达标后再进入 macOS 捕获与 dry-run 自动化。
+  `low_confidence`。
+- 把 macOS 捕获、ScreenState/Table recognizer、`ai.decide()`、dry-run automator 串成可审计的
+  单步/循环 dry-run 命令；真实点击仍需单独开闸。
+- 升级 `holdem_ai`：保持 `decide(state) -> Action` 通用入口，先补可解释的下一版启发式策略与策略
+  metadata/测试，不急着引入重训练依赖。
 
 **环境备注（容器内）**
 - 你在 Linux devcontainer 里，用户 `node`，`UV_PROJECT_ENVIRONMENT=/workspace/.venv-docker`。

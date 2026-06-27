@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 holdem-bot-apply-poker-legends-layout = "holdem_bot.vision.poker_legends_layout:main"
+holdem-bot-capture-macos-screen = "holdem_bot.adapters.poker_legends_host:capture_main"
 holdem-bot-evaluate-fixture = "holdem_bot.vision.evaluate:main"
 holdem-bot-build-poker-legends-truth = "holdem_bot.vision.poker_legends_truth:main"
 holdem-bot-build-poker-legends-card-classifier = "holdem_bot.vision.poker_legends_card_classifier:main"
@@ -30,6 +31,7 @@ holdem-bot-scan-poker-legends-screen-state = "holdem_bot.vision.poker_legends_sc
 holdem-bot-build-poker-legends-session-timeline = "holdem_bot.vision.poker_legends_session:main"
 holdem-bot-ingest-video = "holdem_bot.vision.video:main"
 holdem-bot-llm-annotate = "holdem_bot.vision.llm_annotation:main"
+holdem-bot-plan-poker-legends-click = "holdem_bot.adapters.poker_legends_host:plan_click_main"
 holdem-bot-select-keyframes = "holdem_bot.vision.selection:main"
 
 [tool.uv.sources]
