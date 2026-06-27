@@ -60,6 +60,14 @@ class SettlementView:
     rows: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class TurnIndicatorView:
+    title: str
+    subtitle: str
+    progress: float
+    urgent: bool = False
+
+
 class TableView:
     def __init__(self, size: tuple[int, int]) -> None:
         self.size = size
@@ -81,6 +89,7 @@ class TableView:
         amount_text: str | None = None,
         session_text: str | None = None,
         settlement: SettlementView | None = None,
+        turn_indicator: TurnIndicatorView | None = None,
     ) -> None:
         width, height = self.size
         surface.fill(BACKGROUND)
@@ -88,6 +97,7 @@ class TableView:
         self._draw_board(surface, state)
         self._draw_players(surface, state, human_seat=human_seat)
         self._draw_status(surface, state, message, show_title=settlement is None)
+        self._draw_turn_indicator(surface, turn_indicator if settlement is None else None)
         self._draw_session(surface, session_text)
         self._draw_action_log(surface, action_log)
         self._draw_amount_input(surface, amount_text)
@@ -241,6 +251,41 @@ class TableView:
         pygame.draw.rect(surface, (24, 33, 35), rect, border_radius=8)
         pygame.draw.rect(surface, BUTTON_FILL, rect, width=2, border_radius=8)
         self._draw_text(surface, amount_text, self.small_font, TEXT, rect.center)
+
+    def _draw_turn_indicator(
+        self,
+        surface: pygame.Surface,
+        turn_indicator: TurnIndicatorView | None,
+    ) -> None:
+        if turn_indicator is None:
+            return
+
+        rect = self.turn_indicator_rect()
+        progress = min(1.0, max(0.0, turn_indicator.progress))
+        accent = GOLD_ACCENT if turn_indicator.urgent else CYAN_ACCENT
+        pygame.draw.rect(surface, (18, 26, 31), rect, border_radius=8)
+        pygame.draw.rect(surface, accent, rect, width=2, border_radius=8)
+
+        bar_rect = pygame.Rect(rect.x + 12, rect.bottom - 12, rect.width - 24, 4)
+        pygame.draw.rect(surface, (51, 63, 65), bar_rect, border_radius=2)
+        fill = pygame.Rect(bar_rect.x, bar_rect.y, int(bar_rect.width * progress), bar_rect.height)
+        if fill.width:
+            pygame.draw.rect(surface, accent, fill, border_radius=2)
+
+        self._draw_text(
+            surface,
+            turn_indicator.title,
+            self.small_font,
+            TEXT,
+            (rect.centerx, rect.y + 17),
+        )
+        self._draw_text(
+            surface,
+            turn_indicator.subtitle,
+            self.small_font,
+            MUTED,
+            (rect.centerx, rect.y + 39),
+        )
 
     def _draw_settlement(
         self,
@@ -606,6 +651,12 @@ class TableView:
         width, height = self.size
         rect = pygame.Rect(0, 0, min(360, width - 80), 34)
         rect.center = (width // 2, height - 132)
+        return rect
+
+    def turn_indicator_rect(self) -> pygame.Rect:
+        width, _height = self.size
+        rect = pygame.Rect(0, 0, min(310, width - 80), 60)
+        rect.center = (width // 2, 88)
         return rect
 
     def settlement_rect(self) -> pygame.Rect:

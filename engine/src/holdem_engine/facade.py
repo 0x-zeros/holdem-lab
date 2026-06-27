@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 
 from holdem_common import Action, ActionType, GameState
-from pokerkit import Automation, Mode, NoLimitTexasHoldem
+from pokerkit import Automation, Folding, Mode, NoLimitTexasHoldem
 from pokerkit import Card as PokerKitCard
 from pokerkit import State as PokerKitState
 
@@ -58,7 +58,7 @@ class PokerKitFacade:
 
         match action.action_type:
             case ActionType.FOLD:
-                state.fold()
+                self._fold(state)
             case ActionType.CHECK | ActionType.CALL:
                 self._check_or_call(action)
             case ActionType.BET | ActionType.RAISE:
@@ -88,6 +88,27 @@ class PokerKitFacade:
         if amount is None:
             raise ValueError("betting or raising is not legal in the current state")
         return amount
+
+    def _fold(self, state: PokerKitState) -> None:
+        try:
+            state.fold()
+        except ValueError as exc:
+            if str(exc) != "There is no reason for this player to fold.":
+                raise
+            self._fold_without_call_pressure(state)
+
+    def _fold_without_call_pressure(self, state: PokerKitState) -> None:
+        # Commercial poker UIs often expose a Fold button even when Check is free.
+        # PokerKit tournament mode rejects that in verify_folding(), so this keeps
+        # the narrow UI action without exposing free fold to agent legal actions.
+        if state.checking_or_calling_amount != 0 or state.actor_index is None:
+            raise ValueError("free fold is only supported when checking is free")
+
+        player_index = state._pop_actor_index()
+        assert state.stacks[player_index]
+        state._muck_hole_cards(player_index)
+        assert any(state.statuses)
+        state._update_betting(Folding(player_index))
 
     def _check_or_call(self, action: Action) -> None:
         state = self._require_state()

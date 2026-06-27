@@ -15,13 +15,21 @@ from holdem_bot.adapters import ActionCallbackAutomator, StateCapture, StateReco
 from holdem_common import Action, ActionType, GameState
 from holdem_engine import HoldemConfig, HoldemEnv
 
-from holdem_game.table_view import ActionButton, SettlementView, TableView, label_for_action
+from holdem_game.table_view import (
+    ActionButton,
+    SettlementView,
+    TableView,
+    TurnIndicatorView,
+    label_for_action,
+)
 
 DEFAULT_SIZE = (1180, 760)
 DEFAULT_SMALL_BLIND = 5
 DEFAULT_BIG_BLIND = 10
 DEFAULT_STARTING_BIG_BLINDS = 100
 DEFAULT_PLAYERS = 3
+DEFAULT_AI_DELAY_MS = 700
+DEFAULT_TURN_TIMEOUT_SEC = 30
 _HAND_RANK_NAMES = {
     8: "straight flush",
     7: "quads",
@@ -43,6 +51,8 @@ class HoldemGameApp:
         human_seat: int = 0,
         bot_seat: int | None = None,
         bot_delay_ms: int = 450,
+        ai_delay_ms: int = DEFAULT_AI_DELAY_MS,
+        turn_timeout_ms: int = DEFAULT_TURN_TIMEOUT_SEC * 1000,
         ai_profile_name: str = "current",
         size: tuple[int, int] = DEFAULT_SIZE,
     ) -> None:
@@ -54,8 +64,13 @@ class HoldemGameApp:
         self.human_seat = human_seat
         self.bot_seat = bot_seat
         self.bot_delay_ms = bot_delay_ms
+        self.ai_delay_ms = max(0, ai_delay_ms)
+        self.turn_timeout_ms = max(1_000, turn_timeout_ms)
         self.ai_profile = profile_from_name(ai_profile_name)
         self.last_bot_action_ms = 0
+        self.local_ai_ready_at_ms: int | None = None
+        self.turn_seat: int | None = None
+        self.turn_started_ms = pygame.time.get_ticks()
         self.base_config = config or HoldemConfig(
             starting_stacks=tuple(
                 DEFAULT_BIG_BLIND * DEFAULT_STARTING_BIG_BLINDS for _ in range(DEFAULT_PLAYERS)
@@ -74,6 +89,7 @@ class HoldemGameApp:
         self.session_profit = tuple(0 for _ in self.initial_stacks)
         self.hand_number = 0
         self.hand_settled = False
+        self.terminal_announced = False
         self.ai_paused = False
         self.env = HoldemEnv(self.base_config)
         self.state: GameState
@@ -95,8 +111,8 @@ class HoldemGameApp:
         self.action_log = [f"Hand {self.hand_number}"]
         self.bet_input = ""
         self.hand_settled = False
-        self._advance_ai_to_controlled_seat()
-        self._refresh_buttons()
+        self.terminal_announced = False
+        self._after_state_change(force_new_turn=True)
 
     def run(self) -> NoReturn:
         while True:
@@ -108,8 +124,11 @@ class HoldemGameApp:
             self.draw()
             self.clock.tick(30)
 
-    def tick(self, *, force_bot: bool = False) -> BotStepResult | None:
+    def tick(self, *, force_bot: bool = False, force_ai: bool = False) -> BotStepResult | None:
+        self._sync_turn_state()
         if self.ai_paused:
+            return None
+        if self._tick_local_ai(force_ai=force_ai):
             return None
         if self.bot_orchestrator is None or self.state.current_seat != self.bot_seat:
             return None
@@ -128,7 +147,7 @@ class HoldemGameApp:
                 action=result.action,
                 policy_decision=result.policy_decision,
             )
-        self._refresh_buttons()
+        self._after_state_change()
         return result
 
     def draw(self) -> None:
@@ -143,6 +162,7 @@ class HoldemGameApp:
             amount_text=self._amount_text(),
             session_text=self._session_text() if self.show_session_panel else None,
             settlement=self._settlement_view(),
+            turn_indicator=self._turn_indicator_view(),
         )
 
     def visible_state(self) -> GameState:
@@ -188,53 +208,89 @@ class HoldemGameApp:
         self.state = result.observation
         self.bet_input = ""
         self._record_action("You", action)
-        self._advance_ai_to_controlled_seat()
-        self._refresh_buttons()
+        self._after_state_change()
 
     def _apply_bot_action(self, action: Action) -> None:
         result = self.env.step(action)
         self.state = result.observation
         self._record_action(f"Bot {self.bot_seat}", action)
-        self._advance_ai_to_controlled_seat()
+        self._after_state_change()
+
+    def _after_state_change(self, *, force_new_turn: bool = False) -> None:
+        self._sync_turn_state(force_new_turn=force_new_turn)
+        if self.state.current_seat is None:
+            self._handle_terminal_state()
+        elif self.ai_paused and self._is_local_ai_turn():
+            self.message = f"AI paused  Seat {self.state.current_seat}"
+        elif self._is_local_ai_turn():
+            self._schedule_local_ai()
+            if not self.message.startswith(f"AI {self.state.current_seat}:"):
+                self.message = f"AI {self.state.current_seat} thinking"
+        elif self.state.current_seat == self.bot_seat:
+            self.message = f"Bot seat {self.bot_seat} thinking"
+        elif self.state.current_seat == self.human_seat:
+            self.message = f"Your turn  Seat {self.human_seat}"
         self._refresh_buttons()
 
-    def _advance_ai_to_controlled_seat(self) -> None:
-        steps = 0
-        while (
-            self.state.current_seat is not None
-            and self.state.current_seat != self.human_seat
-            and self.state.current_seat != self.bot_seat
-            and not self.ai_paused
-        ):
-            if steps >= 100:
-                raise RuntimeError("AI action loop exceeded 100 steps")
-            seat = self.state.current_seat
-            policy_decision = self.ai_profile.policy.explain(self.env.observe(seat=seat))
-            action = policy_decision.action
-            result = self.env.step(action)
-            self.state = result.observation
-            self._record_action(f"AI {seat}", action, policy_decision=policy_decision)
-            steps += 1
-
-        if (
-            self.ai_paused
-            and self.state.current_seat is not None
-            and self.state.current_seat != self.human_seat
-            and self.state.current_seat != self.bot_seat
-        ):
-            self.message = f"AI paused  Seat {self.state.current_seat}"
+    def _sync_turn_state(self, *, force_new_turn: bool = False) -> None:
+        seat = self.state.current_seat
+        if not force_new_turn and seat == self.turn_seat:
             return
 
-        if self.state.current_seat is None:
-            self._settle_session_stacks()
-            self.message = self._terminal_summary()
-            if not self.action_log or self.action_log[-1] != self.message:
-                self.action_log.append(self.message)
-                self.action_log = self.action_log[-8:]
-            showdown = self._showdown_summary()
-            if showdown is not None and self.action_log[-1] != showdown:
-                self.action_log.append(showdown)
-                self.action_log = self.action_log[-8:]
+        now = pygame.time.get_ticks()
+        self.turn_seat = seat
+        self.turn_started_ms = now
+        self.local_ai_ready_at_ms = None
+        if seat == self.bot_seat:
+            self.last_bot_action_ms = now
+
+    def _is_local_ai_turn(self) -> bool:
+        seat = self.state.current_seat
+        return seat is not None and seat != self.human_seat and seat != self.bot_seat
+
+    def _schedule_local_ai(self) -> None:
+        if self.local_ai_ready_at_ms is None:
+            self.local_ai_ready_at_ms = pygame.time.get_ticks() + self.ai_delay_ms
+
+    def _tick_local_ai(self, *, force_ai: bool = False) -> bool:
+        if not self._is_local_ai_turn():
+            return False
+
+        self._schedule_local_ai()
+        now = pygame.time.get_ticks()
+        if (
+            not force_ai
+            and self.local_ai_ready_at_ms is not None
+            and now < self.local_ai_ready_at_ms
+        ):
+            return False
+
+        seat = self.state.current_seat
+        if seat is None:
+            return False
+
+        policy_decision = self.ai_profile.policy.explain(self.env.observe(seat=seat))
+        action = policy_decision.action
+        result = self.env.step(action)
+        self.state = result.observation
+        self._record_action(f"AI {seat}", action, policy_decision=policy_decision)
+        self._after_state_change()
+        return True
+
+    def _handle_terminal_state(self) -> None:
+        if self.terminal_announced:
+            return
+
+        self._settle_session_stacks()
+        self.message = self._terminal_summary()
+        if not self.action_log or self.action_log[-1] != self.message:
+            self.action_log.append(self.message)
+            self.action_log = self.action_log[-8:]
+        showdown = self._showdown_summary()
+        if showdown is not None and self.action_log[-1] != showdown:
+            self.action_log.append(showdown)
+            self.action_log = self.action_log[-8:]
+        self.terminal_announced = True
 
     def _config_for_hand(self, hand_number: int) -> HoldemConfig:
         player_count = len(self.base_config.starting_stacks)
@@ -272,8 +328,19 @@ class HoldemGameApp:
             self.buttons = []
             return
 
-        button_specs = self._button_specs_for_actions(self.state.legal_actions)
+        button_specs = self._button_specs_for_actions(self._human_button_actions())
         self.buttons = self._layout_buttons(button_specs)
+
+    def _human_button_actions(self) -> tuple[Action, ...]:
+        actions = list(self.state.legal_actions)
+        action_types = {action.action_type for action in actions}
+        if (
+            self.state.current_seat == self.human_seat
+            and ActionType.FOLD not in action_types
+            and ActionType.CHECK in action_types
+        ):
+            actions.append(Action(ActionType.FOLD))
+        return tuple(actions)
 
     def _button_specs_for_actions(
         self,
@@ -442,6 +509,41 @@ class HoldemGameApp:
         value = self.bet_input or "-"
         return f"Amount {value}  Range {template.min_amount}-{template.max_amount}"
 
+    def _turn_indicator_view(self) -> TurnIndicatorView | None:
+        seat = self.state.current_seat
+        if seat is None:
+            return None
+
+        now = pygame.time.get_ticks()
+        elapsed_ms = max(0, now - self.turn_started_ms)
+        timeout_ms = max(1, self.turn_timeout_ms)
+        remaining_ms = max(0, timeout_ms - elapsed_ms)
+        progress = min(1.0, elapsed_ms / timeout_ms)
+        urgent = remaining_ms <= 5_000
+
+        if seat == self.human_seat:
+            title = f"Turn: {self._seat_label(seat)}"
+            subtitle = f"{remaining_ms / 1000:.1f}s left"
+        elif seat == self.bot_seat:
+            wait_ms = max(0, self.bot_delay_ms - (now - self.last_bot_action_ms))
+            title = f"Turn: Bot {seat}"
+            subtitle = f"Acting in {wait_ms / 1000:.1f}s  Max {timeout_ms / 1000:.0f}s"
+        elif self.ai_paused:
+            title = f"Turn: {self._seat_label(seat)}"
+            subtitle = f"Paused  Max {timeout_ms / 1000:.0f}s"
+        else:
+            ready_at = self.local_ai_ready_at_ms or now + self.ai_delay_ms
+            wait_ms = max(0, ready_at - now)
+            title = f"Turn: {self._seat_label(seat)}"
+            subtitle = f"Thinking {wait_ms / 1000:.1f}s  Max {timeout_ms / 1000:.0f}s"
+
+        return TurnIndicatorView(
+            title=title,
+            subtitle=subtitle,
+            progress=progress,
+            urgent=urgent,
+        )
+
     def _set_amount_message(self) -> None:
         amount_text = self._amount_text()
         if amount_text is not None:
@@ -589,8 +691,7 @@ class HoldemGameApp:
             self.message = "AI paused"
             return
         self.message = "AI resumed"
-        self._advance_ai_to_controlled_seat()
-        self._refresh_buttons()
+        self._after_state_change(force_new_turn=True)
 
     def _bot_visible_state(self) -> GameState:
         if self.bot_seat is None or self.state.current_seat is None:
@@ -662,6 +763,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=450,
         help="Delay between automated bot actions.",
     )
+    parser.add_argument(
+        "--ai-delay-ms",
+        type=_non_negative_int,
+        default=DEFAULT_AI_DELAY_MS,
+        help="Delay before each local AI action.",
+    )
+    parser.add_argument(
+        "--turn-timeout-sec",
+        type=_positive_int,
+        default=DEFAULT_TURN_TIMEOUT_SEC,
+        help="Displayed maximum wait time for the current turn.",
+    )
     return parser
 
 
@@ -689,6 +802,13 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
+
+
 def main(argv: Sequence[str] | None = None) -> NoReturn:
     args = build_arg_parser().parse_args(argv)
     players = players_from_args(args)
@@ -703,6 +823,8 @@ def main(argv: Sequence[str] | None = None) -> NoReturn:
         human_seat=args.human_seat,
         bot_seat=args.bot_seat,
         bot_delay_ms=args.bot_delay_ms,
+        ai_delay_ms=args.ai_delay_ms,
+        turn_timeout_ms=args.turn_timeout_sec * 1000,
         ai_profile_name=args.ai_profile,
     )
     app.run()

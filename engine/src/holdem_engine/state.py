@@ -33,10 +33,10 @@ def cards_from_pokerkit(cards: Iterable[PokerKitCard]) -> tuple[Card, ...]:
 def legal_actions_from_pokerkit(state: PokerKitState) -> tuple[Action, ...]:
     actions: list[Action] = []
 
-    if state.can_fold():
+    call_amount = state.checking_or_calling_amount
+    if call_amount and call_amount > 0 and state.can_fold():
         actions.append(Action(ActionType.FOLD))
 
-    call_amount = state.checking_or_calling_amount
     if call_amount is not None:
         action_type = ActionType.CHECK if call_amount == 0 else ActionType.CALL
         actions.append(Action(action_type, amount=call_amount))

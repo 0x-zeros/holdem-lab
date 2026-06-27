@@ -83,6 +83,29 @@ def test_calling_round_advances_to_flop() -> None:
     assert all(player.committed == 2 for player in state.players)
 
 
+def test_free_fold_is_supported_but_not_exposed_as_agent_legal_action() -> None:
+    env = HoldemEnv(
+        HoldemConfig(
+            starting_stacks=(100, 100, 100),
+            deck=cards("As", "Ks", "Qs", "Ah", "Kh", "Qh", "2c", "7d", "9s", "Jc"),
+        ),
+    )
+    state = env.reset()
+
+    for action_type in (ActionType.CALL, ActionType.CALL, ActionType.CHECK):
+        action = next(action for action in state.legal_actions if action.action_type == action_type)
+        state = env.step(action).observation
+
+    assert state.to_call == 0
+    assert ActionType.FOLD not in {action.action_type for action in state.legal_actions}
+
+    folded_seat = state.current_seat
+    assert folded_seat is not None
+    state = env.step(Action(ActionType.FOLD)).observation
+
+    assert not state.player(folded_seat).active
+
+
 def test_env_step_returns_zero_rewards_before_terminal_state() -> None:
     env = HoldemEnv(HoldemConfig(starting_stacks=(100, 100, 100)))
     state = env.reset(seed=1)

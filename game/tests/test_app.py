@@ -18,6 +18,14 @@ def cards(*codes: str) -> tuple[Card, ...]:
     return tuple(Card.from_code(code) for code in codes)
 
 
+def drive_ai_until_controlled(app: HoldemGameApp, *, max_steps: int = 20) -> None:
+    for _ in range(max_steps):
+        if app.state.current_seat in {None, app.human_seat, app.bot_seat}:
+            return
+        app.tick(force_ai=True)
+    raise AssertionError("AI did not return control to a human or bot seat")
+
+
 def test_app_renders_table_in_dummy_video_driver() -> None:
     app = HoldemGameApp(
         HoldemConfig(
@@ -27,6 +35,7 @@ def test_app_renders_table_in_dummy_video_driver() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         app.draw()
 
         assert app.screen.get_at((450, 310)) != pygame.Color(0, 0, 0, 255)
@@ -44,6 +53,7 @@ def test_app_handles_human_action_click() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         before = app.state
         button = app.buttons[0]
 
@@ -68,6 +78,7 @@ def test_app_exposes_multiple_raise_sizes() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         raise_amounts = [
             button.action.amount
             for button in app.buttons
@@ -89,6 +100,7 @@ def test_app_handles_keyboard_call_shortcut() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         before = app.state
 
         app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_c}))
@@ -108,6 +120,7 @@ def test_app_accepts_custom_raise_amount_from_keyboard() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_9, "unicode": "9"}))
 
         assert app.bet_input == "9"
@@ -135,6 +148,7 @@ def test_app_edits_custom_bet_amount_with_backspace_and_arrows() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_1, "unicode": "1"}))
         app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_0, "unicode": "0"}))
         app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_BACKSPACE}))
@@ -183,6 +197,7 @@ def test_app_reports_readable_terminal_summary() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         fold_button = next(
             button
             for button in app.buttons
@@ -226,6 +241,7 @@ def test_app_logs_showdown_hand_categories() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         all_in_button = next(
             button
             for button in app.buttons
@@ -238,6 +254,7 @@ def test_app_logs_showdown_hand_categories() -> None:
                 {"button": 1, "pos": all_in_button.rect.center},
             ),
         )
+        drive_ai_until_controlled(app)
 
         assert app.state.current_seat is None
         assert any(line.startswith("Showdown") for line in app.action_log)
@@ -260,6 +277,7 @@ def test_app_can_pause_ai_auto_advance() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_p}))
         app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_c}))
 
@@ -270,7 +288,88 @@ def test_app_can_pause_ai_auto_advance() -> None:
         app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_p}))
 
         assert not app.ai_paused
+        drive_ai_until_controlled(app)
         assert app.state.current_seat in {None, app.human_seat}
+    finally:
+        app.close()
+
+
+def test_app_delays_local_ai_actions_until_tick_ready() -> None:
+    app = HoldemGameApp(
+        HoldemConfig(
+            starting_stacks=(100, 100, 100),
+            deck=cards("As", "Ks", "Qh", "Ah", "Kh", "Jd", "2c", "7d", "9s", "Jc", "3h"),
+        ),
+        ai_delay_ms=10_000,
+        size=(900, 620),
+    )
+    try:
+        assert app.state.current_seat not in {None, app.human_seat}
+        before = app.state
+
+        app.tick()
+
+        assert app.state is before
+        assert app.local_ai_ready_at_ms is not None
+
+        app.tick(force_ai=True)
+
+        assert app.state is not before
+        assert any("AI " in line and "(" in line for line in app.action_log)
+    finally:
+        app.close()
+
+
+def test_app_exposes_turn_indicator_for_current_seat() -> None:
+    app = HoldemGameApp(
+        HoldemConfig(
+            starting_stacks=(100, 100, 100),
+            deck=cards("As", "Ks", "Qh", "Ah", "Kh", "Jd", "2c", "7d", "9s", "Jc", "3h"),
+        ),
+        turn_timeout_ms=20_000,
+        size=(900, 620),
+    )
+    try:
+        indicator = app._turn_indicator_view()
+
+        assert indicator is not None
+        assert indicator.title == "Turn: AI 2"
+        assert "Max 20s" in indicator.subtitle
+    finally:
+        app.close()
+
+
+def test_app_keeps_fold_button_when_check_is_free_for_human() -> None:
+    app = HoldemGameApp(
+        HoldemConfig(
+            starting_stacks=(100, 100, 100),
+            deck=cards("As", "Ks", "Qh", "Ah", "Kh", "Jd", "2c", "7d", "9s", "Jc", "3h"),
+        ),
+        human_seat=1,
+        size=(900, 620),
+    )
+    try:
+        for action_type in (ActionType.CALL, ActionType.CALL):
+            action = next(
+                action for action in app.state.legal_actions if action.action_type is action_type
+            )
+            app.state = app.env.step(action).observation
+        app._after_state_change(force_new_turn=True)
+
+        assert app.state.current_seat == app.human_seat
+        assert app.state.to_call == 0
+        assert ActionType.FOLD not in {action.action_type for action in app.state.legal_actions}
+        assert any(
+            button.action is not None and button.action.action_type is ActionType.FOLD
+            for button in app.buttons
+        )
+
+        before_active = app.state.player(app.human_seat).active
+        app.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_f}))
+
+        assert before_active
+        assert not app.state.player(app.human_seat).active
+        assert any(line.startswith("You: Fold") for line in app.action_log)
     finally:
         app.close()
 
@@ -286,6 +385,7 @@ def test_app_can_drive_human_seat_through_bot_pipeline() -> None:
         size=(900, 620),
     )
     try:
+        drive_ai_until_controlled(app)
         before = app.state
 
         result = app.tick(force_bot=True)
@@ -306,6 +406,7 @@ def test_app_logs_ai_policy_reason() -> None:
         size=(900, 620),
     )
     try:
+        app.tick(force_ai=True)
         assert any("AI " in line and "(" in line for line in app.action_log)
     finally:
         app.close()
@@ -361,6 +462,10 @@ def test_arg_parser_accepts_table_and_bot_config() -> None:
             "0",
             "--bot-delay-ms",
             "25",
+            "--ai-delay-ms",
+            "900",
+            "--turn-timeout-sec",
+            "45",
             "--ai-profile",
             "loose",
         ]
@@ -375,6 +480,8 @@ def test_arg_parser_accepts_table_and_bot_config() -> None:
     assert args.big_blind == 10
     assert args.bot_seat == 0
     assert args.bot_delay_ms == 25
+    assert args.ai_delay_ms == 900
+    assert args.turn_timeout_sec == 45
     assert args.ai_profile == "loose"
     assert blinds_from_args(args) == (5, 10)
     assert starting_stack_from_args(args, big_blind=10) == 500

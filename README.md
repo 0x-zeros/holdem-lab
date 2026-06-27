@@ -104,6 +104,14 @@ uv run holdem-game-heads-up --stake-level 2   # 10/20，默认 2000 筹码
 uv run holdem-game-heads-up --stake-level 3   # 20/40，默认 4000 筹码
 ```
 
+调整游戏节奏：
+
+```bash
+uv run holdem-game-heads-up --ai-delay-ms 900 --turn-timeout-sec 30
+```
+
+本地 AI 默认每次行动前等待 `700ms`；屏幕会显示当前轮到的座位和最大等待倒计时。
+
 选择 AI profile：
 
 ```bash
@@ -124,8 +132,8 @@ uv run holdem-game-heads-up --ai-profile no_equity
 
 更多操作说明见 [`docs/local-game.md`](docs/local-game.md)。
 
-一手结束后游戏会停在结算面板，显示赢家、你的本手输赢、各座位 payoff 和摊牌牌型；按 `N` 或点击
-`Next hand` 才进入下一手。
+一手结束后游戏会停在结算面板，显示赢家、你的本手输赢、各座位 payoff 和摊牌牌型；按 `N`
+或点击 `Next hand` 才进入下一手。
 
 ## AI 评估
 

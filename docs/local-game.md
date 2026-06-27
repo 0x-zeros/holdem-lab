@@ -45,6 +45,18 @@ uv run holdem-game-heads-up --stake-level 2   # 10/20，默认 2000 筹码
 uv run holdem-game-heads-up --stake-level 3   # 20/40，默认 4000 筹码
 ```
 
+## 游戏节奏
+
+牌桌顶部会显示当前轮到的座位和最大等待倒计时。默认本地 AI 每次行动前等待 `700ms`，
+让一人对 AI 试玩更接近正常游戏节奏：
+
+```bash
+uv run holdem-game-heads-up --ai-delay-ms 900 --turn-timeout-sec 30
+```
+
+`--ai-delay-ms 0` 可恢复测试用的近即时 AI 行动；`--turn-timeout-sec` 目前只控制界面显示，
+不会自动替玩家操作。
+
 ## AI profile
 
 本地游戏和 AI 评估器共用同一组 profile：
@@ -74,6 +86,9 @@ uv run holdem-game-heads-up --ai-profile no_equity
 - 一手结束后会停在结算面板，显示赢家、payoff 和摊牌牌型。
 - `N` 或点击 `Next hand` 开下一手。
 - Escape 退出。
+
+说明：`GameState.legal_actions` 仍只在需要跟注时暴露 Fold，避免 AI 在可以免费 Check 时学到
+无意义弃牌；pygame 人类 UI 会额外保留 Fold 按钮，用来模拟商业牌局的快捷操作。
 
 ## bot-seat 说明
 

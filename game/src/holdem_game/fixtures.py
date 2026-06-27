@@ -63,6 +63,7 @@ def write_pygame_fixture(
         size=size,
     )
     try:
+        _drive_ai_until_human(app)
         app.action_log = []
         app.show_session_panel = False
         app.draw()
@@ -72,6 +73,14 @@ def write_pygame_fixture(
         return annotation
     finally:
         app.close()
+
+
+def _drive_ai_until_human(app: HoldemGameApp, *, max_steps: int = 20) -> None:
+    for _ in range(max_steps):
+        if app.state.current_seat in {None, app.human_seat}:
+            return
+        app.tick(force_ai=True)
+    raise RuntimeError("fixture AI did not return control to the human seat")
 
 
 def build_table_annotation(
