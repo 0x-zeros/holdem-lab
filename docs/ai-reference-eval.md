@@ -37,6 +37,14 @@ All numbers are **bb/100 from the focal policy's perspective** (higher = better)
   modest samples — e.g. `*` vs `rock` @25bb = +69.8 bb/100, CI [+68.3, +71.1]
   over 1600 hands. Deep all-in pots stay wide (maniac @100bb spans hundreds),
   which is honest poker variance, not a harness defect.
+- **Open-jam is opponent-dependent (S2c-3).** A follow-up crossover (5/6/8/10bb,
+  not in the tables above) showed full `pushfold` open-jamming beats `current` vs
+  the maniac at *every* depth (+41/+37/+63/+67 bb/100) but loses to it vs `tag` at
+  every depth (−12/−14/−14/−26 — the cost does not vanish when short). So it is an
+  exploit of aggression, not a universal gain: the shipped `hybrid` profile keeps
+  only the unexploitable call-vs-jam floor (≈ `current` here, since these
+  opponents rarely jam all-in) and leaves full takeover to `pushfold` for known
+  aggressive tables. An opponent-adaptive switch is future work (S4).
 
 ## 10bb effective — 1200 pairs (2400 hands/matchup)
 

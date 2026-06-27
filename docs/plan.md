@@ -360,8 +360,15 @@
   摊牌让 min-raise/2.5x 被 limp-or-jam 严格支配；加单参数 `oop_realization`(R=0.85，位置/主动权粗代理)后尺度才被
   使用（8bb 多 jam、12bb 宽 limp、16bb 出 2.5x）。`test_preflop_game_v2` 覆盖可遍历/零和、近纳什、分布归一、
   越浅越 jam、R=1 退化 vs R<1 尺度涌现。诚实边界：R 有 artifact、非真翻后(→S3)，蓝图尚未接出牌(→S2c-3)。
+- 阶段 3 AI S2c-3（CFR 作启发式护栏）：用 CRN+CI harness **先证伪再落地**。给 `PushFoldPolicy` 加 `defend_only`，
+  落成 `hybrid` profile（启发式出牌 + blueprint 只供不可剥削的跟注-vs-jam 下限，开池交还启发式）。**关键发现**：
+  原假设"防守叠加同时拿 vs maniac/tag"被证伪——maniac 打 pot-size 而非全下，`_is_facing_jam` 少触发，pushfold
+  赢 maniac 靠主动 open-jam；而 open-jam 在 5/6/8/10bb **全大胜 maniac**（+41/+37/+63/+67）却**全输 tag**
+  （−12/−14/−14/−26，5bb 也不消失）=对手相关剥削、非普适增益。故 `hybrid`=只上不可剥削下限（≈current、对真 jam
+  对手 + 且零成本），完整 `pushfold` 留给已知激进桌；二者并存，并**界定 S4 对手自适应的必要性**。
+  `test_blueprint` 加 defend_only 行为 + CFR profile 解析。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  234 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match pushfold tag --pairs 20`（CRN+CI）。
+  236 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match hybrid maniac --pairs 20`（CRN+CI）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

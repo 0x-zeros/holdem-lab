@@ -29,8 +29,12 @@ REFERENCE_PROFILE_NAMES = (
     "tag",
     "three_bet_jammer",
 )
-#: CFR-solved blueprint policies.
-CFR_PROFILE_NAMES = ("pushfold",)
+#: CFR-solved blueprint policies. ``pushfold`` fully takes over short-stack
+#: heads-up preflop (open-jam + call); ``hybrid`` is the strict-safe guardrail —
+#: the heuristic plays, the blueprint only supplies the unexploitable call-vs-jam
+#: floor (opening is left to the heuristic, which preserves value vs opponents
+#: that defend correctly).
+CFR_PROFILE_NAMES = ("pushfold", "hybrid")
 PROFILE_NAMES = HEURISTIC_PROFILE_NAMES + REFERENCE_PROFILE_NAMES + CFR_PROFILE_NAMES
 
 
@@ -90,5 +94,7 @@ def profile_from_name(name: str) -> PolicyProfile:
             return PolicyProfile("three_bet_jammer", ThreeBetJammerPolicy())
         case "pushfold":
             return PolicyProfile("pushfold", PushFoldPolicy())
+        case "hybrid":
+            return PolicyProfile("hybrid", PushFoldPolicy(defend_only=True))
         case _:
             raise ValueError(f"unknown profile: {name}")

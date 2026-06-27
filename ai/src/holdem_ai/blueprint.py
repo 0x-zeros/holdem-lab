@@ -44,6 +44,7 @@ class PushFoldPolicy:
         max_jam_bb: int = 12,
         iterations: int = 400,
         mode: str = "mixed",
+        defend_only: bool = False,
         fallback: Policy | None = None,
     ) -> None:
         if mode not in _MODES:
@@ -51,6 +52,11 @@ class PushFoldPolicy:
         self._max_jam_bb = max_jam_bb
         self._iterations = iterations
         self._mode = mode
+        # When True the blueprint only supplies the (unexploitable) call-vs-jam
+        # defence and leaves opening to the fallback. The reference grid showed
+        # blind open-jamming loses value against opponents that defend correctly,
+        # while the calling floor is what patches the heuristic's leak vs maniacs.
+        self._defend_only = defend_only
         self._fallback: Policy = fallback or HeuristicPolicy()
         self._cache: dict[int, PushFoldBlueprint] = {}
 
@@ -93,7 +99,7 @@ class PushFoldPolicy:
         blueprint = self._blueprint(stack_key)
         context = _Context(bucket, effective_bb, stack_key)
 
-        if _is_button_open(state) and ActionType.ALL_IN in legal:
+        if not self._defend_only and _is_button_open(state) and ActionType.ALL_IN in legal:
             jam_prob = blueprint.sb_jam[bucket]
             if self._take_action(state, bucket, jam_prob):
                 return _decision(

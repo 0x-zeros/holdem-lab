@@ -1,5 +1,6 @@
 from holdem_ai import Policy
 from holdem_ai.blueprint import PushFoldPolicy
+from holdem_ai.profiles import CFR_PROFILE_NAMES, profile_from_name
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
 
 
@@ -164,6 +165,29 @@ def test_big_blind_handles_a_covered_jam() -> None:
     fold = policy.explain(facing_jam_state(cards("3c", "2d")))
     assert fold.action.action_type is ActionType.FOLD
     assert fold.reason == "pushfold_overfold"
+
+
+def test_defend_only_skips_opening_but_keeps_the_calling_floor() -> None:
+    policy = PushFoldPolicy(defend_only=True)
+    # Button open spot: defend_only leaves opening to the fallback heuristic,
+    # which preserves value against opponents that defend correctly.
+    opening = policy.explain(button_open_state(cards("As", "Ah"), effective=18))
+    assert not opening.reason.startswith("pushfold")
+    # Facing a jam: the blueprint still supplies the unexploitable calling floor.
+    call = policy.explain(facing_jam_state(cards("As", "Ah")))
+    assert call.reason == "pushfold_call"
+
+
+def test_cfr_profiles_resolve_to_policies() -> None:
+    assert "hybrid" in CFR_PROFILE_NAMES
+    for name in CFR_PROFILE_NAMES:
+        profile = profile_from_name(name)
+        assert profile.name == name
+        assert isinstance(profile.policy, Policy)
+    # The hybrid profile is the strict-safe guardrail (defence only).
+    hybrid = profile_from_name("hybrid").policy
+    assert isinstance(hybrid, PushFoldPolicy)
+    assert hybrid._defend_only is True
 
 
 def test_decision_metadata_carries_probability_and_mode() -> None:

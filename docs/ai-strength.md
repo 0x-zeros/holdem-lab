@@ -123,8 +123,16 @@
       风险的权衡成立，尺度才被真正使用（8bb 多 jam＝真实、12bb 起宽 limp、16bb 出现 2.5x；BB 用 fold/call/jam
       防守；越浅 jam 越多）。**诚实边界**：R 代理会有 artifact（如 limp 强牌），不是真翻后（→ S3）；该 blueprint
       尚未接进出牌（→ S2c-3）。
-    - **S2c-3 CFR 作启发式护栏（混合）**：启发式出动作，CFR 只在覆盖到的高杠杆全下点否决明显错误，
-      兼得弱场剥削收益与短筹码不可剥削下限。
+    - **S2c-3 CFR 作启发式护栏（已落地，附关键发现）**：用 CRN+CI harness **先证伪再落地**。给
+      `PushFoldPolicy` 加 `defend_only`，并落成 `hybrid` profile（= 启发式出牌 + blueprint 只供**不可剥削的
+      跟注-vs-jam 下限**，开池交还启发式）。**关键发现（数据驱动）**：① 我原以为"防守叠加能同时拿到 vs maniac
+      与 vs tag"——**被证伪**：maniac（`AggressivePolicy`）打 pot-size 而非全下，`_is_facing_jam` 很少触发，
+      pushfold 赢 maniac 靠的是**主动 open-jam**，不是防守跟注；② 主动 open-jam 在**所有**短筹码深度都
+      大胜 maniac（5/6/8/10bb：+41/+37/+63/+67 bb/100）却在**所有**深度输给会防守的 tag（−12/−14/−14/−26，
+      5bb 也不消失）——即 open-jam 是**对手相关的剥削**，非普适增益，无对手建模就没有"永远开 jam"的安全门。
+      因此 `hybrid`=只上不可剥削跟注下限（≈启发式、对真正会 jam 的对手 +、零成本），完整 `pushfold`（全面接管）
+      留给**已知激进**的短筹码桌；二者并存。这把"GTO 是下限不是榨取上限"落成了可量化结论，并**界定了对手自适应
+      （S4）的必要性**。
     - **S2c-4 评估硬化（已落地）**：① **CRN 配对评估** `evaluate_match`——同一副牌换座各打一次（duplicate
       poker）抵消发牌方差，bb/100 给 **bootstrap 95% 置信区间** + 按 button/BB 位置切片；② **会惩罚的对手**
       ——加 equity 接地的 `tag`（紧凶 reg：紧开、按 pot odds 跟注/下注、弃空气）与 `three_bet_jammer`（短筹码
