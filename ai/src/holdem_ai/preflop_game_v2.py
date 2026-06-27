@@ -111,7 +111,7 @@ class ShortStackPreflopGame(pyspiel.Game):  # type: ignore[misc]
             min_utility=-self.stack,
             max_utility=self.stack,
             utility_sum=0.0,
-            max_game_length=5,
+            max_game_length=3,  # player decisions only (open / response / vs-jam); chance excluded
         )
         super().__init__(_GAME_TYPE, game_info, {})
 
@@ -326,6 +326,12 @@ def solve_short_stack_preflop(
         "raise25": [],
     }
 
+    # A min-raise / 2.5x open is only legal (and only in the tree) above its size,
+    # so those info sets do not exist at very short stacks. Extracting them anyway
+    # navigates off-tree and KeyErrors. Gate on legality and fill an inert fold
+    # default for the contexts that cannot occur.
+    minraise_legal = stack > _MINRAISE_TO
+    raise25_legal = stack > _RAISE25_TO
     for bucket in range(PREFLOP_BUCKET_COUNT):
         open_state = _deal(game, button=bucket, big_blind=0)
         button_open.append(_probs(average_policy, open_state, (FOLD, LIMP, MINRAISE, RAISE25, JAM)))
@@ -333,13 +339,22 @@ def solve_short_stack_preflop(
         bb_vs_limp.append(_probs(average_policy, _deal_then(game, 0, bucket, LIMP), (CHECK, JAM)))
         bb_vs_minraise.append(
             _probs(average_policy, _deal_then(game, 0, bucket, MINRAISE), (FOLD, CALL, JAM))
+            if minraise_legal
+            else (1.0, 0.0, 0.0)
         )
         bb_vs_raise25.append(
             _probs(average_policy, _deal_then(game, 0, bucket, RAISE25), (FOLD, CALL, JAM))
+            if raise25_legal
+            else (1.0, 0.0, 0.0)
         )
         bb_vs_jam.append(_probs(average_policy, _deal_then(game, 0, bucket, JAM), (FOLD, CALL)))
 
         for opening, context in _OPEN_CONTEXT.items():
+            if (context == "minraise" and not minraise_legal) or (
+                context == "raise25" and not raise25_legal
+            ):
+                button_vs_jam[context].append((1.0, 0.0))
+                continue
             state = _deal_then(game, bucket, 0, opening)
             state.apply_action(int(JAM))
             button_vs_jam[context].append(_probs(average_policy, state, (FOLD, CALL)))

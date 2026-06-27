@@ -184,6 +184,66 @@ def test_raise_floor_accounts_for_the_amount_to_call(tmp_path: Path) -> None:
     assert raise_action.amount == 30
 
 
+def test_seat_name_is_not_treated_as_a_dealer_position(tmp_path: Path) -> None:
+    # A seat literally NAMED "dealer" but with no position field must NOT be
+    # promoted to a recognized button — that would silently override the OOP safety
+    # default the position threading exists to provide.
+    annotation = actionable_truth()
+    seats = cast(list[dict[str, object]], annotation["seats"])
+    seats[1]["name"] = "dealer"
+    result = _recognize_actionable(tmp_path, annotation)
+    assert result.state is not None
+    assert result.state.metadata["button_seat_source"] == "default_oop"
+
+
+def test_raise_button_dropped_when_hero_cannot_legally_raise(tmp_path: Path) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    for seat in cast(list[dict[str, object]], annotation["seats"]):
+        if seat.get("name") == "hero":
+            seat["stack"] = 5  # underwater: stack below the 20 call, no legal raise
+    annotation["buttons"] = [
+        {"name": "primary_left", "visible": True, "action_type": "call", "label": "Call 20"},
+        {"name": "primary_middle", "visible": True, "action_type": "raise", "label": "Raise"},
+        {"name": "primary_right", "visible": True, "action_type": "fold", "label": "Fold"},
+    ]
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer(
+            (
+                button_prediction("primary_left", "call", 0.90),
+                button_prediction("primary_middle", "raise", 0.90),
+                button_prediction("primary_right", "fold", 0.90),
+            )
+        ),
+        controlled_seat=0,
+    )
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {
+                    "image": str(image),
+                    "regions": {"cards": [], "board": [], "buttons": []},
+                },
+            },
+        )
+    )
+    assert result.state is not None
+    assert not any(action.action_type is ActionType.RAISE for action in result.state.legal_actions)
+
+
 def test_poker_legends_table_recognizer_skips_non_actionable_without_image_work(
     tmp_path: Path,
 ) -> None:

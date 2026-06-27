@@ -103,6 +103,19 @@ def test_evaluate_match_is_crn_zero_sum_under_label_swap() -> None:
     assert forward.focal_chips == -reverse.focal_chips
 
 
+def test_crn_invariance_holds_for_equity_driven_policies() -> None:
+    # tag and maniac drive postflop showdowns (estimate_showdown_equity sampling),
+    # so this only negates exactly if both mirrored halves hash to the SAME policy
+    # RNG. It failed when the per-hand hand_id encoded focal_seat.
+    forward = evaluate_match(
+        profile_from_name("tag"), profile_from_name("maniac"), pairs=30, seed=4, bootstrap=1
+    )
+    reverse = evaluate_match(
+        profile_from_name("maniac"), profile_from_name("tag"), pairs=30, seed=4, bootstrap=1
+    )
+    assert forward.focal_chips == -reverse.focal_chips
+
+
 def test_evaluate_match_is_reproducible() -> None:
     kwargs = dict(pairs=40, seed=5, starting_stack=20, bootstrap=300)
     first = evaluate_match(profile_from_name("current"), profile_from_name("maniac"), **kwargs)

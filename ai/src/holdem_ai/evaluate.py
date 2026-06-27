@@ -345,7 +345,12 @@ def evaluate_match(
                 starting_stacks=(starting_stack, starting_stack),
                 small_blind=small_blind,
                 big_blind=big_blind,
-                hand_id=f"match-{pair_index + 1}-{focal_seat}",
+                # No focal_seat in the hand_id: the two mirrored halves of a pair
+                # are the SAME physical games (same deck, swapped labels), so they
+                # must hash to the SAME policy RNG (equity / decision seeds key on
+                # hand_id + current_seat). Including focal_seat desynced them and
+                # broke the antithetic (CRN) pairing for equity-driven policies.
+                hand_id=f"match-{pair_index + 1}",
                 button_seat=0,
                 small_blind_seat=0,
                 big_blind_seat=1,

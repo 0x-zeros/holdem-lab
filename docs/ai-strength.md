@@ -110,13 +110,15 @@
       分布** `bucket_deal_conditional` 发 BB 桶，二者乘积等于全枚举（1326×1225 不相交组合对）得到的精确联合
       `BUCKET_PAIR_WEIGHTS`，消除"独立发桶"与去牌胜率矩阵的不自洽（hero 拿最强桶时 villain 同样最强桶
       概率 0.1252→0.114）；⑥ **矩阵去噪**——`BUCKET_EQUITY` 用 150k 样本（与发桶**同一去牌采样** + 强制
-      对称）重算，每格 std 由 ±0.0065 降到 ±0.0013。重解后 6/10/16bb exploitability ~2e-6…2e-5（现为
+      对称）重算，每格 std 由 ±0.0065 降到 ±0.0013。重解后 6/10/16bb exploitability ~1e-5 量级（默认 400 iters：
+      约 3e-5 / 7e-6 / 1e-5）（现为
       "一致、低噪抽象内"有意义的近纳什值）；10bb 对照（1500 手）pushfold vs maniac **+40.5**、vs rock
       **+27.0**、vs 启发式 **+5.0**（去噪前为略负，现约打平偏赢）。一处有用观察：10bb 下启发式自身负于
       maniac（−45.6），而 pushfold 胜 maniac（+40.5）——正是 S2c-3 护栏要补的短筹码漏洞。
     - **S2c-2 短筹码 preflop game v2（已落地）**：`preflop_game_v2.ShortStackPreflopGame`——button 可
       fold/limp/min-raise(2bb)/2.5x/jam，BB 逐一应对（check/fold/call/jam），BB jam-over-open 后 button
-      再 fold/call；沿用 S2c-1 的去牌联合发桶 + 去噪矩阵。CFR+ 解到 exploitability ~1e-5。**关键建模发现**：
+      再 fold/call；沿用 S2c-1 的去牌联合发桶 + 去噪矩阵。CFR+ 默认 600 iters 解到 exploitability ~1e-4 量级
+      （8/12/16bb 约 4e-5/6e-5/9e-5；迭代加到数千可降到 ~1e-5）。**关键建模发现**：
       纯"无翻后摊牌"下，中间尺度（min-raise/2.5x）被 limp-or-jam **严格支配**——这是 postflop-blind 模型的
       真实局限。于是加**单参数 `oop_realization`（R，默认 0.85）**作位置/主动权的粗代理：非全下底池里 OOP 的
       BB 只兑现 R 比例的 equity、IP 的 button 吃下其余；`R=1` 退回退化模型，`R<1` 让 fold-equity vs 位置 vs

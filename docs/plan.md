@@ -337,7 +337,7 @@
   发 BB 桶，乘积等于全枚举 1326×1225 不相交组合对得到的精确联合 `BUCKET_PAIR_WEIGHTS`（`compute_bucket_pair_weights`
   可 0.06s 精确复算），消除「独立发桶」与去牌胜率矩阵的不自洽——hero 拿最强桶时 villain 同样最强桶概率
   0.1252→0.114；⑥ **矩阵去噪**——`BUCKET_EQUITY` 用 150k 样本（与发桶同一去牌采样 + 强制对称）重算，每格
-  std 由 ±0.0065 降到 ±0.0013。重解后 6/10/16bb exploitability ~2e-6…2e-5（现为「一致、低噪抽象内」有意义的
+  std 由 ±0.0065 降到 ±0.0013。重解后 6/10/16bb exploitability ~1e-5 量级（默认 400 iters：约 3e-5/7e-6/1e-5）（现为「一致、低噪抽象内」有意义的
   近纳什值），且短筹码越浅 jam 越宽（jam 5.75/4.0/3.0、BB call 4.26/3.0/2.0）。10bb 对照（1500 手）：pushfold
   胜 maniac **+40.5**、rock **+27.0**、启发式 **+5.0**（去噪前略负，现约打平偏赢）；一处有用观察：10bb 下启发式
   自身负于 maniac（−45.6）而 pushfold 胜 maniac，正是 S2c-3 护栏要补的短筹码漏洞。完整 S2c 计划见 `docs/ai-strength.md`。
@@ -355,7 +355,7 @@
   后续 BB-defender / minraise / checkraise-bluffer 对手按需再加。
 - 阶段 3 AI S2c-2（短筹码 preflop game v2）：`preflop_game_v2.ShortStackPreflopGame`——在 push/fold 上加
   button 的 limp/min-raise(2bb)/2.5x/jam 与 BB 的 check/fold/call/jam 应对、BB-jam-over-open 后 button 再
-  fold/call；沿用 S2c-1 去牌联合发桶 + 去噪矩阵，CFR+ 解到 exploitability ~1e-5，`solve_short_stack_preflop`
+  fold/call；沿用 S2c-1 去牌联合发桶 + 去噪矩阵，CFR+ 默认 600 iters 解到 exploitability ~1e-4 量级（迭代更多可降到 ~1e-5），`solve_short_stack_preflop`
   抽出 per-bucket 蓝图（button_open / bb_vs_{limp,minraise,raise25,jam} / button_vs_jam）。**关键发现**：纯无翻后
   摊牌让 min-raise/2.5x 被 limp-or-jam 严格支配；加单参数 `oop_realization`(R=0.85，位置/主动权粗代理)后尺度才被
   使用（8bb 多 jam、12bb 宽 limp、16bb 出 2.5x）。`test_preflop_game_v2` 覆盖可遍历/零和、近纳什、分布归一、
@@ -368,7 +368,15 @@
   对手 + 且零成本），完整 `pushfold` 留给已知激进桌；二者并存，并**界定 S4 对手自适应的必要性**。
   `test_blueprint` 加 defend_only 行为 + CFR profile 解析。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  240 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match hybrid maniac --pairs 20`（CRN+CI）。
+  243 tests）。新 CLI：`uv run holdem-ai-evaluate-heads-up --match hybrid maniac --pairs 20`（CRN+CI）。
+- **多 agent 对抗式 review（4 路并行，逐条跑代码验证）**：核心逻辑（v2 树/payoff/信息态隐藏/精确联合发桶/R 模型/
+  CRN/竞争对手合法性/HU 闸）经独立枚举与 fuzz 验证均正确；查出并已修：① **CRN `hand_id` 含 `focal_seat`**——
+  会把镜像两半喂进不同 equity/decision RNG，破坏 antithetic 不变性（对 equity 型策略），去掉后镜像精确相消
+  （加 tag/maniac 不变性测试）；② **`position or name` 回退**——名叫 "dealer"/"d" 的座位被误判为庄位、覆盖
+  OOP 安全默认，去掉 name 回退；③ v2 蓝图抽取在 stack≤2.5bb 对非法 min-raise/2.5x 上下文 KeyError——按合法性
+  门控、非法上下文填惰性 fold 默认；④ underwater 角落（stack<to_call+raise 钮）会出低于跟注的非法加注——无合法
+  加注时丢弃 RAISE；⑤ v2 `max_game_length` 5→3（OpenSpiel 不计 chance）；⑥ 对手未知筹码会 crash 而非 fail-closed
+  ——加 `missing_seat_stack` 闸；⑦ exploitability 文案夸大已据实修正（push/fold ~1e-5 量级、v2 默认 ~1e-4）。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

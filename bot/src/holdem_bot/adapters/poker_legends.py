@@ -405,6 +405,10 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         expected_board_count = _expected_board_count(street)
         if expected_board_count is not None and len(board_cards) != expected_board_count:
             return None, "board_count_mismatch"
+        # An unknown (negative-sentinel) stack on ANY seat would raise out of
+        # PlayerState; fail closed instead of crashing (hero is already guarded).
+        if any(seat.stack < 0 for seat in table.seats):
+            return None, "missing_seat_stack"
         players = tuple(
             PlayerState(
                 seat=seat.seat,
@@ -487,19 +491,24 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         # call amount, i.e. propose an illegal raise.
         max_raise_to = hero_stack + hero_committed
         min_raise_to = min(max_raise_to, hero_committed + to_call + big_blind)
+        # A raise is only legal if hero can put in more than the call (otherwise the
+        # only options are call / all-in). Drop a RAISE button in that underwater
+        # corner rather than emit a raise-to at or below the call amount.
+        can_raise = max_raise_to > hero_committed + to_call
         actions: list[Action] = []
         for action_type in resolved:
             if action_type is ActionType.CALL:
                 actions.append(Action(ActionType.CALL, amount=to_call))
             elif action_type is ActionType.RAISE:
-                actions.append(
-                    Action(
-                        ActionType.RAISE,
-                        amount=min_raise_to,
-                        min_amount=min_raise_to,
-                        max_amount=max_raise_to,
+                if can_raise:
+                    actions.append(
+                        Action(
+                            ActionType.RAISE,
+                            amount=min_raise_to,
+                            min_amount=min_raise_to,
+                            max_amount=max_raise_to,
+                        )
                     )
-                )
             else:
                 actions.append(Action(action_type))
         return tuple(actions), to_call, None
@@ -633,7 +642,7 @@ def _recognized_seats_from_annotation(
                 current=False if current is None else current,
                 hole_cards=hero_hole_cards if seat_number == controlled_seat else (),
                 confidence=_to_float(item.get("confidence"), default=0.0),
-                position=_normalize_position(item.get("position") or item.get("name")),
+                position=_normalize_position(item.get("position")),
             )
         )
     if _seat_by_number(tuple(seats), controlled_seat) is None and hero_hole_cards:
@@ -859,9 +868,11 @@ def _blinds_from_annotation(
     """Read blinds from the annotation when present, else fall back to the config."""
     small, big = default_small, default_big
     table_state = annotation.get("table_state")
-    sources: tuple[Mapping[str, object], ...] = (
+    # table_state is the authoritative table read, so apply it LAST (it wins over a
+    # top-level blind field).
+    sources: tuple[Mapping[str, object], ...] = (annotation,) + (
         (cast(Mapping[str, object], table_state),) if isinstance(table_state, Mapping) else ()
-    ) + (annotation,)
+    )
     for source in sources:
         small_value = _optional_int(source.get("small_blind"))
         big_value = _optional_int(source.get("big_blind"))
