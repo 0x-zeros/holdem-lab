@@ -16,9 +16,11 @@ from holdem_ai.profiles import PROFILE_NAMES, PolicyProfile, profile_from_name
 __all__ = [
     "EvaluationMatrixResult",
     "EvaluationResult",
+    "FieldReport",
     "MatchReport",
     "PolicyProfile",
     "ProfileStats",
+    "evaluate_field",
     "evaluate_heads_up",
     "evaluate_match",
     "evaluate_profile_matrix",
@@ -396,6 +398,146 @@ def evaluate_match(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FieldReport:
+    """A focal policy versus a homogeneous ``seats``-handed field of one opponent.
+
+    Each *deck* is played ``seats`` times with the focal rotated through every
+    seat (the multiway analogue of duplicate poker), so the focal occupies every
+    hole-card slot once per deck and most of the dealing luck cancels. The opponent
+    fills the remaining seats; it must be a *stateless* policy because one instance
+    is shared across those seats. The interval is a bootstrap over per-deck nets.
+    """
+
+    focal: str
+    opponent: str
+    seats: int
+    decks: int
+    hands: int
+    seed: int
+    starting_stack: int
+    small_blind: int
+    big_blind: int
+    focal_chips: int
+    bb_per_100: float
+    ci_low: float
+    ci_high: float
+    focal_actions: Mapping[str, int]
+    focal_reasons: Mapping[str, int]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "focal": self.focal,
+            "opponent": self.opponent,
+            "seats": self.seats,
+            "decks": self.decks,
+            "hands": self.hands,
+            "seed": self.seed,
+            "starting_stack": self.starting_stack,
+            "small_blind": self.small_blind,
+            "big_blind": self.big_blind,
+            "focal_chips": self.focal_chips,
+            "bb_per_100": self.bb_per_100,
+            "ci95_low": self.ci_low,
+            "ci95_high": self.ci_high,
+            "focal_actions": dict(sorted(self.focal_actions.items())),
+            "focal_reasons": dict(sorted(self.focal_reasons.items())),
+        }
+
+
+def evaluate_field(
+    focal: PolicyProfile,
+    opponent: PolicyProfile,
+    *,
+    seats: int = 6,
+    decks: int = 500,
+    seed: int = 1,
+    starting_stack: int = 200,
+    small_blind: int = 1,
+    big_blind: int = 2,
+    bootstrap: int = 2000,
+    confidence: float = 0.95,
+    max_steps_per_hand: int = 400,
+) -> FieldReport:
+    """CRN-rotated ``seats``-handed match: focal versus a homogeneous opponent field.
+
+    Plays ``decks`` decks (``seats * decks`` hands). For each deck the focal sits in
+    every seat once over the *same* cards while the opponent fills the rest, so the
+    focal's card luck cancels and the bb/100 estimate is far tighter than naive
+    play. Returns the focal's bb/100 with a bootstrap interval over per-deck nets.
+    """
+    if focal.name == opponent.name:
+        raise ValueError("profile names must be different")
+    if seats < 2:
+        raise ValueError("seats must be at least 2")
+    if decks <= 0:
+        raise ValueError("decks must be positive")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must be in (0, 1)")
+
+    deck_nets: list[int] = []
+    actions: Counter[str] = Counter()
+    reasons: Counter[str] = Counter()
+    for deck_index in range(decks):
+        deck_seed = seed + deck_index
+        net = 0
+        for focal_seat in range(seats):
+            profile_by_seat = {
+                seat: (focal if seat == focal_seat else opponent) for seat in range(seats)
+            }
+            button = deck_index % seats
+            config = HoldemConfig(
+                starting_stacks=tuple(starting_stack for _ in range(seats)),
+                small_blind=small_blind,
+                big_blind=big_blind,
+                # Unique per rotation (not just per deck): a stateful focal's
+                # per-hand opponent read must treat each seating as its own hand.
+                # CRN cancellation here comes from the shared deck_seed, not the id.
+                hand_id=f"field-{deck_index + 1}-{focal_seat}",
+                button_seat=button,
+                small_blind_seat=(button + 1) % seats,
+                big_blind_seat=(button + 2) % seats,
+            )
+            payoffs, moves = _play_hand(
+                config, profile_by_seat, deck_seed=deck_seed, max_steps=max_steps_per_hand
+            )
+            for action_value, reason in moves[focal_seat]:
+                actions[action_value] += 1
+                reasons[reason] += 1
+            net += payoffs[focal_seat]
+        deck_nets.append(net)
+
+    hands = seats * decks
+    focal_chips = sum(deck_nets)
+    bb_per_100 = focal_chips / big_blind / hands * 100.0
+    rng = random.Random(seed ^ 0x9E3779B9)
+    ci_low, ci_high = _bootstrap_ci(
+        deck_nets,
+        samples=bootstrap,
+        confidence=confidence,
+        rng=rng,
+        big_blind=big_blind,
+        hands_per_unit=seats,
+    )
+    return FieldReport(
+        focal=focal.name,
+        opponent=opponent.name,
+        seats=seats,
+        decks=decks,
+        hands=hands,
+        seed=seed,
+        starting_stack=starting_stack,
+        small_blind=small_blind,
+        big_blind=big_blind,
+        focal_chips=focal_chips,
+        bb_per_100=bb_per_100,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        focal_actions=dict(actions),
+        focal_reasons=dict(reasons),
+    )
+
+
 def _position_slice(chips: int, hands: int, big_blind: int) -> dict[str, object]:
     return {
         "hands": hands,
@@ -411,12 +553,18 @@ def _bootstrap_ci(
     confidence: float,
     rng: random.Random,
     big_blind: int,
+    hands_per_unit: int = 2,
 ) -> tuple[float, float]:
-    """Percentile bootstrap CI on bb/100, resampling per-pair nets (two hands each)."""
+    """Percentile bootstrap CI on bb/100, resampling per-unit nets.
+
+    A "unit" is the block of hands whose net is one resampled datum: a CRN pair is
+    two hands (heads-up duplicate), a field deck is ``seats`` hands (focal rotated
+    through every seat).
+    """
     n = len(pair_nets)
     if n == 0 or samples <= 0:
         return (0.0, 0.0)
-    scale = 100.0 / (2 * big_blind)  # mean chips per pair -> bb/100 (a pair is two hands)
+    scale = 100.0 / (hands_per_unit * big_blind)  # mean chips per unit -> bb/100
     means: list[float] = []
     for _ in range(samples):
         total = 0
@@ -461,13 +609,38 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--pairs", type=int, default=1000, help="CRN deck-pairs for --match.")
     parser.add_argument(
-        "--bootstrap", type=int, default=2000, help="Bootstrap resamples for --match."
+        "--field",
+        nargs=2,
+        metavar=("FOCAL", "OPPONENT"),
+        choices=PROFILE_NAMES,
+        help="CRN-rotated FOCAL versus a homogeneous OPPONENT field (6-max default).",
+    )
+    parser.add_argument("--seats", type=int, default=6, help="Seats at the table for --field.")
+    parser.add_argument("--decks", type=int, default=500, help="CRN decks for --field.")
+    parser.add_argument(
+        "--bootstrap", type=int, default=2000, help="Bootstrap resamples for --match / --field."
     )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
+    if args.field is not None:
+        focal_name, opponent_name = args.field
+        field_result = evaluate_field(
+            profile_from_name(focal_name),
+            profile_from_name(opponent_name),
+            seats=args.seats,
+            decks=args.decks,
+            seed=args.seed,
+            starting_stack=args.starting_stack,
+            small_blind=args.small_blind,
+            big_blind=args.big_blind,
+            bootstrap=args.bootstrap,
+        )
+        print(json.dumps(field_result.to_dict(), indent=2, sort_keys=True))
+        return
+
     if args.match is not None:
         focal_name, opponent_name = args.match
         match_result = evaluate_match(

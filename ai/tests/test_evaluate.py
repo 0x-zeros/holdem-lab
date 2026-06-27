@@ -3,6 +3,7 @@ from typing import cast
 
 import pytest
 from holdem_ai.evaluate import (
+    evaluate_field,
     evaluate_heads_up,
     evaluate_match,
     evaluate_profile_matrix,
@@ -136,4 +137,72 @@ def test_match_cli_outputs_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert report["focal"] == "current"
     assert report["opponent"] == "rock"
     assert report["hands"] == 40
+    assert report["ci95_low"] <= report["bb_per_100"] <= report["ci95_high"]
+
+
+def test_evaluate_field_rotates_focal_and_brackets_estimate() -> None:
+    report = evaluate_field(
+        profile_from_name("current"),
+        profile_from_name("call_station"),
+        seats=6,
+        decks=20,
+        seed=3,
+        starting_stack=200,
+        bootstrap=300,
+    )
+    assert report.seats == 6
+    assert report.hands == 120  # seats * decks
+    assert report.ci_low <= report.bb_per_100 <= report.ci_high
+    # The heuristic crushes a calling-station field at 100bb.
+    assert report.bb_per_100 > 0
+
+
+def test_evaluate_field_is_reproducible() -> None:
+    kwargs = dict(seats=6, decks=15, seed=5, starting_stack=200, bootstrap=200)
+    first = evaluate_field(profile_from_name("current"), profile_from_name("rock"), **kwargs)
+    second = evaluate_field(profile_from_name("current"), profile_from_name("rock"), **kwargs)
+    assert first.bb_per_100 == second.bb_per_100
+    assert (first.ci_low, first.ci_high) == (second.ci_low, second.ci_high)
+
+
+def test_evaluate_field_rejects_bad_arguments() -> None:
+    with pytest.raises(ValueError, match="different"):
+        evaluate_field(profile_from_name("current"), profile_from_name("current"), decks=1)
+    with pytest.raises(ValueError, match="seats"):
+        evaluate_field(profile_from_name("current"), profile_from_name("rock"), seats=1, decks=1)
+
+
+def test_field_exploit_beats_current_versus_station_field() -> None:
+    # The station exploit (thin value, no bluff) must out-earn the un-adapted
+    # heuristic against a calling-station field on the same decks.
+    kwargs = dict(seats=6, decks=40, seed=20260627, starting_stack=200, bootstrap=1)
+    current = evaluate_field(
+        profile_from_name("current"), profile_from_name("call_station"), **kwargs
+    )
+    exploit = evaluate_field(
+        profile_from_name("field_exploit"), profile_from_name("call_station"), **kwargs
+    )
+    assert exploit.bb_per_100 > current.bb_per_100 + 100.0
+
+
+def test_field_exploit_matches_current_versus_nit_field() -> None:
+    # No station live -> the exploit never fires, so it is identical to current.
+    kwargs = dict(seats=6, decks=20, seed=7, starting_stack=200, bootstrap=1)
+    current = evaluate_field(profile_from_name("current"), profile_from_name("rock"), **kwargs)
+    exploit = evaluate_field(
+        profile_from_name("field_exploit"), profile_from_name("rock"), **kwargs
+    )
+    assert exploit.bb_per_100 == current.bb_per_100
+
+
+def test_field_cli_outputs_json(capsys: pytest.CaptureFixture[str]) -> None:
+    main(
+        ["--field", "current", "call_station", "--decks", "10", "--seed", "4", "--bootstrap", "200"]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["focal"] == "current"
+    assert report["opponent"] == "call_station"
+    assert report["seats"] == 6
+    assert report["hands"] == 60
     assert report["ci95_low"] <= report["bb_per_100"] <= report["ci95_high"]

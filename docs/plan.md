@@ -391,6 +391,18 @@
   §6 S4-lite。验证：`verify-dev-env.sh` 全绿（ruff/mypy/**256 tests**，新增 `ai/tests/test_adaptive.py` 13 例）；
   新 CLI 路径 `uv run holdem-ai-evaluate-heads-up --match adaptive maniac --pairs 300`。下一步：把同一对手读数接进
   bot 侧（`bot/` 的 6-max 适配里按席位累积激进度），并在 host dry-run 验证多人桌的读数稳定性。
+- 阶段 3 AI S4 弱场剥削（6-max，Phase 1：对站薄价值）：真正能赢 Steam 弱场的杠杆。三件套：① **6-max CRN 评估器**
+  `evaluate_field`（每副牌焦点轮转坐遍 6 座位，抵消发牌运 + bootstrap CI；CLI `--field FOCAL OPP --decks N`）；
+  ② **per-seat `OpponentModel`**（`holdem_ai.opponents`）——只从自己行动快照重建每座位 VPIP/PFR，**只取翻前**（避开
+  `committed` 整手累计在翻后把跟注伪装成加注），PFR 用"唯一最高投入且 >bb"干净排除跟注污染；③ **`FieldExploitPolicy`**
+  （`holdem_ai.field`，profile `field_exploit`）——读到跟注站在场时切薄价值/不诈唬/大尺寸配置。诚实大背景：`current`
+  对纯弱场本就海赢（vs 5×call_station +875、rock +76、maniac +1120）却输 5×tag（−228），故剥削是增量、以同副牌
+  "剥削−current"差度量。**实测（CRN，seed 20260627，200 副牌）**：field_exploit 对 call_station **+1566 [1149,2056]**
+  vs current +875 [609,1226]=**delta +691，CI 不重叠（显著）**；对 rock/maniac/tag **逐字节相同（delta 0，零误伤竞争对手）**。
+  指纹（轮转后）5 站座位一致 VPIP 0.50/PFR 0.00→全判 STATION（固定焦点会有位置混淆梯度，轮转抹平）。诚实标注：observed
+  VPIP 被观察时序低估（站理论~0.85 实测~0.50）但相对分离干净；现实 Poker Legends 鱼≈跟注站故这是主杠杆；nit/maniac 规则
+  复用同模型为下一片（rock 从不下注无法演示 fold-vs-nit）。验证：`verify-dev-env.sh` 全绿（ruff/mypy/**274 tests**，
+  新增 `test_field.py` 12 例 + `test_evaluate.py` evaluate_field 6 例）；网格详见 `docs/ai-strength.md` §6 S4。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

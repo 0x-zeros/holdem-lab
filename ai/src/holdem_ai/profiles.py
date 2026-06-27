@@ -15,6 +15,7 @@ from holdem_ai.baselines import (
     ThreeBetJammerPolicy,
 )
 from holdem_ai.blueprint import PushFoldPolicy
+from holdem_ai.field import FieldExploitPolicy
 from holdem_ai.heuristic import HeuristicConfig, HeuristicPolicy
 
 #: Heuristic-family profiles (same policy, different thresholds).
@@ -41,8 +42,17 @@ CFR_PROFILE_NAMES = ("pushfold", "hybrid")
 #: ``hybrid`` guardrail (vs everyone else) — winning both matchups a static gate
 #: could not. See ``holdem_ai.adaptive``.
 ADAPTIVE_PROFILE_NAMES = ("adaptive",)
+#: Weak-field exploitation policies. ``field_exploit`` reads each seat's
+#: looseness/aggression and value-bets calling stations thinner (no bluffs),
+#: targeting the weak 6-max Steam field rather than a GTO floor. See
+#: ``holdem_ai.field``.
+FIELD_PROFILE_NAMES = ("field_exploit",)
 PROFILE_NAMES = (
-    HEURISTIC_PROFILE_NAMES + REFERENCE_PROFILE_NAMES + CFR_PROFILE_NAMES + ADAPTIVE_PROFILE_NAMES
+    HEURISTIC_PROFILE_NAMES
+    + REFERENCE_PROFILE_NAMES
+    + CFR_PROFILE_NAMES
+    + ADAPTIVE_PROFILE_NAMES
+    + FIELD_PROFILE_NAMES
 )
 
 
@@ -106,5 +116,7 @@ def profile_from_name(name: str) -> PolicyProfile:
             return PolicyProfile("hybrid", PushFoldPolicy(defend_only=True))
         case "adaptive":
             return PolicyProfile("adaptive", AdaptivePolicy())
+        case "field_exploit":
+            return PolicyProfile("field_exploit", FieldExploitPolicy())
         case _:
             raise ValueError(f"unknown profile: {name}")
