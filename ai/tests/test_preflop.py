@@ -1,8 +1,14 @@
 import pytest
 from holdem_ai.preflop import (
+    BUCKET_EQUITY,
     PREFLOP_ALLIN_EQUITY,
+    PREFLOP_BUCKET_COUNT,
     all_in_equity_vs_random,
+    bucket_equity,
+    bucket_of,
+    bucket_weights,
     hand_class,
+    preflop_bucket,
     preflop_equity,
     representative_cards,
 )
@@ -49,3 +55,29 @@ def test_table_value_is_reproducible_from_compute(label: str) -> None:
 def test_compute_matches_table_within_tolerance_at_low_samples() -> None:
     estimate = all_in_equity_vs_random("AKs", samples=3000, seed=99)
     assert estimate == pytest.approx(PREFLOP_ALLIN_EQUITY["AKs"], abs=0.03)
+
+
+def test_buckets_rank_strong_hands_below_weak_ones() -> None:
+    # Bucket 0 is strongest; every class maps into range and weights sum to 1.
+    assert bucket_of("AA") == 0
+    assert bucket_of("32o") == PREFLOP_BUCKET_COUNT - 1
+    assert all(0 <= bucket_of(label) < PREFLOP_BUCKET_COUNT for label in PREFLOP_ALLIN_EQUITY)
+    weights = bucket_weights()
+    assert len(weights) == PREFLOP_BUCKET_COUNT
+    assert sum(weights) == pytest.approx(1.0)
+
+
+def test_preflop_bucket_from_hole_cards() -> None:
+    assert preflop_bucket((Card.from_code("Ah"), Card.from_code("Ad"))) == 0
+    assert preflop_bucket((Card.from_code("3c"), Card.from_code("2d"))) == PREFLOP_BUCKET_COUNT - 1
+
+
+def test_bucket_equity_matrix_is_symmetric_and_monotone() -> None:
+    assert len(BUCKET_EQUITY) == PREFLOP_BUCKET_COUNT
+    for i in range(PREFLOP_BUCKET_COUNT):
+        assert bucket_equity(i, i) == pytest.approx(0.5, abs=0.03)  # same bucket ~ coinflip
+        for j in range(PREFLOP_BUCKET_COUNT):
+            if i != j:  # off-diagonal is exactly symmetric by construction
+                assert bucket_equity(i, j) + bucket_equity(j, i) == pytest.approx(1.0, abs=0.001)
+    # Strongest bucket beats every weaker bucket.
+    assert all(bucket_equity(0, j) > 0.5 for j in range(1, PREFLOP_BUCKET_COUNT))

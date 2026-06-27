@@ -22,9 +22,15 @@ from holdem_common import Card, Rank, Suit
 from holdem_ai.equity import evaluate_best_hand
 
 __all__ = [
+    "BUCKET_EQUITY",
     "PREFLOP_ALLIN_EQUITY",
+    "PREFLOP_BUCKET_COUNT",
     "all_in_equity_vs_random",
+    "bucket_equity",
+    "bucket_of",
+    "bucket_weights",
     "hand_class",
+    "preflop_bucket",
     "preflop_equity",
     "representative_cards",
 ]
@@ -270,3 +276,74 @@ PREFLOP_ALLIN_EQUITY: dict[str, float] = {
     "42o": 0.333,
     "32o": 0.3235,
 }
+
+
+#: Number of equity-quantile preflop buckets (a coarse card abstraction for CFR).
+PREFLOP_BUCKET_COUNT = 8
+_TOTAL_COMBOS = 1326
+
+
+def _class_combos(label: str) -> int:
+    """Number of card combinations a hand class covers (pair 6 / suited 4 / offsuit 12)."""
+    if len(label) == 2:
+        return 6
+    return 4 if label.endswith("s") else 12
+
+
+def _build_bucket_map(bucket_count: int) -> dict[str, int]:
+    # Bucket 0 = strongest. Walk classes from strongest equity to weakest, filling
+    # buckets to roughly equal combination mass so each bucket is equally likely.
+    ranked = sorted(
+        PREFLOP_ALLIN_EQUITY, key=lambda label: PREFLOP_ALLIN_EQUITY[label], reverse=True
+    )
+    per_bucket = _TOTAL_COMBOS / bucket_count
+    mapping: dict[str, int] = {}
+    cumulative = 0
+    for label in ranked:
+        mapping[label] = min(bucket_count - 1, int(cumulative / per_bucket))
+        cumulative += _class_combos(label)
+    return mapping
+
+
+_BUCKET_MAP = _build_bucket_map(PREFLOP_BUCKET_COUNT)
+
+
+def bucket_of(label: str) -> int:
+    """Equity-quantile bucket index for a hand class (0 = strongest)."""
+    return _BUCKET_MAP[label]
+
+
+def preflop_bucket(hole: Iterable[Card]) -> int:
+    """Equity-quantile bucket for hole cards (0 = strongest, default mid bucket)."""
+    cards = tuple(hole)
+    if len(cards) < 2:
+        return PREFLOP_BUCKET_COUNT // 2
+    return _BUCKET_MAP[hand_class(cards[0], cards[1])]
+
+
+def bucket_weights() -> tuple[float, ...]:
+    """Probability mass (by combinations) of each bucket; sums to 1.0."""
+    totals = [0] * PREFLOP_BUCKET_COUNT
+    for label, bucket in _BUCKET_MAP.items():
+        totals[bucket] += _class_combos(label)
+    return tuple(total / _TOTAL_COMBOS for total in totals)
+
+
+#: ``BUCKET_EQUITY[i][j]`` = P(bucket i beats bucket j) at an all-in preflop
+#: showdown (heads-up, full board, card removal), Monte Carlo 6000 samples/pair,
+#: bucket 0 = strongest. Symmetric: ``[i][j] + [j][i] == 1``; diagonal ~0.5.
+BUCKET_EQUITY: tuple[tuple[float, ...], ...] = (
+    (0.5046, 0.6617, 0.6721, 0.6931, 0.7037, 0.7037, 0.7082, 0.7240),
+    (0.3383, 0.4927, 0.5894, 0.6234, 0.6518, 0.6595, 0.6572, 0.6760),
+    (0.3279, 0.4106, 0.5075, 0.5866, 0.6329, 0.6392, 0.6482, 0.6690),
+    (0.3069, 0.3766, 0.4134, 0.5052, 0.5807, 0.6259, 0.6522, 0.6681),
+    (0.2963, 0.3482, 0.3671, 0.4193, 0.5042, 0.5947, 0.6388, 0.6496),
+    (0.2963, 0.3405, 0.3608, 0.3741, 0.4053, 0.4926, 0.5862, 0.6464),
+    (0.2918, 0.3428, 0.3518, 0.3478, 0.3612, 0.4138, 0.5038, 0.5972),
+    (0.2760, 0.3240, 0.3310, 0.3319, 0.3504, 0.3536, 0.4028, 0.4890),
+)
+
+
+def bucket_equity(hero_bucket: int, villain_bucket: int) -> float:
+    """All-in preflop showdown equity of ``hero_bucket`` vs ``villain_bucket``."""
+    return BUCKET_EQUITY[hero_bucket][villain_bucket]
