@@ -325,9 +325,10 @@ def _value_bet_or_raise(
         state.big_blind,
         int(state.pot_total * pot_fraction),
     )
+    # Size to the desired fraction, clamped to the legal range. When the target
+    # reaches the maximum (a low stack-to-pot ratio), going all-in is correct
+    # for value and strong semi-bluffs; never retreat to a min bet here.
     amount = min(action.max_amount, max(action.min_amount, target))
-    if amount >= action.max_amount and action.max_amount > action.min_amount:
-        amount = action.min_amount
 
     return Action(
         action.action_type,

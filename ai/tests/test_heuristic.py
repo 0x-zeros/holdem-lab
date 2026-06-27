@@ -185,6 +185,26 @@ def test_decide_protection_bets_top_pair_when_free() -> None:
     assert decision.metadata["made_hand"] == "pair"
 
 
+def test_decide_value_bets_big_not_min_in_low_spr() -> None:
+    # Set of aces in a large pot with a short effective stack: the pot-fraction
+    # target exceeds the legal max, so the bot must commit (max), never min-bet.
+    state = state_with(
+        hole_cards=cards("As", "Ah"),
+        board=cards("Ad", "7h", "2c"),
+        legal_actions=(
+            Action(ActionType.CHECK),
+            Action(ActionType.BET, amount=10, min_amount=10, max_amount=40),
+        ),
+        pot=200,
+    )
+
+    decision = explain_decision(state)
+
+    assert decision.action.action_type is ActionType.BET
+    assert decision.action.amount == 40  # all-in for value, not the min bet of 10
+    assert decision.reason == "value_bet"
+
+
 def test_decide_calls_strong_draw_with_acceptable_price() -> None:
     state = state_with(
         hole_cards=cards("Ah", "Kh"),
