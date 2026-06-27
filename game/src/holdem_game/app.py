@@ -8,7 +8,7 @@ from dataclasses import replace
 from typing import NoReturn
 
 import pygame
-from holdem_ai import PolicyDecision, explain_decision
+from holdem_ai import PolicyDecision, evaluate_best_hand, explain_decision
 from holdem_bot import BotOrchestrator, BotStepResult
 from holdem_bot.adapters import ActionCallbackAutomator, StateCapture, StateRecognizer
 from holdem_common import Action, ActionType, GameState
@@ -17,6 +17,17 @@ from holdem_engine import HoldemConfig, HoldemEnv
 from holdem_game.table_view import ActionButton, TableView, label_for_action
 
 DEFAULT_SIZE = (1180, 760)
+_HAND_RANK_NAMES = {
+    8: "straight flush",
+    7: "quads",
+    6: "full house",
+    5: "flush",
+    4: "straight",
+    3: "trips",
+    2: "two pair",
+    1: "pair",
+    0: "high card",
+}
 
 
 class HoldemGameApp:
@@ -45,12 +56,19 @@ class HoldemGameApp:
             self.bot_seat < 0 or self.bot_seat >= len(self.base_config.starting_stacks)
         ):
             raise ValueError("bot_seat is outside the table")
+        self.initial_stacks = self.base_config.starting_stacks
+        self.session_stacks = self.initial_stacks
+        self.session_profit = tuple(0 for _ in self.initial_stacks)
         self.hand_number = 0
+        self.hand_settled = False
+        self.ai_paused = False
         self.env = HoldemEnv(self.base_config)
         self.state: GameState
         self.buttons: list[ActionButton] = []
         self.message = "New hand"
         self.action_log: list[str] = []
+        self.bet_input = ""
+        self.show_session_panel = True
         self.view = TableView(size)
         self.bot_orchestrator = self._build_bot_orchestrator()
         self.reset_hand()
@@ -62,6 +80,8 @@ class HoldemGameApp:
         self.state = self.env.reset()
         self.message = "New hand"
         self.action_log = [f"Hand {self.hand_number}"]
+        self.bet_input = ""
+        self.hand_settled = False
         self._advance_ai_to_controlled_seat()
         self._refresh_buttons()
 
@@ -76,6 +96,8 @@ class HoldemGameApp:
             self.clock.tick(30)
 
     def tick(self, *, force_bot: bool = False) -> BotStepResult | None:
+        if self.ai_paused:
+            return None
         if self.bot_orchestrator is None or self.state.current_seat != self.bot_seat:
             return None
 
@@ -105,6 +127,8 @@ class HoldemGameApp:
             buttons=self.buttons,
             message=self.message,
             action_log=self.action_log,
+            amount_text=self._amount_text(),
+            session_text=self._session_text() if self.show_session_panel else None,
         )
 
     def visible_state(self) -> GameState:
@@ -119,6 +143,11 @@ class HoldemGameApp:
             return False
         if event.type == pygame.KEYDOWN and event.key == pygame.K_n:
             self.reset_hand()
+            return True
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_p:
+            self._toggle_ai_pause()
+            return True
+        if event.type == pygame.KEYDOWN and self._handle_bet_input(event):
             return True
         if event.type == pygame.KEYDOWN and self._handle_key_action(event.key):
             return True
@@ -143,6 +172,7 @@ class HoldemGameApp:
     def _apply_human_action(self, action: Action) -> None:
         result = self.env.step(action)
         self.state = result.observation
+        self.bet_input = ""
         self._record_action("You", action)
         self._advance_ai_to_controlled_seat()
         self._refresh_buttons()
@@ -160,6 +190,7 @@ class HoldemGameApp:
             self.state.current_seat is not None
             and self.state.current_seat != self.human_seat
             and self.state.current_seat != self.bot_seat
+            and not self.ai_paused
         ):
             if steps >= 100:
                 raise RuntimeError("AI action loop exceeded 100 steps")
@@ -171,10 +202,24 @@ class HoldemGameApp:
             self._record_action(f"AI {seat}", action, policy_decision=policy_decision)
             steps += 1
 
+        if (
+            self.ai_paused
+            and self.state.current_seat is not None
+            and self.state.current_seat != self.human_seat
+            and self.state.current_seat != self.bot_seat
+        ):
+            self.message = f"AI paused  Seat {self.state.current_seat}"
+            return
+
         if self.state.current_seat is None:
+            self._settle_session_stacks()
             self.message = self._terminal_summary()
             if not self.action_log or self.action_log[-1] != self.message:
                 self.action_log.append(self.message)
+                self.action_log = self.action_log[-8:]
+            showdown = self._showdown_summary()
+            if showdown is not None and self.action_log[-1] != showdown:
+                self.action_log.append(showdown)
                 self.action_log = self.action_log[-8:]
 
     def _config_for_hand(self, hand_number: int) -> HoldemConfig:
@@ -189,6 +234,7 @@ class HoldemGameApp:
         return replace(
             self.base_config,
             hand_id=f"hand-{hand_number}",
+            starting_stacks=self.session_stacks,
             button_seat=button_seat,
             small_blind_seat=small_blind_seat,
             big_blind_seat=big_blind_seat,
@@ -196,16 +242,19 @@ class HoldemGameApp:
 
     def _refresh_buttons(self) -> None:
         if self.state.current_seat is None:
+            self.bet_input = ""
             self.buttons = self._layout_buttons(
                 (("New hand", None, "new_hand"),),
             )
             return
 
         if self.state.current_seat == self.bot_seat:
+            self.bet_input = ""
             self.buttons = []
             return
 
         if self.state.current_seat != self.human_seat:
+            self.bet_input = ""
             self.buttons = []
             return
 
@@ -217,14 +266,20 @@ class HoldemGameApp:
         actions: Sequence[Action],
     ) -> tuple[tuple[str, Action | None, str], ...]:
         specs: list[tuple[str, Action | None, str]] = []
+        sized_amounts: set[tuple[ActionType, int]] = set()
         for action in actions:
             if action.action_type in {ActionType.BET, ActionType.RAISE}:
-                specs.extend(
-                    (label_for_action(sized_action), sized_action, "action")
-                    for sized_action in self._sized_bet_actions(action)
-                )
+                for sized_action in self._sized_bet_actions(action):
+                    sized_amounts.add((sized_action.action_type, sized_action.amount))
+                    specs.append((label_for_action(sized_action), sized_action, "action"))
             else:
                 specs.append((label_for_action(action), action, "action"))
+        custom_action = self._custom_bet_action()
+        if (
+            custom_action is not None
+            and (custom_action.action_type, custom_action.amount) not in sized_amounts
+        ):
+            specs.append((label_for_action(custom_action), custom_action, "action"))
         return tuple(specs)
 
     def _sized_bet_actions(self, action: Action) -> tuple[Action, ...]:
@@ -260,6 +315,31 @@ class HoldemGameApp:
             for amount in amounts
         )
 
+    def _bet_action_template(self) -> Action | None:
+        for action in self.state.legal_actions:
+            if action.action_type in {ActionType.BET, ActionType.RAISE}:
+                return action
+        return None
+
+    def _custom_bet_action(self) -> Action | None:
+        template = self._bet_action_template()
+        if template is None or template.min_amount is None or template.max_amount is None:
+            return None
+        if not self.bet_input:
+            return None
+        try:
+            amount = int(self.bet_input)
+        except ValueError:
+            return None
+        if amount < template.min_amount or amount > template.max_amount:
+            return None
+        return Action(
+            template.action_type,
+            amount=amount,
+            min_amount=template.min_amount,
+            max_amount=template.max_amount,
+        )
+
     def _layout_buttons(
         self,
         specs: Sequence[tuple[str, Action | None, str]],
@@ -284,6 +364,44 @@ class HoldemGameApp:
             buttons.append(ActionButton(rect=rect, label=label, action=action, command=command))
         return buttons
 
+    def _handle_bet_input(self, event: pygame.event.Event) -> bool:
+        template = self._bet_action_template()
+        if template is None or template.min_amount is None or template.max_amount is None:
+            return False
+
+        if event.key in {pygame.K_RETURN, pygame.K_KP_ENTER}:
+            action = self._custom_bet_action()
+            if action is not None:
+                self._apply_human_action(action)
+            return True
+        if event.key == pygame.K_BACKSPACE:
+            self.bet_input = self.bet_input[:-1]
+            self._set_amount_message()
+            self._refresh_buttons()
+            return True
+        if event.key == pygame.K_DELETE:
+            self.bet_input = ""
+            self._set_amount_message()
+            self._refresh_buttons()
+            return True
+        if event.key in {pygame.K_UP, pygame.K_DOWN}:
+            step = self.state.big_blind
+            current = int(self.bet_input) if self.bet_input else template.min_amount
+            delta = step if event.key == pygame.K_UP else -step
+            amount = min(template.max_amount, max(template.min_amount, current + delta))
+            self.bet_input = str(amount)
+            self._set_amount_message()
+            self._refresh_buttons()
+            return True
+
+        text = getattr(event, "unicode", "")
+        if text.isdecimal():
+            self.bet_input = f"{self.bet_input}{text}"[:6]
+            self._set_amount_message()
+            self._refresh_buttons()
+            return True
+        return False
+
     def _handle_key_action(self, key: int) -> bool:
         action_types_by_key = {
             pygame.K_f: (ActionType.FOLD,),
@@ -302,6 +420,18 @@ class HoldemGameApp:
                     self._apply_human_action(button.action)
                     return True
         return False
+
+    def _amount_text(self) -> str | None:
+        template = self._bet_action_template()
+        if template is None or template.min_amount is None or template.max_amount is None:
+            return None
+        value = self.bet_input or "-"
+        return f"Amount {value}  Range {template.min_amount}-{template.max_amount}"
+
+    def _set_amount_message(self) -> None:
+        amount_text = self._amount_text()
+        if amount_text is not None:
+            self.message = amount_text
 
     def _record_action(
         self,
@@ -354,6 +484,55 @@ class HoldemGameApp:
             winner_text = "split"
         payoff_text = " ".join(f"{seat}:{payoff:+d}" for seat, payoff in enumerate(payoffs))
         return f"Hand complete  Winners {winner_text}  Payoffs {payoff_text}"
+
+    def _settle_session_stacks(self) -> None:
+        if self.hand_settled:
+            return
+        raw_payoffs = self.state.metadata.get("payoffs")
+        if isinstance(raw_payoffs, tuple):
+            self.session_profit = tuple(
+                profit + int(payoff)
+                for profit, payoff in zip(self.session_profit, raw_payoffs, strict=True)
+            )
+        next_stacks = []
+        for player, initial_stack in zip(self.state.players, self.initial_stacks, strict=True):
+            if player.stack <= 0:
+                next_stacks.append(initial_stack)
+                self.action_log.append(f"Seat {player.seat} rebuy {initial_stack}")
+            else:
+                next_stacks.append(player.stack)
+        self.session_stacks = tuple(next_stacks)
+        self.action_log = self.action_log[-8:]
+        self.hand_settled = True
+
+    def _showdown_summary(self) -> str | None:
+        if len(self.state.board) < 5:
+            return None
+        hands: list[str] = []
+        for player in self.state.players:
+            if len(player.hole_cards) < 2:
+                continue
+            rank = evaluate_best_hand((*player.hole_cards[:2], *self.state.board))[0]
+            hands.append(f"{player.seat}:{_HAND_RANK_NAMES[rank]}")
+        if not hands:
+            return None
+        return f"Showdown  {'  '.join(hands)}"
+
+    def _session_text(self) -> str:
+        profit_text = " ".join(
+            f"{seat}:{profit:+d}" for seat, profit in enumerate(self.session_profit)
+        )
+        stack_text = " ".join(f"{seat}:{stack}" for seat, stack in enumerate(self.session_stacks))
+        return f"Session {profit_text}  Stacks {stack_text}"
+
+    def _toggle_ai_pause(self) -> None:
+        self.ai_paused = not self.ai_paused
+        if self.ai_paused:
+            self.message = "AI paused"
+            return
+        self.message = "AI resumed"
+        self._advance_ai_to_controlled_seat()
+        self._refresh_buttons()
 
     def _bot_visible_state(self) -> GameState:
         if self.bot_seat is None or self.state.current_seat is None:

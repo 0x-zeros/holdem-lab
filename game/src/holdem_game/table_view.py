@@ -60,6 +60,8 @@ class TableView:
         buttons: Sequence[ActionButton],
         message: str,
         action_log: Sequence[str] = (),
+        amount_text: str | None = None,
+        session_text: str | None = None,
     ) -> None:
         width, height = self.size
         surface.fill(BACKGROUND)
@@ -67,7 +69,9 @@ class TableView:
         self._draw_board(surface, state)
         self._draw_players(surface, state, human_seat=human_seat)
         self._draw_status(surface, state, message)
+        self._draw_session(surface, session_text)
         self._draw_action_log(surface, action_log)
+        self._draw_amount_input(surface, amount_text)
         self._draw_buttons(surface, buttons)
         pygame.display.flip()
 
@@ -185,6 +189,28 @@ class TableView:
                 (rect.x + 12, line_y),
             )
             line_y += 22
+
+    def _draw_session(self, surface: pygame.Surface, session_text: str | None) -> None:
+        if session_text is None:
+            return
+        rect = self.session_rect()
+        pygame.draw.rect(surface, (24, 33, 35), rect, border_radius=8)
+        pygame.draw.rect(surface, (61, 76, 76), rect, width=2, border_radius=8)
+        self._draw_text_left(
+            surface,
+            self._ellipsize(session_text, self.small_font, rect.width - 24),
+            self.small_font,
+            MUTED,
+            (rect.x + 12, rect.y + 10),
+        )
+
+    def _draw_amount_input(self, surface: pygame.Surface, amount_text: str | None) -> None:
+        if amount_text is None:
+            return
+        rect = self.amount_input_rect()
+        pygame.draw.rect(surface, (24, 33, 35), rect, border_radius=8)
+        pygame.draw.rect(surface, BUTTON_FILL, rect, width=2, border_radius=8)
+        self._draw_text(surface, amount_text, self.small_font, TEXT, rect.center)
 
     def _draw_card(
         self,
@@ -305,6 +331,18 @@ class TableView:
         width, height = self.size
         rect = pygame.Rect(0, 0, min(260, width - 40), 158)
         rect.topright = (width - 24, max(64, int(height * 0.10)))
+        return rect
+
+    def session_rect(self) -> pygame.Rect:
+        width, height = self.size
+        rect = pygame.Rect(0, 0, min(360, width - 40), 42)
+        rect.topleft = (24, max(64, int(height * 0.10)))
+        return rect
+
+    def amount_input_rect(self) -> pygame.Rect:
+        width, height = self.size
+        rect = pygame.Rect(0, 0, min(360, width - 80), 34)
+        rect.center = (width // 2, height - 148)
         return rect
 
 

@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-27 阶段 2/3 local game + AI polish v2）
+## 当前进度（截至 2026-06-27 阶段 2/3 local game + AI polish v4）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -244,22 +244,34 @@
   seed 抽样 equity 混入 strength，并把 `showdown_equity` 写入 `PolicyDecision.metadata`，方便本地游戏
   和 bot 日志审计。pygame 游戏新增多手牌 button/SB/BB 自动轮转，终局消息改为可读的 winners/payoff
   摘要，行动日志也保留 hand complete 结果。
+- 阶段 2/3 本地游戏与 AI polish v3：新增
+  `uv run holdem-ai-evaluate-heads-up`，可让 `current` / `no_equity` / `tight` / `loose` 等本地
+  heuristic profile 做 heads-up 对战评估，输出 JSON 里的 chips、bb/100、胜负、动作频率和策略理由
+  频率；该脚本只依赖 workspace 内 `holdem-engine`，不下载外部包。pygame 游戏新增键盘数字下注输入：
+  有 bet/raise 时可直接输入总下注额，Backspace/Delete 编辑，Up/Down 按 big blind 调整，Enter 提交；
+  合法自定义金额会作为额外 `Bet/Raise X` 按钮展示。终局如果真正摊牌，会在行动日志里列出各亮牌玩家
+  的牌型分类，弃牌结束则不伪造摊牌信息。
+- 阶段 2/3 本地游戏与 AI polish v4：本地 pygame 会话从单手 demo 变成可连续试玩的 cash-session
+  模式：每手结束后累计 session profit，下一手沿用当前 session stacks；座位破产时自动按初始筹码
+  rebuy 并记录到行动日志；桌面左上角显示 session 盈亏与当前手前筹码。`P` 键可暂停/恢复 AI 自动
+  推进，暂停后 human 行动会停在下一个 AI seat，便于观察局面；恢复后继续自动推进。CV fixture 生成
+  时会关闭 session/action overlay，保持自家 pygame OCR 基线稳定。
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  140 tests）。
+  147 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --hands 2 --seed 3 --profile-a current
+  --profile-b tight` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
 **下一步：本地游戏 + AI 继续完善**
 - 当前优先级切回自家 pygame 游戏与共用 AI。Poker Legends host dry-run 先暂停，不进入真实点击测试。
-- 游戏侧下一步：补下注滑杆/输入框、手牌结束后的摊牌详情、重新买入或锦标赛结束状态；
-  同时保持 fixture annotation 稳定，避免破坏 CV/OCR 训练管线。
-- AI 侧下一步：基于已落地的轻量 rollout equity 继续校准按人数/位置的 opening/calling range，
-  增加策略 telemetry / head-to-head 评估脚本，为后续 CFR/RL 评估留接口；仍保持
-  `decide(state) -> Action` 为唯一调用面。
+- 本地游戏基础项已闭合：可连续试玩、可自定义下注、可暂停 AI、可看行动日志/摊牌摘要/session 统计。
+  下一步需要决策方向：继续打磨游戏 UX（下注滑杆、历史牌谱、设置面板），还是进入 AI 评估/训练阶段。
+- AI 侧基础项已闭合：`decide()` 通用入口、可解释 metadata、轻量 equity、head-to-head 评估脚本均已
+  可用。下一步需要决策：继续手调 heuristic range，还是开始接 CFR/RL 训练评估。
 
 **Poker Legends host dry-run 后续暂停项**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 reviewed truth overlay（session_001 v1 /

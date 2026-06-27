@@ -357,10 +357,14 @@ version = "0.0.0"
 source = { editable = "ai" }
 dependencies = [
     { name = "holdem-common" },
+    { name = "holdem-engine" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "holdem-common", editable = "common" }]
+requires-dist = [
+    { name = "holdem-common", editable = "common" },
+    { name = "holdem-engine", editable = "engine" },
+]
 
 [[package]]
 name = "holdem-bot"
