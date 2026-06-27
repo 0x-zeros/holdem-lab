@@ -118,9 +118,40 @@ def facing_jam_state(hole: tuple[Card, ...], *, hero_stack: int = 90) -> GameSta
     )
 
 
+def folded_to_two_survivors_state(hole: tuple[Card, ...]) -> GameState:
+    # Three players were dealt; the small blind folded, leaving a short-stack jam
+    # between button (all-in) and big blind. It is NOT a clean heads-up table — the
+    # folded small blind's dead money shifts the pot odds — so the blueprint, solved
+    # for a no-dead-money HU game, must stay out of it.
+    return GameState(
+        hand_id="reduced",
+        street=Street.PREFLOP,
+        players=(
+            PlayerState(seat=0, stack=0, committed=10, hole_cards=(), all_in=True),
+            PlayerState(seat=1, stack=0, committed=1, hole_cards=(), active=False),
+            PlayerState(seat=2, stack=8, committed=2, hole_cards=hole),
+        ),
+        board=(),
+        pots=(Pot(amount=13, eligible_seats=frozenset({0, 2})),),
+        current_seat=2,
+        button_seat=0,
+        small_blind=1,
+        big_blind=2,
+        min_raise=4,
+        to_call=8,
+        legal_actions=(Action(ActionType.FOLD), Action(ActionType.CALL, amount=8)),
+    )
+
+
 def test_six_max_spot_never_uses_pushfold() -> None:
     decision = PushFoldPolicy().explain(six_max_button_state(cards("As", "Ah")))
     assert not decision.reason.startswith("pushfold")  # hard heads-up guard
+
+
+def test_reduced_multiway_pot_never_uses_pushfold() -> None:
+    # active_players is 2 here, but players (dealt-in) is 3 -> not a heads-up table.
+    decision = PushFoldPolicy().explain(folded_to_two_survivors_state(cards("As", "Ah")))
+    assert not decision.reason.startswith("pushfold")
 
 
 def test_big_blind_handles_a_covered_jam() -> None:

@@ -73,9 +73,12 @@ class PushFoldPolicy:
     def _maybe_push_fold(self, state: GameState) -> PolicyDecision | None:
         if state.street is not Street.PREFLOP or state.current_seat is None:
             return None
-        # Hard guard: the blueprint is a heads-up SB-vs-BB model. Never apply it
-        # to 3+ handed (e.g. 6-max) spots, where the button is not the small blind.
-        if len(state.active_players) != 2:
+        # Hard guard: the blueprint is a heads-up SB-vs-BB model. Engage only at a
+        # genuinely heads-up *table* (two players dealt into the hand) — NOT a 3+
+        # handed pot that folded down to two survivors, whose dead money shifts the
+        # pot odds the blueprint never modelled, nor any 6-max spot where the button
+        # is not the small blind.
+        if len(state.players) != 2:
             return None
         effective_bb = _effective_bb(state)
         if effective_bb is None or effective_bb > self._max_jam_bb:
