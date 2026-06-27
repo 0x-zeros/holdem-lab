@@ -281,20 +281,44 @@
 - 根目录 `.env.example` 已提供 LLM provider/API key 样例；真实 `.env` 已被 `.gitignore` 忽略。
 - 规则测试已覆盖：盲注、下注轮推进、全员弃牌终局、heads-up all-in 自动 runout、边池数学、
   摊牌平分、边池派奖、筹码守恒。
+- 阶段 2/3 AI evaluation v2（绝对基线参照对手）：新增 `holdem_ai.baselines`，提供四个确定性参照
+  对手 `random` / `call_station` / `rock` / `maniac`（与 `HeuristicPolicy` 同样实现
+  `explain()->PolicyDecision` / `decide()` 接口），并入 `profiles`（`REFERENCE_PROFILE_NAMES`）与
+  `holdem-ai-evaluate-heads-up --matrix`，给出脱离同族自博弈的绝对 bb/100 标尺。250 手对战发现：
+  `current` 暴打 `random`（约 +830 bb/100）、`maniac`（约 +1090）、`call_station`（约 +310），但对
+  **只弃牌/从不下注的 `rock` 仅 +4.6 bb/100**——暴露翻前按钮位只 limp 不加注、几乎不偷盲/不持续
+  下注的被动漏洞；`no_equity` 与 `current` 对参照对手几乎同分，说明当前 160 样本 equity 采样对绝对
+  收益贡献很小、却是主要算力开销。
 - 当前验证：`scripts/dev/verify-dev-env.sh` 通过（CV/OCR runtime、ruff format/check、mypy、pytest，
-  159 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current no_equity tight
-  --hands 2 --seed 9` 已跑通。
+  169 tests）。新 CLI 小样本 `uv run holdem-ai-evaluate-heads-up --matrix current rock call_station
+  random maniac --hands 2 --seed 9` 已跑通。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
 
-**下一步：本地试玩后进入 AI 评估/训练**
-- 当前优先级切回自家 pygame 游戏与共用 AI。Poker Legends host dry-run 先暂停，不进入真实点击测试。
-- 本地游戏基础 UX 已闭合：可连续试玩、可自定义下注、可暂停 AI、可看行动日志/摊牌摘要/session 统计，
-  且已有明确的一人对 AI 启动入口和 AI profile 选择。
-- AI 评估阶段已启动：`decide()` 通用入口、可解释 metadata、轻量 equity、head-to-head/matrix 评估
-  均可用。下一步先做一轮人工试玩与小样本 profile 对战 sanity，再决策继续基于 matrix 结果手调
-  heuristic range，还是开始接 CFR/RL 训练评估。
+**下一步：以绝对基线为准绳，按业界既有研究路线推进 AI（启发式只作 bootstrap）**
+- 评估方法已升级：除同族 self-play matrix 外，新增 random/call_station/rock/maniac 绝对参照对手；
+  之后所有启发式改动都以“对参照对手的 bb/100 是否回退”为准绳，避免同族调参出现的非传递 RPS 假象。
+- 先小步修启发式明显漏洞（可测、对参照对手不回退）：翻前按钮位只 limp 不加注、几乎不偷盲；价值
+  下注金额触顶时回落 min-bet 的 sizing bug；缺乏对多街进攻的收手。目标只是把 baseline 打磨到“像
+  正常玩家”，不追求 GTO。
+- 真实强度走业界既有路线、不从零造核心算法（见下“参考实现 / 论文”）：preflop Nash push/fold 与
+  开池范围（已基本解出、有公开图表）→ 基于 OpenSpiel 在抽象 HUNL 上跑 CFR/CFR+/MCCFR，用 OpenSpiel
+  best-response/exploitability 评估 → 视需要再上 Deep CFR。engine 已有 OpenSpiel/RLCard adapter，
+  PokerKit 管规则，求解器复用，不自研核心求解算法。
+- 本地游戏基础 UX 已闭合（连续试玩 / 自定义下注 / 暂停 AI / 行动日志 / 摊牌摘要 / session 统计 /
+  一人对 AI 入口 + profile 选择）。Poker Legends host dry-run 继续暂停，不进入真实点击测试。
+
+**参考实现 / 论文（避免走偏，直接对标）**
+- 里程碑：HU Limit 已被“解”（Cepheus，Bowling 等，Science 2015，CFR+）；HUNL 被 DeepStack（Alberta,
+  2017）与 Libratus（CMU，Brown & Sandholm, 2017）攻克；6-max 由 Pluribus（2019）攻克。
+- 算法主线：CFR（Zinkevich 2007）→ CFR+（Tammelin 2014）→ MCCFR（Lanctot 2009）→ Deep CFR
+  （Brown 2019）→ ReBeL（Brown 2020，统一 RL+search）。
+- 开源直接可用：OpenSpiel（DeepMind，含 CFR 全家桶 + `universal_poker` + exploitability/
+  best-response）、RLCard（含 NLHE / CFR / Deep CFR / NFSP）、PokerRL（Deep CFR / SD-CFR 参考实现）。
+- 基准对手：Slumbot（公开 API 可直接对战）、历年 ACPC agent；preflop 用公开 GTO/Nash 图表对照 range。
+- 结论：我们的分阶段路线（启发式 → preflop GTO → CFR → 自博弈，exploitability 评估）与业界主线一致，
+  方向没走偏。关键纪律是“不长期手调启发式”，尽早切到 CFR 并以 exploitability / 参照对手量化强度。
 
 **Poker Legends host dry-run 后续暂停项**
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 reviewed truth overlay（session_001 v1 /

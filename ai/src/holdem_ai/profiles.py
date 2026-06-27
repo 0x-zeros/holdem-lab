@@ -4,15 +4,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from holdem_ai.baselines import (
+    AggressivePolicy,
+    CallStationPolicy,
+    Policy,
+    RandomPolicy,
+    RockPolicy,
+)
 from holdem_ai.heuristic import HeuristicConfig, HeuristicPolicy
 
-PROFILE_NAMES = ("current", "no_equity", "tight", "loose")
+#: Heuristic-family profiles (same policy, different thresholds).
+HEURISTIC_PROFILE_NAMES = ("current", "no_equity", "tight", "loose")
+#: Deterministic reference opponents that act as an absolute yardstick.
+REFERENCE_PROFILE_NAMES = ("random", "call_station", "rock", "maniac")
+PROFILE_NAMES = HEURISTIC_PROFILE_NAMES + REFERENCE_PROFILE_NAMES
 
 
 @dataclass(frozen=True, slots=True)
 class PolicyProfile:
     name: str
-    policy: HeuristicPolicy
+    policy: Policy
 
 
 def profile_from_name(name: str) -> PolicyProfile:
@@ -51,5 +62,13 @@ def profile_from_name(name: str) -> PolicyProfile:
                     )
                 ),
             )
+        case "random":
+            return PolicyProfile("random", RandomPolicy(seed=20260627))
+        case "call_station":
+            return PolicyProfile("call_station", CallStationPolicy())
+        case "rock":
+            return PolicyProfile("rock", RockPolicy())
+        case "maniac":
+            return PolicyProfile("maniac", AggressivePolicy())
         case _:
             raise ValueError(f"unknown profile: {name}")
