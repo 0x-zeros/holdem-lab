@@ -90,19 +90,24 @@ def _same_window(a: WindowInfo, b: WindowInfo) -> bool:
 
 _MACOS_LIST_SCRIPT = (
     'tell application "System Events"\n'
-    "  set rows to {}\n"
+    "  set acc to {}\n"
     "  repeat with proc in (application processes whose visible is true)\n"
+    "    set pname to name of proc\n"
     "    repeat with win in (windows of proc)\n"
     "      try\n"
     "        set p to position of win\n"
     "        set s to size of win\n"
-    "        set end of rows to ((name of proc) & tab & (name of win) & tab & "
+    "        set wname to \"\"\n"
+    "        try\n"
+    "          set wname to name of win\n"
+    "        end try\n"
+    "        set end of acc to (pname & tab & wname & tab & "
     "(item 1 of p) & tab & (item 2 of p) & tab & (item 1 of s) & tab & (item 2 of s))\n"
     "      end try\n"
     "    end repeat\n"
     "  end repeat\n"
     "  set AppleScript's text item delimiters to linefeed\n"
-    "  return rows as text\n"
+    "  return acc as text\n"
     "end tell"
 )
 
@@ -112,8 +117,12 @@ _MACOS_FOREGROUND_SCRIPT = (
     "  set win to front window of proc\n"
     "  set p to position of win\n"
     "  set s to size of win\n"
-    "  return ((name of proc) & tab & (name of win) & tab & (item 1 of p) & tab & "
-    "(item 2 of p) & tab & (item 1 of s) & tab & (item 2 of s))\n"
+    '  set wname to ""\n'
+    "  try\n"
+    "    set wname to name of win\n"
+    "  end try\n"
+    "  return (name of proc) & tab & wname & tab & (item 1 of p) & tab & "
+    "(item 2 of p) & tab & (item 1 of s) & tab & (item 2 of s)\n"
     "end tell"
 )
 
