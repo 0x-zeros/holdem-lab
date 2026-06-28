@@ -414,6 +414,23 @@
   `test_orchestrator_with_field_exploit_accumulates_opponent_read` 钉死跨帧累积+分类）。**离线发现**：现有
   `session_001_selection` 20 帧即便 `--use-truth` 也全 `non_table_ui`（本就是菜单/弹窗负样本，无 actionable state），
   故读数在这批帧上不填充——需 host 实拍 actionable 帧才会累积（指南 `docs/bot-host-dryrun.md` Step 3）。
+- 阶段 4 捕获/迭代策略调研（官方源核实，3 路并行）：手动「截屏→存→跑→贴 JSON」迭代太慢，调研加速工具。
+  结论：**① Airtest/Poco 跳过**——Airtest 桌面端只有 Windows 无 macOS 后端；Poco 必须把 `poco-sdk` 编进游戏
+  （第三方 Steam 改不了），其无 SDK 的 Windows UIA 驱动也看不见 Unity/DirectX 画进 GPU 的牌桌；AirtestIDE 闭源停更、
+  无实时识别叠加。**② 抓屏**：GDI 系（mss/Pillow/pywin32）对 GPU/全屏出黑帧、但 2D 窗口扑克 OK；Windows 最佳
+  `windows-capture`(WGC,MIT，单窗口/跟随/抓遮挡)、`dxcam`(2026.3 复活) 兜底；macOS 用 `mss`(MIT 跨平台) 起步、
+  Quartz 已被 SDK15 废弃。**③ OBS 虚拟摄像头跳过**（输出缩放+黑边 canvas，与像素标定打架）。**建议接入点击时把
+  host 切 Windows**（无每月录屏授权 + Per-Monitor-v2 真像素 + 库现役）；只读 HUD 现在先在 Mac 跑（mss 跨平台）。
+- 阶段 4 感知 HUD（加速迭代的工具，自研薄壳不引 Airtest）：新增 `holdem-bot-watch-poker-legends`（`watch_main`）+
+  纯渲染 `bot/vision/perception_overlay.py`（numpy/cv2，无 GUI/无游戏依赖，可无头测）。把「机器人看到了什么」实时
+  叠加回画面：布局 ROI（按 base→帧缩放，misalign 一眼可见）+ 文字面板（screen kind、安全门判定、**`state_block_reason`**、
+  pot/to_call/legal、策略意图动作、每座位读数）。两路：`--image` 单帧无头渲染叠加 PNG（测试+寄证据用）；live `mss`
+  循环 `cv2.imshow` ~4fps（`s` 存 frame+overlay+json，`q` 退）。**只读、无点击路径**。忠实复用 `evaluate_safety`
+  安全门（与 orchestrator 一致）但保留完整 `RecognitionResult.metadata` 以显示卡因。新增 `mss>=10.2` 依赖（官方 PyPI，
+  带 py.typed）；host 脚本加 `watch`/`watch-once` 子命令。验证：ruff/mypy/**287 tests**（新增
+  `test_perception_overlay.py` 6 例 + `test_poker_legends_watch.py` 3 例）。**离线发现**：`watch-once 000080` 是**真牌桌**
+  （hero 5h8s、Call/Raise/Fold 可见）却仍 `no_game_state` + `state_block_reason: missing_table_metadata`——selection 集
+  标注是 `roi_applied_values_pending`（只放 ROI 未填值），即真牌桌也得布局带 table-metadata 块才能拼出 `GameState`。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

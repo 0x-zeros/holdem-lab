@@ -7,6 +7,7 @@ dependencies = [
     "google-genai>=1.0",
     "holdem-ai",
     "holdem-common",
+    "mss>=10.2",
     "openai>=2.0",
     "opencv-python>=4.13.0.92",
     "pytesseract>=0.3.13",
@@ -34,6 +35,7 @@ holdem-bot-llm-annotate = "holdem_bot.vision.llm_annotation:main"
 holdem-bot-plan-poker-legends-click = "holdem_bot.adapters.poker_legends_host:plan_click_main"
 holdem-bot-run-poker-legends-dry-run = "holdem_bot.adapters.poker_legends_host:dry_run_once_main"
 holdem-bot-replay-poker-legends-dry-run = "holdem_bot.adapters.poker_legends_host:replay_dry_run_main"
+holdem-bot-watch-poker-legends = "holdem_bot.adapters.poker_legends_host:watch_main"
 holdem-bot-select-keyframes = "holdem_bot.vision.selection:main"
 
 [tool.uv.sources]

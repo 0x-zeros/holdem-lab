@@ -15,6 +15,12 @@
 #                               policy to accumulate a per-seat opponent read.
 #                               Extra args pass through (e.g. --use-truth --limit 5).
 #   replay-bundled [..]         Step 3 — replay the bundled session_001_selection set.
+#   watch-once [KF] [OUT]       HUD — render one bundled frame's perception overlay
+#                               to a PNG (no GUI; default keyframe 000080). Shows the
+#                               ROIs + recognised state + why state assembly blocked.
+#   watch [LAYOUT] [..]         HUD — live mss overlay loop (never clicks). Default
+#                               LAYOUT = bundled 1600w; pass yours once calibrated.
+#                               Extra args pass through (--region L,T,W,H --dump-dir D).
 #
 # Env overrides: REPO, A (artifacts dir), SEAT (controlled seat), LOG, FRAMES_OUT,
 #   RUN (python runner; default "uv run"). On this devcontainer test the plumbing
@@ -95,8 +101,32 @@ cmd_replay_bundled() {
   cmd_replay "$A/session_001_selection/frames" "$A/session_001_selection/annotations" "$@"
 }
 
+cmd_watch_once() {
+  local kf="${1:-000080}"
+  local frame="$A/session_001_selection/frames/keyframe_${kf}.png"
+  local ann="$A/session_001_selection/annotations/keyframe_${kf}.json"
+  local out="${2:-/tmp/poker-legends-watch-${kf}.overlay.png}"
+  need_file "$frame"; need_file "$ann"
+  # shellcheck disable=SC2086
+  $RUN holdem-bot-watch-poker-legends --image "$frame" --layout-annotation "$ann" \
+    "${MANIFESTS[@]}" --seat "$SEAT" --overlay-out "$out"
+}
+
+cmd_watch() {
+  local layout
+  if [ $# -gt 0 ] && [ "${1:0:2}" != "--" ]; then
+    layout="$1"; shift
+  else
+    layout="$A/session_001_selection/annotations/keyframe_000042.json"
+  fi
+  need_file "$layout"
+  # shellcheck disable=SC2086
+  $RUN holdem-bot-watch-poker-legends --layout-annotation "$layout" \
+    "${MANIFESTS[@]}" --seat "$SEAT" "$@"
+}
+
 usage() {
-  sed -n '2,28p' "$0"
+  sed -n '2,/^set -euo/p' "$0" | sed '$d'
 }
 
 case "${1:-help}" in
@@ -106,6 +136,8 @@ case "${1:-help}" in
   live)            shift; cmd_live "$@" ;;
   replay)          shift; cmd_replay "$@" ;;
   replay-bundled)  shift; cmd_replay_bundled "$@" ;;
+  watch-once)      shift; cmd_watch_once "$@" ;;
+  watch)           shift; cmd_watch "$@" ;;
   help|-h|--help)  usage ;;
   *)               echo "unknown subcommand: $1" >&2; echo >&2; usage; exit 2 ;;
 esac

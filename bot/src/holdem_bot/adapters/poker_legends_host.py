@@ -6,20 +6,28 @@ import argparse
 import json
 import platform
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
+import cv2
+import numpy as np
+from holdem_ai import PolicyDecision
 from holdem_ai.field import FieldExploitPolicy
 from holdem_ai.opponents import OpponentModel
 from holdem_common import Action, ActionType, GameState
+from numpy.typing import NDArray
 
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
 from holdem_bot.capture import Capture, CapturedFrame
 from holdem_bot.orchestrator import BotOrchestrator, BotStepResult
+from holdem_bot.recognize import RecognitionResult
+from holdem_bot.screen_state import SafetyDecision, evaluate_safety
 from holdem_bot.vision.annotations import ScreenRect
+from holdem_bot.vision.perception_overlay import render_overlay
 
 _Runner = Callable[[Sequence[str]], None]
 
@@ -421,6 +429,331 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
         "steps": steps,
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+def watch_main(argv: Sequence[str] | None = None) -> None:
+    """Live perception HUD: capture -> recognise -> overlay ROIs + reads, never click.
+
+    With ``--image`` it renders one saved frame's overlay to disk headlessly (no GUI,
+    no ``mss``) -- the offline path used by tests and for sending annotated evidence.
+    Otherwise it opens a live ``mss`` capture loop and draws the overlay each frame in
+    an OpenCV window: ``s`` dumps frame+overlay+json, ``q`` quits. It only ever reads
+    the screen; it never plans or performs a click.
+    """
+    parser = argparse.ArgumentParser(
+        description="Live Poker Legends perception HUD (overlay only; never clicks)."
+    )
+    parser.add_argument("--image", help="render ONE saved frame headlessly instead of live capture")
+    parser.add_argument("--monitor", type=int, default=1, help="mss monitor index for live capture")
+    parser.add_argument(
+        "--region", help="live capture region 'left,top,width,height' (overrides --monitor)"
+    )
+    parser.add_argument("--layout-annotation", required=True)
+    parser.add_argument("--card-part-manifest", required=True)
+    parser.add_argument("--card-classifier-manifest", required=True)
+    parser.add_argument("--button-manifest", required=True)
+    parser.add_argument("--card-template-manifest")
+    parser.add_argument("--annotation", help="truth annotation for --image (bypasses CV)")
+    parser.add_argument("--seat", type=int, default=0)
+    parser.add_argument("--min-confidence", type=float, default=0.80)
+    parser.add_argument(
+        "--overlay-out", help="output PNG for --image (default: <image>.overlay.png)"
+    )
+    parser.add_argument("--dump-dir", help="live mode: directory for 's' frame dumps")
+    parser.add_argument("--fps", type=float, default=4.0)
+    args = parser.parse_args(argv)
+
+    recognizer = PokerLegendsTableRecognizer.from_manifests(
+        card_part_manifest=args.card_part_manifest,
+        card_classifier_manifest=args.card_classifier_manifest,
+        button_manifest=args.button_manifest,
+        card_template_manifest=args.card_template_manifest,
+        controlled_seat=args.seat,
+    )
+    policy = FieldExploitPolicy()
+    layout = _read_json_object(args.layout_annotation)
+
+    if args.image is not None:
+        _run_watch_once(
+            image=args.image,
+            layout_path=args.layout_annotation,
+            layout=layout,
+            annotation=args.annotation,
+            recognizer=recognizer,
+            policy=policy,
+            seat=args.seat,
+            min_confidence=args.min_confidence,
+            overlay_out=args.overlay_out,
+        )
+        return
+
+    region = _parse_region(args.region) if args.region else None
+    _run_watch_live(
+        monitor=args.monitor,
+        region=region,
+        layout_path=args.layout_annotation,
+        layout=layout,
+        recognizer=recognizer,
+        policy=policy,
+        seat=args.seat,
+        min_confidence=args.min_confidence,
+        fps=args.fps,
+        dump_dir=args.dump_dir,
+    )
+
+
+def _parse_region(text: str) -> dict[str, int]:
+    parts = text.split(",")
+    if len(parts) != 4:
+        raise ValueError("region must be 'left,top,width,height'")
+    left, top, width, height = (int(part) for part in parts)
+    return {"left": left, "top": top, "width": width, "height": height}
+
+
+def _recognize_and_decide(
+    recognizer: PokerLegendsTableRecognizer,
+    frame: CapturedFrame,
+    policy: FieldExploitPolicy,
+    *,
+    seat: int,
+    min_confidence: float,
+) -> tuple[RecognitionResult, SafetyDecision, PolicyDecision | None]:
+    """Faithful per-frame pipeline: recognise -> the same safety gate -> decide if allowed.
+
+    Mirrors ``BotOrchestrator.run_once`` (so the HUD shows exactly what the bot would
+    do) but keeps the full ``RecognitionResult`` -- notably ``metadata`` -- so the
+    overlay can surface *why* state assembly failed.
+    """
+    recognition = recognizer.recognize(frame)
+    decision = evaluate_safety(
+        screen=recognition.screen,
+        state=recognition.state,
+        recognition_confidence=recognition.confidence,
+        controlled_seat=seat,
+        min_confidence=min_confidence,
+    )
+    policy_decision: PolicyDecision | None = None
+    if decision.allowed and decision.state is not None:
+        policy_decision = policy.explain(decision.state)
+    return recognition, decision, policy_decision
+
+
+def _run_watch_once(
+    *,
+    image: str,
+    layout_path: str,
+    layout: Mapping[str, object],
+    annotation: str | None,
+    recognizer: PokerLegendsTableRecognizer,
+    policy: FieldExploitPolicy,
+    seat: int,
+    min_confidence: float,
+    overlay_out: str | None,
+) -> None:
+    capture = PokerLegendsImageCapture(
+        image_path=image, layout_annotation_path=layout_path, annotation_path=annotation
+    )
+    recognition, decision, policy_decision = _recognize_and_decide(
+        recognizer, capture.capture(), policy, seat=seat, min_confidence=min_confidence
+    )
+    raw = cv2.imread(image)
+    if raw is None:
+        raise FileNotFoundError(f"could not read image: {image}")
+    frame = cast(NDArray[np.uint8], raw)
+    lines = _watch_summary_lines(
+        recognition, decision, policy_decision, policy.model, controlled_seat=seat
+    )
+    overlay = render_overlay(frame, layout, lines)
+    out_path = Path(overlay_out) if overlay_out else Path(image).with_suffix(".overlay.png")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out_path), overlay)
+    record = _watch_record(
+        recognition, decision, policy_decision, policy.model, controlled_seat=seat
+    )
+    record["overlay_out"] = str(out_path)
+    print(json.dumps(record, indent=2, sort_keys=True))
+
+
+def _run_watch_live(
+    *,
+    monitor: int,
+    region: dict[str, int] | None,
+    layout_path: str,
+    layout: Mapping[str, object],
+    recognizer: PokerLegendsTableRecognizer,
+    policy: FieldExploitPolicy,
+    seat: int,
+    min_confidence: float,
+    fps: float,
+    dump_dir: str | None,
+) -> None:
+    try:
+        import mss
+    except ImportError as exc:  # pragma: no cover - host-only dependency
+        raise SystemExit("live capture needs the 'mss' package: pip install mss") from exc
+
+    interval = 1.0 / max(fps, 1.0)
+    tmp_frame = Path(tempfile.gettempdir()) / "holdem_watch_frame.png"
+    window = "Poker Legends HUD  [s] dump  [q] quit"
+    dump_path = Path(dump_dir) if dump_dir else None
+    if dump_path is not None:
+        dump_path.mkdir(parents=True, exist_ok=True)
+    dump_index = 0
+
+    with mss.mss() as sct:
+        target = region if region is not None else sct.monitors[monitor]
+        print(f"watching {target} at ~{fps:g} fps; focus the HUD window and press q to quit")
+        while True:  # pragma: no cover - interactive host-only loop
+            start = time.time()
+            shot = sct.grab(target)
+            frame = cast(NDArray[np.uint8], np.ascontiguousarray(np.asarray(shot)[:, :, :3]))
+            cv2.imwrite(str(tmp_frame), frame)
+            capture = PokerLegendsImageCapture(
+                image_path=tmp_frame, layout_annotation_path=layout_path
+            )
+            recognition, decision, policy_decision = _recognize_and_decide(
+                recognizer, capture.capture(), policy, seat=seat, min_confidence=min_confidence
+            )
+            lines = _watch_summary_lines(
+                recognition, decision, policy_decision, policy.model, controlled_seat=seat
+            )
+            overlay = render_overlay(frame, layout, lines)
+            cv2.imshow(window, overlay)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
+            if key == ord("s") and dump_path is not None:
+                dump_index += 1
+                _dump_watch_frame(
+                    dump_path,
+                    dump_index,
+                    frame,
+                    overlay,
+                    recognition,
+                    decision,
+                    policy_decision,
+                    policy.model,
+                    controlled_seat=seat,
+                )
+                print(f"dumped frame {dump_index} -> {dump_path}")
+            elapsed = time.time() - start
+            if elapsed < interval:
+                time.sleep(interval - elapsed)
+    cv2.destroyAllWindows()
+
+
+def _dump_watch_frame(
+    dump_dir: Path,
+    index: int,
+    frame: NDArray[np.uint8],
+    overlay: NDArray[np.uint8],
+    recognition: RecognitionResult,
+    decision: SafetyDecision,
+    policy_decision: PolicyDecision | None,
+    model: OpponentModel,
+    *,
+    controlled_seat: int,
+) -> None:
+    stem = f"watch_{index:04d}"
+    cv2.imwrite(str(dump_dir / f"{stem}.png"), frame)
+    cv2.imwrite(str(dump_dir / f"{stem}.overlay.png"), overlay)
+    record = _watch_record(
+        recognition, decision, policy_decision, model, controlled_seat=controlled_seat
+    )
+    (dump_dir / f"{stem}.json").write_text(
+        json.dumps(record, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+
+def _watch_summary_lines(
+    recognition: RecognitionResult,
+    decision: SafetyDecision,
+    policy_decision: PolicyDecision | None,
+    model: OpponentModel,
+    *,
+    controlled_seat: int,
+) -> list[str]:
+    """Compact overlay text: gate, screen, why-blocked, state, decision, reads."""
+    screen = recognition.screen
+    lines = [
+        f"seat {controlled_seat}  conf {recognition.confidence:.2f}  gate {decision.reason}",
+        f"screen {screen.kind.value}  hero_turn {screen.hero_turn}",
+    ]
+    if screen.blocking_reason:
+        lines.append(f"block {screen.blocking_reason}")
+    block_reason = recognition.metadata.get("state_block_reason")
+    if block_reason is not None:
+        lines.append(f"state_block {block_reason}")
+    state = recognition.state
+    if state is None:
+        lines.append("state <none>")
+    else:
+        legal = "/".join(action.action_type.value for action in state.legal_actions) or "-"
+        lines.append(f"pot {state.pot_total}  to_call {state.to_call}  legal {legal}")
+    if policy_decision is not None:
+        action = policy_decision.action
+        lines.append(
+            f"policy {action.action_type.value}:{action.amount} ({policy_decision.reason})"
+        )
+        exploit = policy_decision.metadata.get("exploit")
+        if exploit is not None:
+            lines.append(f"exploit {exploit}")
+    if state is not None:
+        for player in state.players:
+            if player.seat == controlled_seat:
+                continue
+            read = model.read(player.seat)
+            if read.hands:
+                lines.append(
+                    f"  s{read.seat} {read.profile.value}"
+                    f"  v={_fmt_ratio(read.vpip)} p={_fmt_ratio(read.pfr)} n={read.hands}"
+                )
+    return lines
+
+
+def _fmt_ratio(value: float | None) -> str:
+    return f"{value:.2f}" if value is not None else "-"
+
+
+def _watch_record(
+    recognition: RecognitionResult,
+    decision: SafetyDecision,
+    policy_decision: PolicyDecision | None,
+    model: OpponentModel,
+    *,
+    controlled_seat: int,
+) -> dict[str, object]:
+    """Structured per-frame diagnostic record (mirrors the dry-run record shape)."""
+    screen = recognition.screen
+    return {
+        "gate": {"allowed": decision.allowed, "reason": decision.reason},
+        "confidence": recognition.confidence,
+        "screen": {
+            "kind": screen.kind.value,
+            "confidence": screen.confidence,
+            "reason": screen.reason,
+            "blocking_reason": screen.blocking_reason,
+            "hero_turn": screen.hero_turn,
+        },
+        "state": _state_summary(recognition.state),
+        "state_block_reason": recognition.metadata.get("state_block_reason"),
+        "policy_decision": _watch_policy_dict(policy_decision),
+        "opponent_reads": _opponent_reads(
+            model, recognition.state, controlled_seat=controlled_seat
+        ),
+    }
+
+
+def _watch_policy_dict(policy_decision: PolicyDecision | None) -> dict[str, object] | None:
+    if policy_decision is None:
+        return None
+    return {
+        "reason": policy_decision.reason,
+        "strength": policy_decision.strength,
+        "required_equity": policy_decision.required_equity,
+        "metadata": dict(policy_decision.metadata),
+        "action": _action_to_dict(policy_decision.action),
+    }
 
 
 def _command_for_action(action: Action) -> str:

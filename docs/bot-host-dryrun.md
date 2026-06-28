@@ -20,6 +20,13 @@ the four `--*-manifest` flags. It **never clicks**. Run from your repo root on t
 host (it resolves the bundled manifests via `git rev-parse`, and uses `uv run`):
 
 ```bash
+# Fast loop (recommended) — the live perception HUD: SEE what the bot sees instead
+# of the screenshot -> save -> run -> paste-JSON round-trip. 'watch-once' renders one
+# bundled frame's annotated overlay to a PNG offline; 'watch' opens the live mss
+# overlay loop (never clicks; s=dump frame+overlay+json, q=quit):
+scripts/host/poker-legends-dryrun.sh watch-once 000080         # offline overlay PNG
+scripts/host/poker-legends-dryrun.sh watch                     # live HUD on monitor 1
+
 # Step 1 — sanity-check the checkout on a bundled frame (no live screen needed):
 scripts/host/poker-legends-dryrun.sh sanity            # default keyframe 000042
 scripts/host/poker-legends-dryrun.sh sanity 000080     # any bundled keyframe number
@@ -37,6 +44,46 @@ scripts/host/poker-legends-dryrun.sh replay-bundled --use-truth --limit 5   # of
 Env overrides: `SEAT=<n>` (your seat), `A=<artifacts dir>`, `LOG=<path>`,
 `FRAMES_OUT=<dir>`. `scripts/host/poker-legends-dryrun.sh help` lists every
 subcommand. The long-form command each step expands to is documented below.
+
+---
+
+## Fast loop — the perception HUD (`holdem-bot-watch-poker-legends`)
+
+The single-shot dry-run is fine for one frame, but iterating that way (screenshot →
+save → run → paste JSON → wait) is slow. The **HUD** collapses that loop: it
+captures the screen with `mss` a few times a second, runs the *same* recogniser +
+opponent-aware policy, and **draws what the bot perceives back onto the frame** — the
+layout ROIs (cards/buttons/seats/pot, scaled to your resolution) plus a text panel
+with the screen kind, the safety-gate verdict, **why state assembly blocked**
+(`state_block_reason`), the recognised pot/to-call/legal-actions, the policy's
+intended action, and the per-seat opponent reads. It **only reads** — there is no
+click path in this tool at all.
+
+```bash
+# Offline (no GUI, no live screen): render one frame's overlay to a PNG. Great for
+# sending back as evidence, and it surfaces the exact state_block_reason.
+scripts/host/poker-legends-dryrun.sh watch-once 000080        # -> /tmp/poker-legends-watch-000080.overlay.png
+
+# Live: open an OpenCV window updating ~4 fps. 's' dumps {frame,overlay,json}, 'q' quits.
+scripts/host/poker-legends-dryrun.sh watch                    # bundled 1600w layout on monitor 1
+scripts/host/poker-legends-dryrun.sh watch ~/pl-layout.json --region 0,0,1600,982 --dump-dir ~/pl-dumps
+```
+
+**Why this is the calibration tool.** The bundled layout's ROIs are in a fixed
+`1600×982` space and get scaled to your captured frame; when the game window is a
+different size/aspect, the drawn rectangles visibly drift off the real cards and
+buttons. Watch the HUD, line the game window up (or hand me a `watch-once` overlay
+PNG + your capture's pixel size) and we calibrate a layout for your resolution —
+which is what unblocks the `no_game_state` / `missing_table_metadata` failures the
+single-shot run reports. Reads only accumulate on frames where it would act (hero's
+turn), exactly as the live bot sees them, so a long `watch` session with `--dump-dir`
+is the highest-signal artifact to send back.
+
+> Bundled-frame finding: `watch-once 000080` is a **real in-game table** (hero `5h 8s`,
+> Call/Raise/Fold visible) yet still returns `no_game_state` with
+> `state_block_reason: missing_table_metadata` — the selection-set annotations have
+> ROIs placed but values pending (`roi_applied_values_pending`), so even a correct
+> table can't assemble a `GameState` until the layout carries the table-metadata block.
 
 ---
 
