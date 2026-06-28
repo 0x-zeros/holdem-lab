@@ -33,6 +33,10 @@ from holdem_bot.recognize import RecognitionResult, Recognizer
 from holdem_bot.screen_state import SafetyDecision, evaluate_safety
 from holdem_bot.vision.annotations import ScreenRect
 from holdem_bot.vision.perception_overlay import render_overlay
+from holdem_bot.vision.poker_legends_action_buttons import (
+    ActionButtonDetection,
+    detect_action_buttons,
+)
 
 _Runner = Callable[[Sequence[str]], None]
 
@@ -212,6 +216,44 @@ class PokerLegendsDryRunAutomator:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("a", encoding="utf-8") as output:
             output.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+class PokerLegendsVisionClickPlanner:
+    """Plan a click from CV-detected action buttons (no static layout needed).
+
+    The buttons are found live in the captured frame by colour+shape, so this works at any
+    window size/framing where the static-ROI planner cannot. ``plan`` maps the AI's action to
+    its button slot and returns the button centre; it returns ``None`` when that button is not
+    on screen, so the caller fails closed (never clicks a button it cannot see).
+    """
+
+    def __init__(self, detections: Sequence[ActionButtonDetection]) -> None:
+        self._by_slot = {detection.slot: detection for detection in detections}
+
+    @classmethod
+    def from_image(cls, image: NDArray[np.uint8]) -> PokerLegendsVisionClickPlanner:
+        return cls(detect_action_buttons(image))
+
+    def plan(
+        self,
+        action: Action,
+        *,
+        origin: tuple[int, int] = (0, 0),
+        coordinate_space: str = "image",
+    ) -> PokerLegendsClickPlan | None:
+        command = _command_for_action(action)
+        detection = self._by_slot.get(command)
+        if detection is None:
+            return None
+        left, top = origin
+        return PokerLegendsClickPlan(
+            action_type=action.action_type.value,
+            amount=action.amount,
+            command=command,
+            x=left + detection.x,
+            y=top + detection.y,
+            coordinate_space=coordinate_space,
+        )
 
 
 def capture_main(argv: Sequence[str] | None = None) -> None:
@@ -437,13 +479,14 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
 
 
 def watch_main(argv: Sequence[str] | None = None) -> None:
-    """Live perception HUD: capture -> recognise -> overlay ROIs + reads, never click.
+    """Live perception HUD: capture -> recognise -> overlay reads + planned click, never click.
 
     With ``--image`` it renders one saved frame's overlay to disk headlessly (no GUI,
     no ``mss``) -- the offline path used by tests and for sending annotated evidence.
     Otherwise it opens a live ``mss`` capture loop and draws the overlay each frame in
-    an OpenCV window: ``s`` dumps frame+overlay+json, ``q`` quits. It only ever reads
-    the screen; it never plans or performs a click.
+    an OpenCV window: ``s`` dumps frame+overlay+json, ``q`` quits. When the hero can act
+    it also locates the action buttons (CV) and draws the click target the bot *would*
+    press, but it only ever reads the screen -- it never performs a click.
     """
     parser = argparse.ArgumentParser(
         description="Live Poker Legends perception HUD (overlay only; never clicks)."
@@ -618,6 +661,70 @@ def _frame_changed(
     return float(np.mean(np.abs(small_current - small_previous))) > threshold
 
 
+def _plan_click_targets(
+    frame: NDArray[np.uint8],
+    policy_decision: PolicyDecision | None,
+    *,
+    origin: tuple[int, int] | None,
+) -> tuple[tuple[ActionButtonDetection, ...], PokerLegendsClickPlan | None]:
+    """Detect the action buttons and plan the chosen action's click target (read-only).
+
+    Runs on the full captured ``frame`` (most precise; the click maps straight to the screen via
+    ``origin``). Returns the detections (for the HUD) and the plan, or ``None`` when no decision is
+    pending or the chosen action's button is not on screen (fail closed -- never click blind).
+    """
+    if policy_decision is None:
+        return (), None
+    detections = detect_action_buttons(frame)
+    space = "screen" if origin is not None else "image"
+    plan = PokerLegendsVisionClickPlanner(detections).plan(
+        policy_decision.action, origin=origin or (0, 0), coordinate_space=space
+    )
+    return detections, plan
+
+
+def _draw_click_targets(
+    overlay: NDArray[np.uint8],
+    frame: NDArray[np.uint8],
+    detections: Sequence[ActionButtonDetection],
+    plan: PokerLegendsClickPlan | None,
+) -> None:
+    """Draw detected buttons on the overlay (chosen one highlighted), scaled frame -> overlay.
+
+    Only valid when the overlay is a uniform downscale of the full frame (window / no-crop). The
+    caller skips this when the overlay is a cropped view; the *plan* is always correct regardless.
+    """
+    if not detections:
+        return
+    frame_h, frame_w = frame.shape[:2]
+    overlay_h, overlay_w = overlay.shape[:2]
+    if frame_w == 0 or frame_h == 0:
+        return
+    scale_x, scale_y = overlay_w / frame_w, overlay_h / frame_h
+    radius_scale = (scale_x + scale_y) / 2.0
+    chosen_slot = plan.command if plan is not None else None
+    for detection in detections:
+        cx = int(round(detection.x * scale_x))
+        cy = int(round(detection.y * scale_y))
+        radius = max(4, int(round(detection.radius * radius_scale)))
+        chosen = detection.slot == chosen_slot
+        color = (0, 255, 255) if chosen else (170, 170, 170)
+        thickness = 3 if chosen else 1
+        cv2.circle(overlay, (cx, cy), radius, color, thickness)
+        cv2.drawMarker(overlay, (cx, cy), color, cv2.MARKER_CROSS, 18, thickness)
+        if chosen:
+            cv2.putText(
+                overlay,
+                "CLICK",
+                (cx - 22, cy + radius + 16),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+
+
 def _recognize_and_decide(
     recognizer: Recognizer,
     frame: CapturedFrame,
@@ -671,16 +778,31 @@ def _run_watch_once(
     if raw is None:
         raise FileNotFoundError(f"could not read image: {image}")
     frame = cast(NDArray[np.uint8], raw)
+    # offline single frame: no screen origin, so the click plan is in image space
+    detections, click_plan = _plan_click_targets(frame, policy_decision, origin=None)
     lines = _watch_summary_lines(
-        recognition, decision, policy_decision, policy.model, controlled_seat=seat
+        recognition,
+        decision,
+        policy_decision,
+        policy.model,
+        controlled_seat=seat,
+        click_plan=click_plan,
+        click_searched=policy_decision is not None,
     )
     base = _overlay_base(frame, recognition)
     overlay = render_overlay(base, _overlay_layout(layout, base), lines)
+    if recognition.metadata.get("game_region_fraction") is None:
+        _draw_click_targets(overlay, frame, detections, click_plan)
     out_path = Path(overlay_out) if overlay_out else Path(image).with_suffix(".overlay.png")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), overlay)
     record = _watch_record(
-        recognition, decision, policy_decision, policy.model, controlled_seat=seat
+        recognition,
+        decision,
+        policy_decision,
+        policy.model,
+        controlled_seat=seat,
+        click_plan=click_plan,
     )
     record["overlay_out"] = str(out_path)
     print(json.dumps(record, indent=2, sort_keys=True))
@@ -739,11 +861,22 @@ def _run_watch_live(
                 last_recognized = frame
                 last_recognize_at = start
             recognition, decision, policy_decision = cached
+            # CV click target on the live frame (cheap; runs only when a decision is pending)
+            origin = (int(target["left"]), int(target["top"]))
+            detections, click_plan = _plan_click_targets(frame, policy_decision, origin=origin)
             lines = _watch_summary_lines(
-                recognition, decision, policy_decision, policy.model, controlled_seat=seat
+                recognition,
+                decision,
+                policy_decision,
+                policy.model,
+                controlled_seat=seat,
+                click_plan=click_plan,
+                click_searched=policy_decision is not None,
             )
             base = _overlay_base(frame, recognition)
             overlay = render_overlay(base, _overlay_layout(layout, base), lines)
+            if recognition.metadata.get("game_region_fraction") is None:
+                _draw_click_targets(overlay, frame, detections, click_plan)
             cv2.imshow(window, overlay)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
@@ -760,6 +893,7 @@ def _run_watch_live(
                     policy_decision,
                     policy.model,
                     controlled_seat=seat,
+                    click_plan=click_plan,
                 )
                 print(f"dumped frame {dump_index} -> {dump_path}")
             elapsed = time.time() - start
@@ -779,12 +913,18 @@ def _dump_watch_frame(
     model: OpponentModel,
     *,
     controlled_seat: int,
+    click_plan: PokerLegendsClickPlan | None = None,
 ) -> None:
     stem = f"watch_{index:04d}"
     cv2.imwrite(str(dump_dir / f"{stem}.png"), frame)
     cv2.imwrite(str(dump_dir / f"{stem}.overlay.png"), overlay)
     record = _watch_record(
-        recognition, decision, policy_decision, model, controlled_seat=controlled_seat
+        recognition,
+        decision,
+        policy_decision,
+        model,
+        controlled_seat=controlled_seat,
+        click_plan=click_plan,
     )
     (dump_dir / f"{stem}.json").write_text(
         json.dumps(record, indent=2, sort_keys=True), encoding="utf-8"
@@ -798,8 +938,10 @@ def _watch_summary_lines(
     model: OpponentModel,
     *,
     controlled_seat: int,
+    click_plan: PokerLegendsClickPlan | None = None,
+    click_searched: bool = False,
 ) -> list[str]:
-    """Compact overlay text: gate, screen, why-blocked, state, decision, reads."""
+    """Compact overlay text: gate, screen, why-blocked, state, decision, click target, reads."""
     screen = recognition.screen
     lines = [
         f"seat {controlled_seat}  conf {recognition.confidence:.2f}  gate {decision.reason}",
@@ -824,6 +966,13 @@ def _watch_summary_lines(
         exploit = policy_decision.metadata.get("exploit")
         if exploit is not None:
             lines.append(f"exploit {exploit}")
+    if click_plan is not None:
+        lines.append(
+            f"click {click_plan.command} @{click_plan.coordinate_space} "
+            f"({click_plan.x},{click_plan.y})  [read-only]"
+        )
+    elif click_searched:
+        lines.append("click <button not located>")
     if state is not None:
         for player in state.players:
             if player.seat == controlled_seat:
@@ -848,6 +997,7 @@ def _watch_record(
     model: OpponentModel,
     *,
     controlled_seat: int,
+    click_plan: PokerLegendsClickPlan | None = None,
 ) -> dict[str, object]:
     """Structured per-frame diagnostic record (mirrors the dry-run record shape)."""
     screen = recognition.screen
@@ -864,6 +1014,7 @@ def _watch_record(
         "state": _state_summary(recognition.state),
         "state_block_reason": recognition.metadata.get("state_block_reason"),
         "policy_decision": _watch_policy_dict(policy_decision),
+        "click_plan": None if click_plan is None else {**click_plan.to_dict(), "executed": False},
         "opponent_reads": _opponent_reads(
             model, recognition.state, controlled_seat=controlled_seat
         ),
