@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
 
@@ -50,6 +50,13 @@ _STREET_MAP = {
     "river": Street.RIVER,
     "showdown": Street.SHOWDOWN,
 }
+
+
+class _LlmStubRecognizer:
+    """No-op CV recognizer for LLM-mode tables (state comes from the LLM, not pixels)."""
+
+    def recognize(self, *args: object, **kwargs: object) -> tuple[object, ...]:
+        return ()
 
 
 class _CardConsensusRecognizer(Protocol):
@@ -231,6 +238,91 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             button_recognizer=PokerLegendsButtonRecognizer.from_manifest(button_manifest),
             number_recognizer=PokerLegendsNumberRecognizer(),
             controlled_seat=controlled_seat,
+        )
+
+    @classmethod
+    def for_llm(
+        cls,
+        *,
+        controlled_seat: int = 0,
+        small_blind: int = 5,
+        big_blind: int = 10,
+    ) -> PokerLegendsTableRecognizer:
+        """Build a recognizer that assembles state from an LLM annotation (no CV manifests)."""
+        stub = cast(Any, _LlmStubRecognizer())
+        return cls(
+            card_recognizer=stub,
+            button_recognizer=stub,
+            number_recognizer=None,
+            controlled_seat=controlled_seat,
+            small_blind=small_blind,
+            big_blind=big_blind,
+        )
+
+    def recognize_from_llm_annotation(
+        self,
+        annotation: Mapping[str, object],
+        *,
+        image: str = "",
+        frame_id: str | None = None,
+    ) -> RecognitionResult:
+        """Assemble a fail-closed GameState from an LLM-produced annotation.
+
+        The annotation follows ``annotation_output_schema`` (cards/seats/pot/buttons/blinds
+        all read by the LLM); no pixel CV runs. The same ``_state_from_table`` guards apply.
+        """
+        fid = frame_id or str(annotation.get("frame_id") or "llm")
+        raw_ts = annotation.get("table_state")
+        table_state: Mapping[str, object] = raw_ts if isinstance(raw_ts, Mapping) else {}
+        hero_cards = _llm_cards(annotation.get("hero_hole_cards"))
+        board = _llm_cards(annotation.get("board"))
+        hero_turn = _llm_hero_current(annotation, controlled_name="hero")
+        seats = _recognized_seats_from_annotation(
+            annotation,
+            controlled_seat=self.controlled_seat,
+            hero_hole_cards=hero_cards,
+            number_predictions=(),
+            hero_current=hero_turn,
+        )
+        buttons = _recognized_buttons_from_predictions(
+            annotation, button_predictions=(), number_predictions=()
+        )
+        pot = _pot_from_annotation(annotation)
+        street = _street_name_from_annotation(annotation, board)
+        confidence = _to_float(table_state.get("confidence"), default=0.0)
+        screen = _llm_screen_state(table_state, hero_turn=hero_turn, confidence=confidence)
+        table = RecognizedTable(
+            source="poker_legends_llm",
+            image=image,
+            hand_id=fid,
+            street=street,
+            current_seat=self.controlled_seat if hero_turn else _current_seat(seats),
+            pot=pot,
+            board=board,
+            seats=seats,
+            buttons=buttons,
+            confidence=confidence if confidence > 0 else screen.confidence,
+        )
+        metadata: dict[str, object] = {
+            "source": "poker_legends_llm",
+            "screen_kind": screen.kind.value,
+            "recognized_table": _recognized_table_to_dict(table),
+        }
+        if screen.kind is not ScreenKind.ACTIONABLE_TABLE:
+            return RecognitionResult(
+                state=None, confidence=screen.confidence, metadata=metadata, screen=screen
+            )
+        state, block_reason = self._state_from_table(
+            table,
+            annotation=annotation,
+            screen=screen,
+            card_predictions=(),
+            number_predictions=(),
+        )
+        if block_reason is not None:
+            metadata["state_block_reason"] = block_reason
+        return RecognitionResult(
+            state=state, confidence=table.confidence, metadata=metadata, screen=screen
         )
 
     def recognize(self, frame: CapturedFrame) -> RecognitionResult:
@@ -538,6 +630,49 @@ def _read_json_object(path: str | Path) -> dict[str, object]:
     if not isinstance(data, dict):
         raise ValueError(f"expected JSON object: {path}")
     return cast(dict[str, object], data)
+
+
+def _llm_cards(raw: object) -> tuple[RecognizedCard, ...]:
+    cards: list[RecognizedCard] = []
+    if isinstance(raw, list):
+        for index, item in enumerate(raw):
+            if not isinstance(item, Mapping):
+                continue
+            code = item.get("card")
+            card = code if isinstance(code, str) and code else None
+            cards.append(
+                RecognizedCard(
+                    slot=str(item.get("slot") or f"card_{index}"),
+                    card=card,
+                    visible=bool(item.get("visible", card is not None)),
+                    confidence=_to_float(item.get("confidence"), default=1.0),
+                )
+            )
+    return tuple(cards)
+
+
+def _llm_hero_current(annotation: Mapping[str, object], *, controlled_name: str) -> bool:
+    for item in _mapping_sequence(annotation.get("seats")):
+        if str(item.get("name") or "").lower() == controlled_name:
+            return _optional_bool(item.get("current")) is True
+    return False
+
+
+def _llm_screen_state(
+    table_state: Mapping[str, object], *, hero_turn: bool, confidence: float
+) -> ScreenState:
+    if not bool(table_state.get("is_table")):
+        return ScreenState.non_table_ui(confidence=confidence, reason="llm_non_table")
+    blocking = table_state.get("blocking_reason")
+    if isinstance(blocking, str) and blocking not in {"", "none"}:
+        return ScreenState.blocked_overlay(
+            blocking_reason=blocking, confidence=confidence, reason="llm_overlay"
+        )
+    if bool(table_state.get("is_actionable")):
+        return ScreenState.actionable_table(
+            confidence=confidence, hero_turn=hero_turn, reason="llm_actionable"
+        )
+    return ScreenState.table_observe(confidence=confidence, reason="llm_observe")
 
 
 def _recognized_table_from_predictions(
