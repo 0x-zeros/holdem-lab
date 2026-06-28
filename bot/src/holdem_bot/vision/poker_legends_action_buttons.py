@@ -94,8 +94,9 @@ def _candidate_blobs(image: BgrImage) -> tuple[list[_Blob], float]:
     hue_ch, sat_ch, val_ch = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
     bright_sat = (sat_ch > _MIN_SATURATION) & (val_ch > _MIN_VALUE)
     raw_mask = bright_sat.astype(np.uint8) * 255
-    kernel_side = int(height * 0.022) | 1  # odd; ~ centre-icon size, so ring+icon merge into a disk
-    mask = cv2.morphologyEx(raw_mask, cv2.MORPH_CLOSE, np.ones((kernel_side, kernel_side), np.uint8))
+    kernel_side = int(height * 0.022) | 1  # odd; ~ centre-icon size, so ring+icon close into a disk
+    kernel = np.ones((kernel_side, kernel_side), np.uint8)
+    mask = cv2.morphologyEx(raw_mask, cv2.MORPH_CLOSE, kernel)
     count, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
     min_side = height * 0.045  # button diameter floor (scales with resolution)
     min_area = min_side * min_side * 0.45

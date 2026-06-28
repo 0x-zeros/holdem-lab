@@ -61,8 +61,10 @@ RUNTIME_PROMPT = (
     "desktop wallpaper outside the window. null only if no game window is visible.\n"
     "Cards: rank+suit S,H,D,C (AS, TD, 7H); null + an 'uncertain' entry if unclear. Normalize chip "
     "numbers (drop $ and commas; ignore '+N'). Buttons: name in {call,raise,fold,check,bet,all_in} "
-    "with the visible label (e.g. 'Call $10'). table_state.is_actionable=true only when hero can "
-    "choose an in-hand poker action now (modals/lobbies are not actionable)."
+    "with the visible label (e.g. 'Call $10') and box_2d = [ymin, xmin, ymax, xmax] of that round "
+    "button, normalized 0-1000 to the image (the click target). "
+    "table_state.is_actionable=true only when hero can choose an in-hand poker action now "
+    "(modals/lobbies are not actionable)."
 )
 
 #: Focused prompt for the one-time game-window locate call. The full annotation prompt has too
@@ -91,6 +93,15 @@ def runtime_annotation_schema() -> dict[str, object]:
     seat_items = cast(dict[str, Any], cast(dict[str, Any], props["seats"])["items"])
     seat_items["properties"]["position"] = {"type": ["string", "null"]}
     seat_items["required"] = [*seat_items["required"], "position"]
+    button_items = cast(dict[str, Any], cast(dict[str, Any], props["buttons"])["items"])
+    # Gemini's native object-detection box: [ymin, xmin, ymax, xmax] normalized to 0-1000.
+    button_items["properties"]["box_2d"] = {
+        "type": ["array", "null"],
+        "items": {"type": "integer"},
+        "minItems": 4,
+        "maxItems": 4,
+    }
+    button_items["required"] = [*button_items["required"], "box_2d"]
     props["game_region"] = {
         "type": ["object", "null"],
         "additionalProperties": False,
@@ -213,9 +224,12 @@ def _fraction_from_box(box: Mapping[str, object], height: int, width: int) -> _R
     return (fx, fy, fw, fh)
 
 
-def _crop_to_fraction(image: BgrImage, region: _Region, margin: float) -> BgrImage:
-    """Crop to the fractional region, expanded by margin on each side and clamped to the image."""
-    height, width = image.shape[:2]
+def _crop_rect(
+    height: int, width: int, region: _Region | None, margin: float
+) -> tuple[int, int, int, int]:
+    """Pixel crop rect (x0, y0, x1, y1) for a fractional region + margin; full frame if None."""
+    if region is None:
+        return 0, 0, width, height
     fx, fy, fw, fh = region
     fx = max(fx - margin, 0.0)
     fy = max(fy - margin, 0.0)
@@ -226,8 +240,60 @@ def _crop_to_fraction(image: BgrImage, region: _Region, margin: float) -> BgrIma
     x1 = min(width, int(round((fx + fw) * width)))
     y1 = min(height, int(round((fy + fh) * height)))
     if x1 - x0 < 1 or y1 - y0 < 1:
-        return image
+        return 0, 0, width, height
+    return x0, y0, x1, y1
+
+
+def _crop_to_fraction(image: BgrImage, region: _Region, margin: float) -> BgrImage:
+    """Crop to the fractional region, expanded by margin on each side and clamped to the image."""
+    x0, y0, x1, y1 = _crop_rect(image.shape[0], image.shape[1], region, margin)
     return image[y0:y1, x0:x1]
+
+
+#: LLM action_type -> canonical button slot (mirrors ``_command_for_action`` in the host).
+_ACTION_TYPE_TO_SLOT: dict[str, str] = {
+    "check": "primary_left",
+    "call": "primary_left",
+    "bet": "primary_middle",
+    "raise": "primary_middle",
+    "all_in": "primary_middle",
+    "fold": "primary_right",
+}
+
+
+def _llm_button_centers(
+    annotation: Mapping[str, object], crop_rect: tuple[int, int, int, int]
+) -> dict[str, list[int]]:
+    """Map each button's box_2d to a full-frame pixel centre, keyed by canonical slot.
+
+    box_2d is [ymin, xmin, ymax, xmax] normalized 0-1000 of the submitted crop. Being normalized,
+    its fraction of the crop is scale-invariant under the downscale, so the full-frame centre is
+    ``crop_origin + (box-centre fraction) * crop_size``.
+    """
+    x0, y0, x1, y1 = crop_rect
+    crop_w, crop_h = x1 - x0, y1 - y0
+    centers: dict[str, list[int]] = {}
+    buttons = annotation.get("buttons")
+    if not isinstance(buttons, list) or crop_w <= 0 or crop_h <= 0:
+        return centers
+    for button in buttons:
+        if not isinstance(button, Mapping):
+            continue
+        box = button.get("box_2d")
+        action_type = button.get("action_type")
+        if not isinstance(box, list) or len(box) != 4 or not isinstance(action_type, str):
+            continue
+        slot = _ACTION_TYPE_TO_SLOT.get(action_type)
+        if slot is None or slot in centers:
+            continue
+        try:
+            ymin, xmin, ymax, xmax = (float(value) for value in box)
+        except (TypeError, ValueError):
+            continue
+        cx = x0 + (xmin + xmax) / 2.0 / 1000.0 * crop_w
+        cy = y0 + (ymin + ymax) / 2.0 / 1000.0 * crop_h
+        centers[slot] = [int(round(cx)), int(round(cy))]
+    return centers
 
 
 _Region = tuple[float, float, float, float]
@@ -357,9 +423,9 @@ class PokerLegendsLlmRecognizer:
         if self._crop and self._region is None and self._locator is not None:
             self._region = self._locator(_downscale_image(full_bgr, self._max_edge))
         region = self._region if self._crop else None
-        cropped = (
-            _crop_to_fraction(full_bgr, region, self._margin) if region is not None else full_bgr
-        )
+        crop_rect = _crop_rect(full_bgr.shape[0], full_bgr.shape[1], region, self._margin)
+        x0, y0, x1, y1 = crop_rect
+        cropped = full_bgr[y0:y1, x0:x1]
         submitted = _downscale_image(cropped, self._max_edge)
         annotation = self._reader(submitted)
         if self._crop and region is not None:
@@ -371,6 +437,7 @@ class PokerLegendsLlmRecognizer:
         metadata = dict(result.metadata)
         metadata["submitted_image"] = str(self._submitted_path)
         metadata["game_region_fraction"] = list(self._region) if self._region is not None else None
+        metadata["llm_button_boxes"] = _llm_button_centers(annotation, crop_rect)
         return RecognitionResult(
             state=result.state,
             confidence=result.confidence,

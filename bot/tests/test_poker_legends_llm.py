@@ -42,6 +42,12 @@ def _button(name: str, label: str, action_type: str) -> dict[str, Any]:
     }
 
 
+def _button_with_box(
+    name: str, label: str, action_type: str, box: list[int]
+) -> dict[str, Any]:
+    return {**_button(name, label, action_type), "box_2d": box}
+
+
 # What Gemini should return for the real mon2 frame (hero 8S 2D, hero to act preflop).
 MON2: dict[str, Any] = {
     "schema_version": 1,
@@ -101,6 +107,42 @@ def test_runtime_schema_adds_blinds_position_and_region() -> None:
     required = schema["required"]
     assert isinstance(required, list)
     assert "game_region" in required
+
+
+def test_runtime_schema_adds_box_2d_to_buttons() -> None:
+    props = runtime_annotation_schema()["properties"]
+    assert isinstance(props, dict)
+    buttons = props["buttons"]
+    assert isinstance(buttons, dict)
+    button_items = buttons["items"]
+    assert isinstance(button_items, dict)
+    assert "box_2d" in button_items["properties"]
+    assert "box_2d" in button_items["required"]
+
+
+def test_recognizer_maps_box2d_to_full_frame_centers(tmp_path: Path) -> None:
+    frame_file = tmp_path / "f.png"
+    cv2.imwrite(str(frame_file), np.zeros((100, 200, 3), dtype=np.uint8))  # 200x100 frame, no crop
+    annotation = {
+        **MON2,
+        "buttons": [
+            _button_with_box("call", "Call $10", "call", [800, 100, 900, 200]),
+            _button_with_box("fold", "Fold", "fold", [800, 900, 900, 950]),
+        ],
+    }
+    recognizer = PokerLegendsLlmRecognizer(
+        reader=lambda _image: annotation,
+        recognizer=PokerLegendsTableRecognizer.for_llm(controlled_seat=0),
+        max_edge=0,
+        submitted_path=tmp_path / "s.png",
+        crop=False,
+    )
+    frame = CapturedFrame(payload=str(frame_file), source="t", metadata={})
+    boxes = recognizer.recognize(frame).metadata["llm_button_boxes"]
+    assert isinstance(boxes, dict)
+    # centre = box-centre fraction (0-1000) * full frame dims; keyed by canonical slot
+    assert boxes["primary_left"] == [30, 85]  # call: x=(100+200)/2/1000*200, y=(800+900)/2/1000*100
+    assert boxes["primary_right"] == [185, 85]  # fold: x=(900+950)/2/1000*200, y=85
 
 
 def test_llm_annotation_assembles_state_and_ai_folds_trash() -> None:

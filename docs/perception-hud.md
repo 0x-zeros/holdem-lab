@@ -1,9 +1,9 @@
 # 感知 HUD（perception HUD）—— 原理 / 库 / 安全 / 通用性 / 操作指南
 
 > 工具：`holdem-bot-watch-poker-legends`（host 脚本子命令 `watch` / `watch-once`）。
-> **只读截屏 + 本地 CV + 叠加显示，永不点击。** 轮到 hero 行动时还会用 CV 定位三个动作按钮、
-> 算出「机器人**打算**点哪个像素」并把靶标画在 HUD 上——**仍然只算不点**（不合成任何鼠标输入）。
-> 配套的完整 host 流程见
+> **只读截屏 + 本地 CV + 叠加显示，永不点击。** 轮到 hero 行动时还会定位动作按钮(**LLM `box_2d`
+> 当主坐标 + CV 校验**)、算出「机器人**打算**点哪个像素」并把靶标画在 HUD 上——**仍然只算不点**
+> (不合成任何鼠标输入)。配套的完整 host 流程见
 > `docs/bot-host-dryrun.md`；这份文档是 HUD 本身的参考（它是什么、怎么做到的、有什么风险、
 > 能不能用到别处、怎么跑）。
 
@@ -21,14 +21,18 @@ HUD 把慢的手动循环（截屏 → 存 → 跑 → 贴 JSON → 等人看）
    ROI 上认牌/底池/座位/按钮 → 一个 `GameState`（或失败原因 `state_block_reason`）。
 4. **安全门**：同一个 `evaluate_safety`，判断这帧能不能行动（与真 bot 一致）。
 5. **决策**：若可行动，对手感知策略算出「打算怎么打」—— **只算不点**。
-6. **算点击靶标**：若有决策，用 CV（`detect_action_buttons`，按颜色/形状找红=fold·蓝=call·金=raise
-   的圆形按钮）在**整帧**里定位该动作对应的按钮，得到圆心；窗口模式下加上窗口原点 → 屏幕坐标。
-   找不到对应按钮就**返回空、不点**（fail-closed）。LLM 给不了可用像素坐标（会幻觉），所以坐标必须走 CV。
-7. **叠加 + 显示**：纯 numpy/cv2 把 ROI 框 + 文字面板 + 点击靶标（选中按钮高亮、标 `[read-only]`）
+6. **算点击靶标(混合)**：若有决策,**主坐标 = LLM 在识别调用里顺带返回的每个按钮 `box_2d`**
+   (`[ymin,xmin,ymax,xmax]` 归一化 0-1000,反归一化映射回整帧像素中心;随识别免费、对取景/主题/
+   缩放鲁棒、可跨游戏)。同时用 CV（`detect_action_buttons`,按颜色/形状找红=fold·蓝=call·金=raise
+   的圆钮）在整帧里定位**同一**按钮做**校验**:两者吻合→取 CV 像素精确中心(标 `llm+cv`);只有一方→
+   取那方(`llm`/`cv`);相距过远→标 `conflict`;都没有→**不点**(fail-closed)。窗口模式加窗口原点→屏幕坐标。
+7. **叠加 + 显示**：纯 numpy/cv2 把 ROI 框 + 文字面板 + 点击靶标（选中按钮高亮、标来源 + `read-only`）
    画到画面**副本**上，`cv2.imshow` 开本地窗口；`s` 存证据，`q` 退。
 
 一句话：**它是只读的屏幕阅读器 + 可视化器**，会算出但**不执行**点击，没有任何「对游戏施加动作」的代码路径。
-独立验证按钮定位可用 `holdem-bot-detect-poker-legends-buttons --image X.png`（纯 CV，无需 API）。
+按钮坐标走「LLM box_2d 主 + CV 校验」混合(`conflict`/缺失则 fail-closed);Gemini 用官方 `box_2d`
+归一化 0-1000 约定能给出 ~10px 内的可点坐标。独立验证 CV 按钮定位:
+`holdem-bot-detect-poker-legends-buttons --image X.png`（纯 CV，无需 API）。
 
 ---
 

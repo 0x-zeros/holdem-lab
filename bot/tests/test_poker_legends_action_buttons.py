@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import cv2
 import numpy as np
-from holdem_bot.adapters.poker_legends_host import PokerLegendsVisionClickPlanner
+from holdem_bot.adapters.poker_legends_host import (
+    PokerLegendsVisionClickPlanner,
+    _plan_click_targets,
+    _resolve_click_point,
+)
+from holdem_bot.recognize import RecognitionResult
 from holdem_bot.vision.poker_legends_action_buttons import (
     ActionButtonDetection,
     detect_action_buttons,
@@ -93,3 +100,56 @@ def test_planner_fails_closed_when_button_absent() -> None:
 def test_from_image_classmethod() -> None:
     planner = PokerLegendsVisionClickPlanner.from_image(_table_with_buttons())
     assert planner.plan(Action(ActionType.FOLD)) is not None
+
+
+def _fold_det() -> ActionButtonDetection:
+    return ActionButtonDetection("primary_right", "fold", 540, 340, 30, 0.9)
+
+
+def test_resolve_agree_uses_cv_center() -> None:
+    point, source = _resolve_click_point((545, 344), _fold_det(), frame_height=400)
+    assert source == "llm+cv" and point == (540, 340)  # close -> pixel-exact CV centre
+
+
+def test_resolve_conflict_when_far_apart() -> None:
+    point, source = _resolve_click_point((100, 100), _fold_det(), frame_height=400)
+    assert source == "conflict" and point == (540, 340)
+
+
+def test_resolve_single_source() -> None:
+    assert _resolve_click_point(None, _fold_det(), frame_height=400) == ((540, 340), "cv")
+    assert _resolve_click_point((200, 210), None, frame_height=400) == ((200, 210), "llm")
+
+
+def test_resolve_none_when_neither() -> None:
+    assert _resolve_click_point(None, None, frame_height=400) == (None, "none")
+
+
+class _StubDecision:
+    """Minimal PolicyDecision stand-in: _plan_click_targets only reads .action."""
+
+    def __init__(self, action: Action) -> None:
+        self.action = action
+
+
+def test_plan_click_targets_hybrid_screen_coords() -> None:
+    frame = _table_with_buttons()
+    # LLM box centre near the CV fold button (540,340) -> both agree
+    recognition = RecognitionResult(
+        state=None, metadata={"llm_button_boxes": {"primary_right": [541, 342]}}
+    )
+    decision = cast(Any, _StubDecision(Action(ActionType.FOLD)))
+    _detections, click = _plan_click_targets(frame, recognition, decision, origin=(1000, 500))
+    assert click is not None
+    assert click.source == "llm+cv"
+    assert click.plan.command == "primary_right"
+    assert click.plan.coordinate_space == "screen"
+    assert abs(click.plan.x - (1000 + 540)) <= 5  # screen = origin + CV frame centre
+    assert abs(click.plan.y - (500 + 340)) <= 5
+
+
+def test_plan_click_targets_none_decision() -> None:
+    detections, click = _plan_click_targets(
+        _table_with_buttons(), RecognitionResult(state=None), None, origin=None
+    )
+    assert detections == () and click is None
