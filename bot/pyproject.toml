@@ -36,6 +36,7 @@ holdem-bot-plan-poker-legends-click = "holdem_bot.adapters.poker_legends_host:pl
 holdem-bot-run-poker-legends-dry-run = "holdem_bot.adapters.poker_legends_host:dry_run_once_main"
 holdem-bot-replay-poker-legends-dry-run = "holdem_bot.adapters.poker_legends_host:replay_dry_run_main"
 holdem-bot-watch-poker-legends = "holdem_bot.adapters.poker_legends_host:watch_main"
+holdem-bot-find-poker-legends-window = "holdem_bot.adapters.window_region:find_window_main"
 holdem-bot-select-keyframes = "holdem_bot.vision.selection:main"
 
 [tool.uv.sources]

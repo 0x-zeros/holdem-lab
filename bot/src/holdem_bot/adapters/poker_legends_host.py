@@ -489,6 +489,14 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
         action="store_true",
         help="--llm: send the full frame instead of cropping to the located game window",
     )
+    parser.add_argument(
+        "--window",
+        action="store_true",
+        help="live: capture only the game's OS window (exact; no desktop, never clips UI)",
+    )
+    parser.add_argument(
+        "--window-title", default="Poker Legends", help="window-title substring for --window"
+    )
     args = parser.parse_args(argv)
 
     recognizer: Recognizer
@@ -497,7 +505,7 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
             controlled_seat=args.seat,
             model=args.llm_model,
             max_edge=args.llm_max_edge,
-            crop=not args.llm_no_crop,
+            crop=not args.llm_no_crop and not args.window,
         )
     else:
         missing = [
@@ -537,6 +545,16 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
         return
 
     region = _parse_region(args.region) if args.region else None
+    if args.window:
+        from holdem_bot.adapters.window_region import find_game_window
+
+        window = find_game_window(args.window_title)
+        if window is None:
+            parser.error(
+                f"no window matching '{args.window_title}' found (is Poker Legends open/visible?)"
+            )
+        region = window.region()
+        print(f"capturing window '{window.title}' region {region}")
     _run_watch_live(
         monitor=args.monitor,
         region=region,
