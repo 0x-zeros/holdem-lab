@@ -49,6 +49,9 @@ subcommand. The long-form command each step expands to is documented below.
 
 ## Fast loop — the perception HUD (`holdem-bot-watch-poker-legends`)
 
+> Principle, libraries, security assessment, generality, and a standalone operating
+> guide live in `docs/perception-hud.md` (Chinese). This section is the short version.
+
 The single-shot dry-run is fine for one frame, but iterating that way (screenshot →
 save → run → paste JSON → wait) is slow. The **HUD** collapses that loop: it
 captures the screen with `mss` a few times a second, runs the *same* recogniser +
