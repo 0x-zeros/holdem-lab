@@ -484,12 +484,20 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
         default=DEFAULT_MAX_EDGE,
         help="downscale frames to this longest edge before the LLM (0 = full res)",
     )
+    parser.add_argument(
+        "--llm-crop",
+        action="store_true",
+        help="--llm: crop to the located game box after frame 1 (privacy; off by default)",
+    )
     args = parser.parse_args(argv)
 
     recognizer: Recognizer
     if args.llm:
         recognizer = PokerLegendsLlmRecognizer.gemini(
-            controlled_seat=args.seat, model=args.llm_model, max_edge=args.llm_max_edge
+            controlled_seat=args.seat,
+            model=args.llm_model,
+            max_edge=args.llm_max_edge,
+            crop=args.llm_crop,
         )
     else:
         missing = [
@@ -573,6 +581,16 @@ def _overlay_layout(
     return {"width": width, "height": height, "regions": {}}
 
 
+def _overlay_base(frame: NDArray[np.uint8], recognition: RecognitionResult) -> NDArray[np.uint8]:
+    """The exact image submitted to the LLM (HUD shows what the model saw), else the raw frame."""
+    submitted = recognition.metadata.get("submitted_image")
+    if isinstance(submitted, str):
+        image = cv2.imread(submitted)
+        if image is not None:
+            return cast(NDArray[np.uint8], image)
+    return frame
+
+
 def _frame_changed(
     current: NDArray[np.uint8], previous: NDArray[np.uint8], *, threshold: float = 2.5
 ) -> bool:
@@ -638,7 +656,8 @@ def _run_watch_once(
     lines = _watch_summary_lines(
         recognition, decision, policy_decision, policy.model, controlled_seat=seat
     )
-    overlay = render_overlay(frame, _overlay_layout(layout, frame), lines)
+    base = _overlay_base(frame, recognition)
+    overlay = render_overlay(base, _overlay_layout(layout, base), lines)
     out_path = Path(overlay_out) if overlay_out else Path(image).with_suffix(".overlay.png")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), overlay)
@@ -705,7 +724,8 @@ def _run_watch_live(
             lines = _watch_summary_lines(
                 recognition, decision, policy_decision, policy.model, controlled_seat=seat
             )
-            overlay = render_overlay(frame, _overlay_layout(layout, frame), lines)
+            base = _overlay_base(frame, recognition)
+            overlay = render_overlay(base, _overlay_layout(layout, base), lines)
             cv2.imshow(window, overlay)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):

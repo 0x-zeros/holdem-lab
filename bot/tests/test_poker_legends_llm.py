@@ -11,7 +11,7 @@ from holdem_ai.field import FieldExploitPolicy
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
 from holdem_bot.adapters.poker_legends_llm import (
     PokerLegendsLlmRecognizer,
-    _frame_bytes_for_gemini,
+    _downscale_image,
     runtime_annotation_schema,
 )
 from holdem_bot.capture import CapturedFrame
@@ -81,11 +81,12 @@ MON2: dict[str, Any] = {
         _seat("bb", 990, 10, False, "bb"),
         _seat("skl", 7992, 10, False),
     ],
+    "game_region": None,
     "uncertain": [],
 }
 
 
-def test_runtime_schema_adds_blinds_and_position() -> None:
+def test_runtime_schema_adds_blinds_position_and_region() -> None:
     schema = runtime_annotation_schema()
     props = schema["properties"]
     assert isinstance(props, dict)
@@ -96,6 +97,10 @@ def test_runtime_schema_adds_blinds_and_position() -> None:
     seat_items = props["seats"]["items"]
     assert "position" in seat_items["properties"]
     assert "position" in seat_items["required"]
+    assert "game_region" in props
+    required = schema["required"]
+    assert isinstance(required, list)
+    assert "game_region" in required
 
 
 def test_llm_annotation_assembles_state_and_ai_folds_trash() -> None:
@@ -117,12 +122,13 @@ def test_llm_annotation_assembles_state_and_ai_folds_trash() -> None:
     assert decision.action.action_type.value == "fold"
 
 
-def test_recognizer_uses_injected_reader(tmp_path: Any) -> None:
+def test_recognizer_uses_injected_reader_and_exposes_submitted_image(tmp_path: Path) -> None:
     image = tmp_path / "mon2.png"
-    image.write_bytes(b"not-a-real-png")
+    cv2.imwrite(str(image), np.zeros((90, 160, 3), dtype=np.uint8))
     recognizer = PokerLegendsLlmRecognizer(
-        reader=lambda _path: MON2,
+        reader=lambda _image: MON2,
         recognizer=PokerLegendsTableRecognizer.for_llm(controlled_seat=0),
+        submitted_path=tmp_path / "submitted.png",
     )
     frame = CapturedFrame(payload=str(image), source="test", metadata={})
 
@@ -130,6 +136,8 @@ def test_recognizer_uses_injected_reader(tmp_path: Any) -> None:
     assert result.state is not None
     assert result.screen.kind.value == "actionable_table"
     assert result.screen.hero_turn is True
+    assert result.metadata["submitted_image"] == str(tmp_path / "submitted.png")
+    assert (tmp_path / "submitted.png").exists()
 
 
 def test_blocking_overlay_fails_closed() -> None:
@@ -147,27 +155,67 @@ def test_blocking_overlay_fails_closed() -> None:
     assert result.screen.kind.value == "blocked_overlay"
 
 
-def _decode(data: bytes) -> Any:
-    return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+def test_game_region_located_then_crops(tmp_path: Path) -> None:
+    frame_file = tmp_path / "f.png"
+    cv2.imwrite(str(frame_file), np.zeros((100, 200, 3), dtype=np.uint8))
+    shapes: list[tuple[int, int]] = []
+    annotation = {**MON2, "game_region": {"x": 50, "y": 20, "width": 100, "height": 60}}
+
+    def reader(image: Any) -> dict[str, Any]:
+        shapes.append(tuple(image.shape[:2]))
+        return annotation
+
+    recognizer = PokerLegendsLlmRecognizer(
+        reader=reader,
+        recognizer=PokerLegendsTableRecognizer.for_llm(controlled_seat=0),
+        max_edge=0,
+        margin=0.0,
+        submitted_path=tmp_path / "submitted.png",
+        crop=True,
+    )
+    frame = CapturedFrame(payload=str(frame_file), source="t", metadata={})
+    first = recognizer.recognize(frame)  # locates on the full 100x200 frame
+    recognizer.recognize(frame)  # crops to the cached game box
+
+    assert shapes[0] == (100, 200)
+    assert shapes[1] == (60, 100)  # y 20..80, x 50..150
+    assert first.metadata["game_region_fraction"] == [0.25, 0.2, 0.5, 0.6]
 
 
-def test_frame_downscaled_to_max_edge(tmp_path: Path) -> None:
-    big = tmp_path / "big.png"
-    cv2.imwrite(str(big), np.zeros((1000, 2000, 3), dtype=np.uint8))
-    data, mime = _frame_bytes_for_gemini(big, 1280)
-    assert mime == "image/png"
-    assert max(_decode(data).shape[:2]) == 1280
+def test_downscale_caps_longest_edge() -> None:
+    out = _downscale_image(np.zeros((1000, 2000, 3), dtype=np.uint8), 1280)
+    assert max(out.shape[:2]) == 1280
 
 
-def test_small_frame_not_upscaled(tmp_path: Path) -> None:
-    small = tmp_path / "small.png"
-    cv2.imwrite(str(small), np.zeros((600, 800, 3), dtype=np.uint8))
-    data, _mime = _frame_bytes_for_gemini(small, 1280)
-    assert _decode(data).shape[:2] == (600, 800)
+def test_downscale_leaves_small_image() -> None:
+    out = _downscale_image(np.zeros((600, 800, 3), dtype=np.uint8), 1280)
+    assert out.shape[:2] == (600, 800)
 
 
-def test_max_edge_zero_keeps_raw_bytes(tmp_path: Path) -> None:
-    image = tmp_path / "x.png"
-    cv2.imwrite(str(image), np.zeros((10, 10, 3), dtype=np.uint8))
-    data, _mime = _frame_bytes_for_gemini(image, 0)
-    assert data == image.read_bytes()
+def test_downscale_zero_disabled() -> None:
+    out = _downscale_image(np.zeros((1000, 2000, 3), dtype=np.uint8), 0)
+    assert out.shape[:2] == (1000, 2000)
+
+
+def test_crop_off_by_default_sends_full_frame(tmp_path: Path) -> None:
+    frame_file = tmp_path / "f.png"
+    cv2.imwrite(str(frame_file), np.zeros((100, 200, 3), dtype=np.uint8))
+    shapes: list[tuple[int, int]] = []
+    annotation = {**MON2, "game_region": {"x": 50, "y": 20, "width": 100, "height": 60}}
+
+    def reader(image: Any) -> dict[str, Any]:
+        shapes.append(tuple(image.shape[:2]))
+        return annotation
+
+    recognizer = PokerLegendsLlmRecognizer(
+        reader=reader,
+        recognizer=PokerLegendsTableRecognizer.for_llm(controlled_seat=0),
+        max_edge=0,
+        submitted_path=tmp_path / "s.png",
+    )  # crop defaults to False
+    frame = CapturedFrame(payload=str(frame_file), source="t", metadata={})
+    result = recognizer.recognize(frame)
+    recognizer.recognize(frame)
+
+    assert shapes == [(100, 200), (100, 200)]  # never cropped
+    assert result.metadata["game_region_fraction"] is None

@@ -1,31 +1,43 @@
 """LLM-based Poker Legends recognizer.
 
-Instead of brittle template CV, a vision LLM reads the full screenshot into the
-``annotation_output_schema`` JSON, which the validated ``recognize_from_llm_annotation``
-assembly turns into a fail-closed ``GameState``. The LLM call is injectable so the
-assembly is testable offline without any API key.
+A vision LLM reads the full screenshot into the ``annotation_output_schema`` JSON, which
+the validated ``recognize_from_llm_annotation`` assembly turns into a fail-closed
+``GameState``. The LLM also reports the game's bounding box (``game_region``); after the
+first read the recognizer crops every later frame to that box, so only the game area --
+not the whole desktop -- is sent to the model. The exact image submitted to the LLM is
+exposed via ``metadata['submitted_image']`` so the HUD can draw on what the model saw.
+
+The LLM call is injectable, so the assembly is testable offline without an API key.
 """
 
 from __future__ import annotations
 
 import copy
 import json
+import tempfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
 import cv2
+import numpy as np
+from numpy.typing import NDArray
 
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
 from holdem_bot.capture import CapturedFrame
 from holdem_bot.recognize import RecognitionResult
 from holdem_bot.vision.llm_annotation import annotation_output_schema
 
+BgrImage = NDArray[np.uint8]
+
 DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
-#: Longest-edge cap (px) for frames sent to the LLM. Downscaling cuts the upload size for
-#: lower per-call latency (Gemini's image token cost is flat in resolution); reads stay
-#: accurate down to ~1024px. 0 disables resizing.
+#: Longest-edge cap (px) for frames sent to the LLM. Downscaling cuts upload size for lower
+#: latency; reads stay accurate down to ~1024px. 0 disables resizing.
 DEFAULT_MAX_EDGE = 1280
+#: Fraction to expand the located game box on each side before cropping (safety margin).
+DEFAULT_MARGIN = 0.04
+#: Re-locate the game box after this many consecutive non-table frames (window moved/closed).
+DEFAULT_RELOCATE_AFTER = 3
 
 RUNTIME_PROMPT = (
     "You are the perception module of a Texas Hold'em bot playing Poker Legends. Return ONLY JSON "
@@ -42,18 +54,22 @@ RUNTIME_PROMPT = (
     "POT: the pot is the shared chip total in the CENTER of the table. NEVER use a player's "
     "stack as the pot. If no central pot number is visible, set the pot text "
     "normalized_number to the SUM of all seats' committed chips (never 0 during a live hand).\n"
+    "GAME_REGION: the pixel bounding box {x,y,width,height} of the ENTIRE Poker Legends game "
+    "window in THIS image -- everything the game itself renders (felt, all seats, hole cards, "
+    "buttons, AND side rails/panels), but NOT the OS menu bar, desktop wallpaper, or other "
+    "apps. Err on the LARGER side; null only if no game window is visible.\n"
     "Cards: rank+suit S,H,D,C (AS, TD, 7H); null + an 'uncertain' entry if unclear. Normalize chip "
     "numbers (drop $ and commas; ignore '+N'). Buttons: name in {call,raise,fold,check,bet,all_in} "
     "with the visible label (e.g. 'Call $10'). table_state.is_actionable=true only when hero can "
     "choose an in-hand poker action now (modals/lobbies are not actionable)."
 )
 
-#: A frame reader maps an image path to the LLM annotation dict.
-FrameReader = Callable[[Path], Mapping[str, object]]
+#: A frame reader maps a prepared (cropped + downscaled) BGR image to the LLM annotation.
+FrameReader = Callable[[BgrImage], Mapping[str, object]]
 
 
 def runtime_annotation_schema() -> dict[str, object]:
-    """The annotation schema plus blinds (table_state) and seat position for live play."""
+    """The annotation schema plus blinds, seat position, and the game-region box."""
     schema = copy.deepcopy(annotation_output_schema())
     props = cast(dict[str, Any], schema["properties"])
     table_state = cast(dict[str, Any], props["table_state"])
@@ -63,27 +79,69 @@ def runtime_annotation_schema() -> dict[str, object]:
     seat_items = cast(dict[str, Any], cast(dict[str, Any], props["seats"])["items"])
     seat_items["properties"]["position"] = {"type": ["string", "null"]}
     seat_items["required"] = [*seat_items["required"], "position"]
+    props["game_region"] = {
+        "type": ["object", "null"],
+        "additionalProperties": False,
+        "required": ["x", "y", "width", "height"],
+        "properties": {
+            "x": {"type": "integer"},
+            "y": {"type": "integer"},
+            "width": {"type": "integer"},
+            "height": {"type": "integer"},
+        },
+    }
+    schema["required"] = [*cast(list[str], schema["required"]), "game_region"]
     return schema
 
 
-def _frame_bytes_for_gemini(image_path: Path, max_edge: int) -> tuple[bytes, str]:
-    """PNG bytes for the LLM, downscaled so the longest edge is <= max_edge (0 = no resize)."""
+def _downscale_image(image: BgrImage, max_edge: int) -> BgrImage:
+    """Resize so the longest edge is <= max_edge (0 = no resize)."""
     if max_edge <= 0:
-        return image_path.read_bytes(), "image/png"
-    image = cv2.imread(str(image_path))
-    if image is None:
-        return image_path.read_bytes(), "image/png"
+        return image
     height, width = image.shape[:2]
     longest = max(height, width)
-    if longest > max_edge:
-        scale = max_edge / longest
-        image = cv2.resize(
-            image, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_AREA
-        )
+    if longest <= max_edge:
+        return image
+    scale = max_edge / longest
+    resized = cv2.resize(
+        image, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_AREA
+    )
+    return cast(BgrImage, resized)
+
+
+def read_image_with_gemini(
+    image: BgrImage,
+    *,
+    model: str = DEFAULT_GEMINI_MODEL,
+    api_key: str | None = None,
+) -> dict[str, object]:
+    """Send one prepared BGR image to Gemini and return the parsed annotation (needs a key)."""
+    import os
+
+    from google import genai
+    from google.genai import types as genai_types
+
+    key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is required for Gemini recognition")
     ok, buffer = cv2.imencode(".png", image)
     if not ok:
-        return image_path.read_bytes(), "image/png"
-    return bytes(buffer.tobytes()), "image/png"
+        raise RuntimeError("failed to PNG-encode the frame for Gemini")
+    client = genai.Client(api_key=key)
+    response = cast(Any, client.models).generate_content(
+        model=model,
+        contents=[
+            RUNTIME_PROMPT,
+            genai_types.Part.from_bytes(data=bytes(buffer.tobytes()), mime_type="image/png"),
+        ],
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=runtime_annotation_schema(),
+            temperature=0,
+            max_output_tokens=4000,
+        ),
+    )
+    return _parse_annotation(str(getattr(response, "text", "")), "frame")
 
 
 def read_frame_with_gemini(
@@ -93,35 +151,13 @@ def read_frame_with_gemini(
     api_key: str | None = None,
     max_edge: int = DEFAULT_MAX_EDGE,
 ) -> dict[str, object]:
-    """Send one frame to Gemini and return the parsed annotation (host-side; needs a key).
-
-    The frame is downscaled to ``max_edge`` first (0 disables it) -- this leaves Gemini's
-    flat image token cost unchanged but shrinks the upload several-fold for lower latency.
-    """
-    import os
-
-    from google import genai
-    from google.genai import types as genai_types
-
-    key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not key:
-        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is required for Gemini recognition")
-    data, mime_type = _frame_bytes_for_gemini(image_path, max_edge)
-    client = genai.Client(api_key=key)
-    response = cast(Any, client.models).generate_content(
-        model=model,
-        contents=[
-            RUNTIME_PROMPT,
-            genai_types.Part.from_bytes(data=data, mime_type=mime_type),
-        ],
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_json_schema=runtime_annotation_schema(),
-            temperature=0,
-            max_output_tokens=4000,
-        ),
+    """Load a saved frame, downscale to max_edge, and read it with Gemini (host-side helper)."""
+    image = cv2.imread(str(image_path))
+    if image is None:
+        raise FileNotFoundError(f"could not read image: {image_path}")
+    return read_image_with_gemini(
+        _downscale_image(cast(BgrImage, image), max_edge), model=model, api_key=api_key
     )
-    return _parse_annotation(str(getattr(response, "text", "")), image_path.stem)
 
 
 def _parse_annotation(raw_text: str, frame_id: str) -> dict[str, object]:
@@ -138,12 +174,80 @@ def _parse_annotation(raw_text: str, frame_id: str) -> dict[str, object]:
     }
 
 
-class PokerLegendsLlmRecognizer:
-    """Read the table state with a vision LLM, then assemble a fail-closed GameState."""
+def _table_state(annotation: Mapping[str, object]) -> Mapping[str, object]:
+    table_state = annotation.get("table_state")
+    return table_state if isinstance(table_state, Mapping) else {}
 
-    def __init__(self, *, reader: FrameReader, recognizer: PokerLegendsTableRecognizer) -> None:
+
+def _fraction_from_box(box: Mapping[str, object], height: int, width: int) -> _Region | None:
+    """Convert a pixel box (in an image of the given size) to clamped (fx, fy, fw, fh) fractions."""
+    if width <= 0 or height <= 0:
+        return None
+    try:
+        x = float(cast(float, box["x"]))
+        y = float(cast(float, box["y"]))
+        box_w = float(cast(float, box["width"]))
+        box_h = float(cast(float, box["height"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if box_w <= 0 or box_h <= 0:
+        return None
+    fx = min(max(x / width, 0.0), 1.0)
+    fy = min(max(y / height, 0.0), 1.0)
+    fw = min(box_w / width, 1.0 - fx)
+    fh = min(box_h / height, 1.0 - fy)
+    if fw <= 0.0 or fh <= 0.0:
+        return None
+    return (fx, fy, fw, fh)
+
+
+def _crop_to_fraction(image: BgrImage, region: _Region, margin: float) -> BgrImage:
+    """Crop to the fractional region, expanded by margin on each side and clamped to the image."""
+    height, width = image.shape[:2]
+    fx, fy, fw, fh = region
+    fx = max(fx - margin, 0.0)
+    fy = max(fy - margin, 0.0)
+    fw = min(fw + 2.0 * margin, 1.0 - fx)
+    fh = min(fh + 2.0 * margin, 1.0 - fy)
+    x0 = int(round(fx * width))
+    y0 = int(round(fy * height))
+    x1 = min(width, int(round((fx + fw) * width)))
+    y1 = min(height, int(round((fy + fh) * height)))
+    if x1 - x0 < 1 or y1 - y0 < 1:
+        return image
+    return image[y0:y1, x0:x1]
+
+
+_Region = tuple[float, float, float, float]
+
+
+class PokerLegendsLlmRecognizer:
+    """LLM table reader: crops to the located game box and exposes the submitted image."""
+
+    def __init__(
+        self,
+        *,
+        reader: FrameReader,
+        recognizer: PokerLegendsTableRecognizer,
+        max_edge: int = DEFAULT_MAX_EDGE,
+        margin: float = DEFAULT_MARGIN,
+        relocate_after: int = DEFAULT_RELOCATE_AFTER,
+        submitted_path: str | Path | None = None,
+        crop: bool = False,
+    ) -> None:
         self._reader = reader
         self._recognizer = recognizer
+        self._max_edge = max_edge
+        self._margin = margin
+        self._relocate_after = relocate_after
+        self._crop = crop
+        self._submitted_path = (
+            Path(submitted_path)
+            if submitted_path is not None
+            else Path(tempfile.gettempdir()) / "holdem_submitted.png"
+        )
+        self._region: _Region | None = None
+        self._miss = 0
 
     @classmethod
     def gemini(
@@ -155,23 +259,71 @@ class PokerLegendsLlmRecognizer:
         model: str = DEFAULT_GEMINI_MODEL,
         api_key: str | None = None,
         max_edge: int = DEFAULT_MAX_EDGE,
+        margin: float = DEFAULT_MARGIN,
+        crop: bool = False,
     ) -> PokerLegendsLlmRecognizer:
-        def reader(path: Path) -> Mapping[str, object]:
-            return read_frame_with_gemini(path, model=model, api_key=api_key, max_edge=max_edge)
+        def reader(image: BgrImage) -> Mapping[str, object]:
+            return read_image_with_gemini(image, model=model, api_key=api_key)
 
         return cls(
             reader=reader,
             recognizer=PokerLegendsTableRecognizer.for_llm(
                 controlled_seat=controlled_seat, small_blind=small_blind, big_blind=big_blind
             ),
+            max_edge=max_edge,
+            margin=margin,
+            crop=crop,
         )
 
     def recognize(self, frame: CapturedFrame) -> RecognitionResult:
         image_path = _image_path(frame)
-        annotation = self._reader(image_path)
-        return self._recognizer.recognize_from_llm_annotation(
-            annotation, image=str(image_path), frame_id=image_path.stem
+        full = cv2.imread(str(image_path))
+        if full is None:
+            raise FileNotFoundError(f"could not read image: {image_path}")
+        full_bgr = cast(BgrImage, full)
+        region = self._region if self._crop else None
+        located = self._crop and region is None
+        cropped = (
+            _crop_to_fraction(full_bgr, region, self._margin) if region is not None else full_bgr
         )
+        submitted = _downscale_image(cropped, self._max_edge)
+        annotation = self._reader(submitted)
+        if self._crop:
+            self._update_region(annotation, submitted, located=located)
+        cv2.imwrite(str(self._submitted_path), submitted)
+        result = self._recognizer.recognize_from_llm_annotation(
+            annotation, image=str(self._submitted_path), frame_id=image_path.stem
+        )
+        metadata = dict(result.metadata)
+        metadata["submitted_image"] = str(self._submitted_path)
+        metadata["game_region_fraction"] = list(self._region) if self._region is not None else None
+        return RecognitionResult(
+            state=result.state,
+            confidence=result.confidence,
+            metadata=metadata,
+            screen=result.screen,
+        )
+
+    def _update_region(
+        self, annotation: Mapping[str, object], submitted: BgrImage, *, located: bool
+    ) -> None:
+        is_table = bool(_table_state(annotation).get("is_table"))
+        if located:
+            box = annotation.get("game_region")
+            if isinstance(box, Mapping) and is_table:
+                height, width = submitted.shape[:2]
+                fraction = _fraction_from_box(box, height, width)
+                if fraction is not None:
+                    self._region = fraction
+                    self._miss = 0
+            return
+        if is_table:
+            self._miss = 0
+        else:
+            self._miss += 1
+            if self._miss >= self._relocate_after:
+                self._region = None
+                self._miss = 0
 
 
 def _image_path(frame: CapturedFrame) -> Path:
