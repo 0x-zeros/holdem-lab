@@ -13,6 +13,33 @@ The dry-run CLI is `holdem-bot-run-poker-legends-dry-run`
 
 ---
 
+## Quickstart — the helper script (copy-paste)
+
+`scripts/host/poker-legends-dryrun.sh` wraps every step below so you never retype
+the four `--*-manifest` flags. It **never clicks**. Run from your repo root on the
+host (it resolves the bundled manifests via `git rev-parse`, and uses `uv run`):
+
+```bash
+# Step 1 — sanity-check the checkout on a bundled frame (no live screen needed):
+scripts/host/poker-legends-dryrun.sh sanity            # default keyframe 000042
+scripts/host/poker-legends-dryrun.sh sanity 000080     # any bundled keyframe number
+
+# Step 2 — capture + decide on YOUR screen (needs a layout for your resolution):
+scripts/host/poker-legends-dryrun.sh capture ~/pl-frames           # save one PNG
+scripts/host/poker-legends-dryrun.sh dryrun <your.png> <your-layout.json>
+scripts/host/poker-legends-dryrun.sh live <your-layout.json>       # capture fresh + decide
+
+# Step 3 — accumulate a per-seat opponent read across a frame sequence:
+scripts/host/poker-legends-dryrun.sh replay <frames-dir> <annotations-dir> --use-truth
+scripts/host/poker-legends-dryrun.sh replay-bundled --use-truth --limit 5   # offline demo
+```
+
+Env overrides: `SEAT=<n>` (your seat), `A=<artifacts dir>`, `LOG=<path>`,
+`FRAMES_OUT=<dir>`. `scripts/host/poker-legends-dryrun.sh help` lists every
+subcommand. The long-form command each step expands to is documented below.
+
+---
+
 ## Step 1 — verify your checkout (no macOS screen needed; run this first)
 
 Runs the **full** pipeline (recognizer + the upgraded AI + dry-run logging) on a
