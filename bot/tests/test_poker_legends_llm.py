@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
 from holdem_ai.field import FieldExploitPolicy
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
 from holdem_bot.adapters.poker_legends_llm import (
     PokerLegendsLlmRecognizer,
+    _frame_bytes_for_gemini,
     runtime_annotation_schema,
 )
 from holdem_bot.capture import CapturedFrame
@@ -141,3 +145,29 @@ def test_blocking_overlay_fails_closed() -> None:
     result = recognizer.recognize_from_llm_annotation(blocked)
     assert result.state is None
     assert result.screen.kind.value == "blocked_overlay"
+
+
+def _decode(data: bytes) -> Any:
+    return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+
+
+def test_frame_downscaled_to_max_edge(tmp_path: Path) -> None:
+    big = tmp_path / "big.png"
+    cv2.imwrite(str(big), np.zeros((1000, 2000, 3), dtype=np.uint8))
+    data, mime = _frame_bytes_for_gemini(big, 1280)
+    assert mime == "image/png"
+    assert max(_decode(data).shape[:2]) == 1280
+
+
+def test_small_frame_not_upscaled(tmp_path: Path) -> None:
+    small = tmp_path / "small.png"
+    cv2.imwrite(str(small), np.zeros((600, 800, 3), dtype=np.uint8))
+    data, _mime = _frame_bytes_for_gemini(small, 1280)
+    assert _decode(data).shape[:2] == (600, 800)
+
+
+def test_max_edge_zero_keeps_raw_bytes(tmp_path: Path) -> None:
+    image = tmp_path / "x.png"
+    cv2.imwrite(str(image), np.zeros((10, 10, 3), dtype=np.uint8))
+    data, _mime = _frame_bytes_for_gemini(image, 0)
+    assert data == image.read_bytes()

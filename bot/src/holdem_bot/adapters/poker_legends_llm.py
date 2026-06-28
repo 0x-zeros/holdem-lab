@@ -14,12 +14,18 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
+import cv2
+
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
 from holdem_bot.capture import CapturedFrame
 from holdem_bot.recognize import RecognitionResult
 from holdem_bot.vision.llm_annotation import annotation_output_schema
 
 DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
+#: Longest-edge cap (px) for frames sent to the LLM. Downscaling cuts the upload size for
+#: lower per-call latency (Gemini's image token cost is flat in resolution); reads stay
+#: accurate down to ~1024px. 0 disables resizing.
+DEFAULT_MAX_EDGE = 1280
 
 RUNTIME_PROMPT = (
     "You are the perception module of a Texas Hold'em bot playing Poker Legends. Return ONLY JSON "
@@ -60,13 +66,38 @@ def runtime_annotation_schema() -> dict[str, object]:
     return schema
 
 
+def _frame_bytes_for_gemini(image_path: Path, max_edge: int) -> tuple[bytes, str]:
+    """PNG bytes for the LLM, downscaled so the longest edge is <= max_edge (0 = no resize)."""
+    if max_edge <= 0:
+        return image_path.read_bytes(), "image/png"
+    image = cv2.imread(str(image_path))
+    if image is None:
+        return image_path.read_bytes(), "image/png"
+    height, width = image.shape[:2]
+    longest = max(height, width)
+    if longest > max_edge:
+        scale = max_edge / longest
+        image = cv2.resize(
+            image, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_AREA
+        )
+    ok, buffer = cv2.imencode(".png", image)
+    if not ok:
+        return image_path.read_bytes(), "image/png"
+    return bytes(buffer.tobytes()), "image/png"
+
+
 def read_frame_with_gemini(
     image_path: Path,
     *,
     model: str = DEFAULT_GEMINI_MODEL,
     api_key: str | None = None,
+    max_edge: int = DEFAULT_MAX_EDGE,
 ) -> dict[str, object]:
-    """Send one full frame to Gemini and return the parsed annotation (host-side; needs a key)."""
+    """Send one frame to Gemini and return the parsed annotation (host-side; needs a key).
+
+    The frame is downscaled to ``max_edge`` first (0 disables it) -- this leaves Gemini's
+    flat image token cost unchanged but shrinks the upload several-fold for lower latency.
+    """
     import os
 
     from google import genai
@@ -75,12 +106,13 @@ def read_frame_with_gemini(
     key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is required for Gemini recognition")
+    data, mime_type = _frame_bytes_for_gemini(image_path, max_edge)
     client = genai.Client(api_key=key)
     response = cast(Any, client.models).generate_content(
         model=model,
         contents=[
             RUNTIME_PROMPT,
-            genai_types.Part.from_bytes(data=image_path.read_bytes(), mime_type="image/png"),
+            genai_types.Part.from_bytes(data=data, mime_type=mime_type),
         ],
         config=genai_types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -122,9 +154,10 @@ class PokerLegendsLlmRecognizer:
         big_blind: int = 10,
         model: str = DEFAULT_GEMINI_MODEL,
         api_key: str | None = None,
+        max_edge: int = DEFAULT_MAX_EDGE,
     ) -> PokerLegendsLlmRecognizer:
         def reader(path: Path) -> Mapping[str, object]:
-            return read_frame_with_gemini(path, model=model, api_key=api_key)
+            return read_frame_with_gemini(path, model=model, api_key=api_key, max_edge=max_edge)
 
         return cls(
             reader=reader,

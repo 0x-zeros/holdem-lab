@@ -22,7 +22,11 @@ from holdem_common import Action, ActionType, GameState
 from numpy.typing import NDArray
 
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
-from holdem_bot.adapters.poker_legends_llm import DEFAULT_GEMINI_MODEL, PokerLegendsLlmRecognizer
+from holdem_bot.adapters.poker_legends_llm import (
+    DEFAULT_GEMINI_MODEL,
+    DEFAULT_MAX_EDGE,
+    PokerLegendsLlmRecognizer,
+)
 from holdem_bot.capture import Capture, CapturedFrame
 from holdem_bot.orchestrator import BotOrchestrator, BotStepResult
 from holdem_bot.recognize import RecognitionResult, Recognizer
@@ -474,12 +478,18 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
         default=1.5,
         help="live --llm: min seconds between LLM calls (re-read only on frame change)",
     )
+    parser.add_argument(
+        "--llm-max-edge",
+        type=int,
+        default=DEFAULT_MAX_EDGE,
+        help="downscale frames to this longest edge before the LLM (0 = full res)",
+    )
     args = parser.parse_args(argv)
 
     recognizer: Recognizer
     if args.llm:
         recognizer = PokerLegendsLlmRecognizer.gemini(
-            controlled_seat=args.seat, model=args.llm_model
+            controlled_seat=args.seat, model=args.llm_model, max_edge=args.llm_max_edge
         )
     else:
         missing = [
