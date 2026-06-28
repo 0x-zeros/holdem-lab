@@ -485,9 +485,9 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
         help="downscale frames to this longest edge before the LLM (0 = full res)",
     )
     parser.add_argument(
-        "--llm-crop",
+        "--llm-no-crop",
         action="store_true",
-        help="--llm: crop to the located game box after frame 1 (privacy; off by default)",
+        help="--llm: send the full frame instead of cropping to the located game window",
     )
     args = parser.parse_args(argv)
 
@@ -497,7 +497,7 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
             controlled_seat=args.seat,
             model=args.llm_model,
             max_edge=args.llm_max_edge,
-            crop=args.llm_crop,
+            crop=not args.llm_no_crop,
         )
     else:
         missing = [

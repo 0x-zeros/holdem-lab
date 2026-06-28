@@ -155,18 +155,21 @@ def test_blocking_overlay_fails_closed() -> None:
     assert result.screen.kind.value == "blocked_overlay"
 
 
-def test_game_region_located_then_crops(tmp_path: Path) -> None:
+def test_locator_region_then_crops(tmp_path: Path) -> None:
     frame_file = tmp_path / "f.png"
     cv2.imwrite(str(frame_file), np.zeros((100, 200, 3), dtype=np.uint8))
     shapes: list[tuple[int, int]] = []
-    annotation = {**MON2, "game_region": {"x": 50, "y": 20, "width": 100, "height": 60}}
 
     def reader(image: Any) -> dict[str, Any]:
         shapes.append(tuple(image.shape[:2]))
-        return annotation
+        return MON2
+
+    def locator(_image: Any) -> tuple[float, float, float, float]:
+        return (0.25, 0.2, 0.5, 0.6)
 
     recognizer = PokerLegendsLlmRecognizer(
         reader=reader,
+        locator=locator,
         recognizer=PokerLegendsTableRecognizer.for_llm(controlled_seat=0),
         max_edge=0,
         margin=0.0,
@@ -174,11 +177,11 @@ def test_game_region_located_then_crops(tmp_path: Path) -> None:
         crop=True,
     )
     frame = CapturedFrame(payload=str(frame_file), source="t", metadata={})
-    first = recognizer.recognize(frame)  # locates on the full 100x200 frame
-    recognizer.recognize(frame)  # crops to the cached game box
+    first = recognizer.recognize(frame)
+    recognizer.recognize(frame)
 
-    assert shapes[0] == (100, 200)
-    assert shapes[1] == (60, 100)  # y 20..80, x 50..150
+    # locate runs on the first frame, so both reads see the cropped box (y 20..80, x 50..150)
+    assert shapes == [(60, 100), (60, 100)]
     assert first.metadata["game_region_fraction"] == [0.25, 0.2, 0.5, 0.6]
 
 
@@ -197,7 +200,7 @@ def test_downscale_zero_disabled() -> None:
     assert out.shape[:2] == (1000, 2000)
 
 
-def test_crop_off_by_default_sends_full_frame(tmp_path: Path) -> None:
+def test_crop_disabled_sends_full_frame(tmp_path: Path) -> None:
     frame_file = tmp_path / "f.png"
     cv2.imwrite(str(frame_file), np.zeros((100, 200, 3), dtype=np.uint8))
     shapes: list[tuple[int, int]] = []
@@ -212,7 +215,8 @@ def test_crop_off_by_default_sends_full_frame(tmp_path: Path) -> None:
         recognizer=PokerLegendsTableRecognizer.for_llm(controlled_seat=0),
         max_edge=0,
         submitted_path=tmp_path / "s.png",
-    )  # crop defaults to False
+        crop=False,
+    )
     frame = CapturedFrame(payload=str(frame_file), source="t", metadata={})
     result = recognizer.recognize(frame)
     recognizer.recognize(frame)

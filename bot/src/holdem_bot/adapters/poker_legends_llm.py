@@ -54,14 +54,26 @@ RUNTIME_PROMPT = (
     "POT: the pot is the shared chip total in the CENTER of the table. NEVER use a player's "
     "stack as the pot. If no central pot number is visible, set the pot text "
     "normalized_number to the SUM of all seats' committed chips (never 0 during a live hand).\n"
-    "GAME_REGION: the pixel bounding box {x,y,width,height} of the ENTIRE Poker Legends game "
-    "window in THIS image -- everything the game itself renders (felt, all seats, hole cards, "
-    "buttons, AND side rails/panels), but NOT the OS menu bar, desktop wallpaper, or other "
-    "apps. Err on the LARGER side; null only if no game window is visible.\n"
+    "GAME_REGION: the bounding box {x,y,width,height} of the WHOLE game window: from the "
+    "LEFTMOST game element to the RIGHTMOST one. The action buttons and any side rail/panel "
+    "on the right ARE inside the window, so the right edge MUST be at or past the rightmost "
+    "button. Span the full game UI top-to-bottom; exclude ONLY the OS menu bar and the "
+    "desktop wallpaper outside the window. null only if no game window is visible.\n"
     "Cards: rank+suit S,H,D,C (AS, TD, 7H); null + an 'uncertain' entry if unclear. Normalize chip "
     "numbers (drop $ and commas; ignore '+N'). Buttons: name in {call,raise,fold,check,bet,all_in} "
     "with the visible label (e.g. 'Call $10'). table_state.is_actionable=true only when hero can "
     "choose an in-hand poker action now (modals/lobbies are not actionable)."
+)
+
+#: Focused prompt for the one-time game-window locate call. The full annotation prompt has too
+#: many tasks for the model to reliably box the whole window (it defaults to the felt), so the
+#: locate is a separate single-purpose call.
+LOCATE_PROMPT = (
+    "Return game_region = the pixel bounding box {x,y,width,height} of the WHOLE game window: "
+    "from the LEFTMOST game element to the RIGHTMOST one. The action buttons and any side "
+    "rail/panel on the right ARE inside the window, so the right edge MUST be at or past the "
+    "rightmost button. Top and bottom span the full game UI; exclude ONLY the OS menu bar and "
+    "the desktop wallpaper outside the window."
 )
 
 #: A frame reader maps a prepared (cropped + downscaled) BGR image to the LLM annotation.
@@ -219,6 +231,61 @@ def _crop_to_fraction(image: BgrImage, region: _Region, margin: float) -> BgrIma
 
 
 _Region = tuple[float, float, float, float]
+#: A region locator maps a full frame to the game-window box as (fx, fy, fw, fh) fractions.
+RegionLocator = Callable[[BgrImage], _Region | None]
+
+
+def _locate_schema() -> dict[str, object]:
+    box = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["x", "y", "width", "height"],
+        "properties": {key: {"type": "integer"} for key in ("x", "y", "width", "height")},
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["game_region"],
+        "properties": {"game_region": box},
+    }
+
+
+def locate_region_with_gemini(
+    image: BgrImage, *, model: str = DEFAULT_GEMINI_MODEL, api_key: str | None = None
+) -> _Region | None:
+    """One focused Gemini call returning the game-window box as (fx, fy, fw, fh) fractions."""
+    import os
+
+    from google import genai
+    from google.genai import types as genai_types
+
+    key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is required for Gemini recognition")
+    ok, buffer = cv2.imencode(".png", image)
+    if not ok:
+        return None
+    height, width = image.shape[:2]
+    prompt = f"This is a {width}x{height} screenshot of the Poker Legends game. " + LOCATE_PROMPT
+    client = genai.Client(api_key=key)
+    response = cast(Any, client.models).generate_content(
+        model=model,
+        contents=[
+            prompt,
+            genai_types.Part.from_bytes(data=bytes(buffer.tobytes()), mime_type="image/png"),
+        ],
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=_locate_schema(),
+            temperature=0,
+            max_output_tokens=500,
+        ),
+    )
+    data = _parse_annotation(str(getattr(response, "text", "")), "locate")
+    box = data.get("game_region")
+    if isinstance(box, Mapping):
+        return _fraction_from_box(box, height, width)
+    return None
 
 
 class PokerLegendsLlmRecognizer:
@@ -233,9 +300,11 @@ class PokerLegendsLlmRecognizer:
         margin: float = DEFAULT_MARGIN,
         relocate_after: int = DEFAULT_RELOCATE_AFTER,
         submitted_path: str | Path | None = None,
-        crop: bool = False,
+        crop: bool = True,
+        locator: RegionLocator | None = None,
     ) -> None:
         self._reader = reader
+        self._locator = locator
         self._recognizer = recognizer
         self._max_edge = max_edge
         self._margin = margin
@@ -260,13 +329,17 @@ class PokerLegendsLlmRecognizer:
         api_key: str | None = None,
         max_edge: int = DEFAULT_MAX_EDGE,
         margin: float = DEFAULT_MARGIN,
-        crop: bool = False,
+        crop: bool = True,
     ) -> PokerLegendsLlmRecognizer:
         def reader(image: BgrImage) -> Mapping[str, object]:
             return read_image_with_gemini(image, model=model, api_key=api_key)
 
+        def locator(image: BgrImage) -> _Region | None:
+            return locate_region_with_gemini(image, model=model, api_key=api_key)
+
         return cls(
             reader=reader,
+            locator=locator,
             recognizer=PokerLegendsTableRecognizer.for_llm(
                 controlled_seat=controlled_seat, small_blind=small_blind, big_blind=big_blind
             ),
@@ -281,15 +354,16 @@ class PokerLegendsLlmRecognizer:
         if full is None:
             raise FileNotFoundError(f"could not read image: {image_path}")
         full_bgr = cast(BgrImage, full)
+        if self._crop and self._region is None and self._locator is not None:
+            self._region = self._locator(_downscale_image(full_bgr, self._max_edge))
         region = self._region if self._crop else None
-        located = self._crop and region is None
         cropped = (
             _crop_to_fraction(full_bgr, region, self._margin) if region is not None else full_bgr
         )
         submitted = _downscale_image(cropped, self._max_edge)
         annotation = self._reader(submitted)
-        if self._crop:
-            self._update_region(annotation, submitted, located=located)
+        if self._crop and region is not None:
+            self._note_outcome(annotation)
         cv2.imwrite(str(self._submitted_path), submitted)
         result = self._recognizer.recognize_from_llm_annotation(
             annotation, image=str(self._submitted_path), frame_id=image_path.stem
@@ -304,20 +378,9 @@ class PokerLegendsLlmRecognizer:
             screen=result.screen,
         )
 
-    def _update_region(
-        self, annotation: Mapping[str, object], submitted: BgrImage, *, located: bool
-    ) -> None:
-        is_table = bool(_table_state(annotation).get("is_table"))
-        if located:
-            box = annotation.get("game_region")
-            if isinstance(box, Mapping) and is_table:
-                height, width = submitted.shape[:2]
-                fraction = _fraction_from_box(box, height, width)
-                if fraction is not None:
-                    self._region = fraction
-                    self._miss = 0
-            return
-        if is_table:
+    def _note_outcome(self, annotation: Mapping[str, object]) -> None:
+        """Drop the cached box after several non-table frames in a row (window moved/closed)."""
+        if _table_state(annotation).get("is_table"):
             self._miss = 0
         else:
             self._miss += 1
