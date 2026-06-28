@@ -288,6 +288,10 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             annotation, button_predictions=(), number_predictions=()
         )
         pot = _pot_from_annotation(annotation)
+        if not pot:
+            committed_total = sum(seat.committed for seat in seats)
+            if committed_total > 0:
+                pot = committed_total
         street = _street_name_from_annotation(annotation, board)
         confidence = _to_float(table_state.get("confidence"), default=0.0)
         screen = _llm_screen_state(table_state, hero_turn=hero_turn, confidence=confidence)
