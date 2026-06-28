@@ -60,8 +60,18 @@ def select_window(
 
 
 def find_game_window(title_substring: str = "Poker Legends") -> WindowInfo | None:
-    """Find the game window via the hybrid policy on the current OS (None if unavailable)."""
-    return select_window(list_windows(), foreground_window(), title_substring=title_substring)
+    """Find the game window (hybrid policy) with a fast per-OS query (None if unavailable)."""
+    system = platform.system()
+    if system == "Darwin":
+        candidates = _macos_candidate_windows(title_substring)
+        return select_window(
+            candidates, _macos_foreground_window(), title_substring=title_substring
+        )
+    if system == "Windows":
+        return select_window(
+            _windows_list_windows(), _windows_foreground_window(), title_substring=title_substring
+        )
+    return None
 
 
 def list_windows() -> list[WindowInfo]:
@@ -127,12 +137,12 @@ _MACOS_FOREGROUND_SCRIPT = (
 )
 
 
-def _run_osascript(script: str) -> str:
+def _run_osascript(script: str, *, timeout: float = 8.0) -> str:
     result = subprocess.run(  # noqa: S603 - fixed osascript invocation, no shell
         ["osascript", "-e", script],  # noqa: S607
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=timeout,
     )
     if result.returncode != 0:
         raise RuntimeError(f"osascript failed: {result.stderr.strip()}")
@@ -154,7 +164,38 @@ def _macos_window_from_row(row: str) -> WindowInfo | None:
 
 def _macos_list_windows() -> list[WindowInfo]:
     windows: list[WindowInfo] = []
-    for row in _run_osascript(_MACOS_LIST_SCRIPT).splitlines():
+    for row in _run_osascript(_MACOS_LIST_SCRIPT, timeout=20.0).splitlines():
+        window = _macos_window_from_row(row.strip())
+        if window is not None and window.area > 0:
+            windows.append(window)
+    return windows
+
+
+def _macos_candidate_windows(title_substring: str) -> list[WindowInfo]:
+    """Front windows of processes whose name contains the title (fast; no full enumeration)."""
+    needle = title_substring.replace('"', "")
+    script = (
+        'tell application "System Events"\n'
+        "  set acc to {}\n"
+        '  repeat with proc in (application processes whose name contains "' + needle + '")\n'
+        "    try\n"
+        "      set win to front window of proc\n"
+        "      set p to position of win\n"
+        "      set s to size of win\n"
+        '      set wname to ""\n'
+        "      try\n"
+        "        set wname to name of win\n"
+        "      end try\n"
+        "      set end of acc to ((name of proc) & tab & wname & tab & "
+        "(item 1 of p) & tab & (item 2 of p) & tab & (item 1 of s) & tab & (item 2 of s))\n"
+        "    end try\n"
+        "  end repeat\n"
+        "  set AppleScript's text item delimiters to linefeed\n"
+        "  return acc as text\n"
+        "end tell"
+    )
+    windows: list[WindowInfo] = []
+    for row in _run_osascript(script).splitlines():
         window = _macos_window_from_row(row.strip())
         if window is not None and window.area > 0:
             windows.append(window)
@@ -239,14 +280,15 @@ def find_window_main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--capture", help="grab the selected window region with mss into this PNG")
     args = parser.parse_args(argv)
 
-    windows = list_windows()
-    foreground = foreground_window()
+    selected = find_game_window(args.title)
     if args.list:
-        for window in windows:
-            rect = f"{window.width}x{window.height} @ ({window.left},{window.top})"
-            print(f"  {rect}  {window.title}")
-        print(f"foreground: {foreground}")
-    selected = select_window(windows, foreground, title_substring=args.title)
+        try:
+            for window in list_windows():
+                rect = f"{window.width}x{window.height} @ ({window.left},{window.top})"
+                print(f"  {rect}  {window.title}")
+            print(f"foreground: {foreground_window()}")
+        except (subprocess.TimeoutExpired, RuntimeError) as exc:
+            print(f"(could not enumerate all windows: {exc})")
     payload = None if selected is None else {"title": selected.title, **selected.region()}
     print(json.dumps({"selected": payload}, ensure_ascii=False, indent=2))
     if args.capture and selected is not None:
