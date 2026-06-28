@@ -21,6 +21,9 @@
 #   watch [LAYOUT] [..]         HUD — live mss overlay loop (never clicks). Default
 #                               LAYOUT = bundled 1600w; pass yours once calibrated.
 #                               Extra args pass through (--region L,T,W,H --dump-dir D).
+#   watch-llm [..]              HUD — live LLM (Gemini) read; NO manifests/layout needed.
+#                               Needs GEMINI_API_KEY (auto-sourced from repo .env).
+#                               e.g. watch-llm --monitor 2 --dump-dir ~/pl-dumps
 #
 # Env overrides: REPO, A (artifacts dir), SEAT (controlled seat), LOG, FRAMES_OUT,
 #   RUN (python runner; default "uv run"). On this devcontainer test the plumbing
@@ -125,6 +128,14 @@ cmd_watch() {
     "${MANIFESTS[@]}" --seat "$SEAT" "$@"
 }
 
+cmd_watch_llm() {
+  # Live LLM perception HUD (Gemini). No manifests/layout. Sources GEMINI_API_KEY from the
+  # repo .env if present so the host run is a single command.
+  if [ -f "$REPO/.env" ]; then set -a; . "$REPO/.env"; set +a; fi
+  # shellcheck disable=SC2086
+  $RUN holdem-bot-watch-poker-legends --llm --seat "$SEAT" "$@"
+}
+
 usage() {
   sed -n '2,/^set -euo/p' "$0" | sed '$d'
 }
@@ -138,6 +149,7 @@ case "${1:-help}" in
   replay-bundled)  shift; cmd_replay_bundled "$@" ;;
   watch-once)      shift; cmd_watch_once "$@" ;;
   watch)           shift; cmd_watch "$@" ;;
+  watch-llm)       shift; cmd_watch_llm "$@" ;;
   help|-h|--help)  usage ;;
   *)               echo "unknown subcommand: $1" >&2; echo >&2; usage; exit 2 ;;
 esac

@@ -22,9 +22,10 @@ from holdem_common import Action, ActionType, GameState
 from numpy.typing import NDArray
 
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
+from holdem_bot.adapters.poker_legends_llm import DEFAULT_GEMINI_MODEL, PokerLegendsLlmRecognizer
 from holdem_bot.capture import Capture, CapturedFrame
 from holdem_bot.orchestrator import BotOrchestrator, BotStepResult
-from holdem_bot.recognize import RecognitionResult
+from holdem_bot.recognize import RecognitionResult, Recognizer
 from holdem_bot.screen_state import SafetyDecision, evaluate_safety
 from holdem_bot.vision.annotations import ScreenRect
 from holdem_bot.vision.perception_overlay import render_overlay
@@ -448,10 +449,10 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--region", help="live capture region 'left,top,width,height' (overrides --monitor)"
     )
-    parser.add_argument("--layout-annotation", required=True)
-    parser.add_argument("--card-part-manifest", required=True)
-    parser.add_argument("--card-classifier-manifest", required=True)
-    parser.add_argument("--button-manifest", required=True)
+    parser.add_argument("--layout-annotation")
+    parser.add_argument("--card-part-manifest")
+    parser.add_argument("--card-classifier-manifest")
+    parser.add_argument("--button-manifest")
     parser.add_argument("--card-template-manifest")
     parser.add_argument("--annotation", help="truth annotation for --image (bypasses CV)")
     parser.add_argument("--seat", type=int, default=0)
@@ -461,17 +462,47 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
     )
     parser.add_argument("--dump-dir", help="live mode: directory for 's' frame dumps")
     parser.add_argument("--fps", type=float, default=4.0)
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="read the table with a vision LLM (Gemini) instead of template CV",
+    )
+    parser.add_argument("--llm-model", default=DEFAULT_GEMINI_MODEL)
+    parser.add_argument(
+        "--llm-min-interval",
+        type=float,
+        default=1.5,
+        help="live --llm: min seconds between LLM calls (re-read only on frame change)",
+    )
     args = parser.parse_args(argv)
 
-    recognizer = PokerLegendsTableRecognizer.from_manifests(
-        card_part_manifest=args.card_part_manifest,
-        card_classifier_manifest=args.card_classifier_manifest,
-        button_manifest=args.button_manifest,
-        card_template_manifest=args.card_template_manifest,
-        controlled_seat=args.seat,
-    )
+    recognizer: Recognizer
+    if args.llm:
+        recognizer = PokerLegendsLlmRecognizer.gemini(
+            controlled_seat=args.seat, model=args.llm_model
+        )
+    else:
+        missing = [
+            f"--{name.replace('_', '-')}"
+            for name in (
+                "card_part_manifest",
+                "card_classifier_manifest",
+                "button_manifest",
+                "layout_annotation",
+            )
+            if getattr(args, name) is None
+        ]
+        if missing:
+            parser.error("without --llm these are required: " + ", ".join(missing))
+        recognizer = PokerLegendsTableRecognizer.from_manifests(
+            card_part_manifest=args.card_part_manifest,
+            card_classifier_manifest=args.card_classifier_manifest,
+            button_manifest=args.button_manifest,
+            card_template_manifest=args.card_template_manifest,
+            controlled_seat=args.seat,
+        )
     policy = FieldExploitPolicy()
-    layout = _read_json_object(args.layout_annotation)
+    layout = _read_json_object(args.layout_annotation) if args.layout_annotation else None
 
     if args.image is not None:
         _run_watch_once(
@@ -499,6 +530,7 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
         min_confidence=args.min_confidence,
         fps=args.fps,
         dump_dir=args.dump_dir,
+        recognize_min_interval=args.llm_min_interval if args.llm else 0.0,
     )
 
 
@@ -510,8 +542,38 @@ def _parse_region(text: str) -> dict[str, int]:
     return {"left": left, "top": top, "width": width, "height": height}
 
 
+def _watch_frame(image_path: Path, layout_path: str | None) -> CapturedFrame:
+    """Build a CapturedFrame pointing at a saved/temp PNG (and its layout, if any)."""
+    metadata: dict[str, object] = {
+        "poker_legends_image_path": str(image_path),
+        "coordinate_space": "image",
+    }
+    if layout_path is not None:
+        metadata["poker_legends_layout_annotation_path"] = str(layout_path)
+    return CapturedFrame(payload=image_path, source="mss_live", metadata=metadata)
+
+
+def _overlay_layout(
+    layout: Mapping[str, object] | None, frame: NDArray[np.uint8]
+) -> Mapping[str, object]:
+    """The given layout, or a region-free layout sized to the frame (LLM mode draws no ROIs)."""
+    if layout is not None:
+        return layout
+    height, width = frame.shape[:2]
+    return {"width": width, "height": height, "regions": {}}
+
+
+def _frame_changed(
+    current: NDArray[np.uint8], previous: NDArray[np.uint8], *, threshold: float = 2.5
+) -> bool:
+    """True if the frame changed enough to warrant a fresh (costly) recognition pass."""
+    small_current = cv2.resize(current, (64, 64)).astype(np.int16)
+    small_previous = cv2.resize(previous, (64, 64)).astype(np.int16)
+    return float(np.mean(np.abs(small_current - small_previous))) > threshold
+
+
 def _recognize_and_decide(
-    recognizer: PokerLegendsTableRecognizer,
+    recognizer: Recognizer,
     frame: CapturedFrame,
     policy: FieldExploitPolicy,
     *,
@@ -541,20 +603,23 @@ def _recognize_and_decide(
 def _run_watch_once(
     *,
     image: str,
-    layout_path: str,
-    layout: Mapping[str, object],
+    layout_path: str | None,
+    layout: Mapping[str, object] | None,
     annotation: str | None,
-    recognizer: PokerLegendsTableRecognizer,
+    recognizer: Recognizer,
     policy: FieldExploitPolicy,
     seat: int,
     min_confidence: float,
     overlay_out: str | None,
 ) -> None:
-    capture = PokerLegendsImageCapture(
-        image_path=image, layout_annotation_path=layout_path, annotation_path=annotation
-    )
+    if layout_path is not None:
+        frame_capture = PokerLegendsImageCapture(
+            image_path=image, layout_annotation_path=layout_path, annotation_path=annotation
+        ).capture()
+    else:
+        frame_capture = _watch_frame(Path(image), None)
     recognition, decision, policy_decision = _recognize_and_decide(
-        recognizer, capture.capture(), policy, seat=seat, min_confidence=min_confidence
+        recognizer, frame_capture, policy, seat=seat, min_confidence=min_confidence
     )
     raw = cv2.imread(image)
     if raw is None:
@@ -563,7 +628,7 @@ def _run_watch_once(
     lines = _watch_summary_lines(
         recognition, decision, policy_decision, policy.model, controlled_seat=seat
     )
-    overlay = render_overlay(frame, layout, lines)
+    overlay = render_overlay(frame, _overlay_layout(layout, frame), lines)
     out_path = Path(overlay_out) if overlay_out else Path(image).with_suffix(".overlay.png")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), overlay)
@@ -578,14 +643,15 @@ def _run_watch_live(
     *,
     monitor: int,
     region: dict[str, int] | None,
-    layout_path: str,
-    layout: Mapping[str, object],
-    recognizer: PokerLegendsTableRecognizer,
+    layout_path: str | None,
+    layout: Mapping[str, object] | None,
+    recognizer: Recognizer,
     policy: FieldExploitPolicy,
     seat: int,
     min_confidence: float,
     fps: float,
     dump_dir: str | None,
+    recognize_min_interval: float = 0.0,
 ) -> None:
     try:
         import mss
@@ -599,6 +665,9 @@ def _run_watch_live(
     if dump_path is not None:
         dump_path.mkdir(parents=True, exist_ok=True)
     dump_index = 0
+    cached: tuple[RecognitionResult, SafetyDecision, PolicyDecision | None] | None = None
+    last_recognized: NDArray[np.uint8] | None = None
+    last_recognize_at = 0.0
 
     with mss.mss() as sct:
         target = region if region is not None else sct.monitors[monitor]
@@ -607,17 +676,26 @@ def _run_watch_live(
             start = time.time()
             shot = sct.grab(target)
             frame = cast(NDArray[np.uint8], np.ascontiguousarray(np.asarray(shot)[:, :, :3]))
-            cv2.imwrite(str(tmp_frame), frame)
-            capture = PokerLegendsImageCapture(
-                image_path=tmp_frame, layout_annotation_path=layout_path
-            )
-            recognition, decision, policy_decision = _recognize_and_decide(
-                recognizer, capture.capture(), policy, seat=seat, min_confidence=min_confidence
-            )
+            # In LLM mode (recognize_min_interval > 0) re-read only on a changed frame and no
+            # more often than the interval, so each costly LLM call earns its keep.
+            changed = last_recognized is None or _frame_changed(frame, last_recognized)
+            due = (start - last_recognize_at) >= recognize_min_interval
+            if cached is None or recognize_min_interval <= 0.0 or (changed and due):
+                cv2.imwrite(str(tmp_frame), frame)
+                cached = _recognize_and_decide(
+                    recognizer,
+                    _watch_frame(tmp_frame, layout_path),
+                    policy,
+                    seat=seat,
+                    min_confidence=min_confidence,
+                )
+                last_recognized = frame
+                last_recognize_at = start
+            recognition, decision, policy_decision = cached
             lines = _watch_summary_lines(
                 recognition, decision, policy_decision, policy.model, controlled_seat=seat
             )
-            overlay = render_overlay(frame, layout, lines)
+            overlay = render_overlay(frame, _overlay_layout(layout, frame), lines)
             cv2.imshow(window, overlay)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
