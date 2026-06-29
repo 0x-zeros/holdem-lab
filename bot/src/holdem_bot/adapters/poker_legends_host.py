@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -28,6 +28,7 @@ from holdem_bot.adapters.poker_legends_llm import (
     PokerLegendsLlmRecognizer,
 )
 from holdem_bot.capture import Capture, CapturedFrame
+from holdem_bot.hand_tracker import HandTracker
 from holdem_bot.orchestrator import BotOrchestrator, BotStepResult
 from holdem_bot.recognize import RecognitionResult, Recognizer
 from holdem_bot.screen_state import SafetyDecision, evaluate_safety
@@ -802,14 +803,20 @@ def _recognize_and_decide(
     *,
     seat: int,
     min_confidence: float,
+    hand_tracker: HandTracker | None = None,
 ) -> tuple[RecognitionResult, SafetyDecision, PolicyDecision | None]:
     """Faithful per-frame pipeline: recognise -> the same safety gate -> decide if allowed.
 
     Mirrors ``BotOrchestrator.run_once`` (so the HUD shows exactly what the bot would
     do) but keeps the full ``RecognitionResult`` -- notably ``metadata`` -- so the
-    overlay can surface *why* state assembly failed.
+    overlay can surface *why* state assembly failed. When a ``hand_tracker`` is given it
+    restamps ``hand_id`` with a stable per-hand id (the live recogniser's is the constant
+    temp frame name), so the opponent model can actually accumulate per-hand reads.
     """
     recognition = recognizer.recognize(frame)
+    if hand_tracker is not None and recognition.state is not None:
+        stamped = replace(recognition.state, hand_id=hand_tracker.hand_id(recognition.state))
+        recognition = replace(recognition, state=stamped)
     decision = evaluate_safety(
         screen=recognition.screen,
         state=recognition.state,
@@ -905,6 +912,7 @@ def _run_watch_live(
         dump_path.mkdir(parents=True, exist_ok=True)
     dump_index = 0
     llm_reads = 0
+    hand_tracker = HandTracker()
     cached: tuple[RecognitionResult, SafetyDecision, PolicyDecision | None] | None = None
     last_recognized: NDArray[np.uint8] | None = None
     last_recognize_at = 0.0
@@ -935,6 +943,7 @@ def _run_watch_live(
                     policy,
                     seat=seat,
                     min_confidence=min_confidence,
+                    hand_tracker=hand_tracker,
                 )
                 last_recognized = frame
                 last_recognize_at = start
@@ -1045,7 +1054,9 @@ def _watch_summary_lines(
         lines.append("state <none>")
     else:
         legal = "/".join(action.action_type.value for action in state.legal_actions) or "-"
-        lines.append(f"pot {state.pot_total}  to_call {state.to_call}  legal {legal}")
+        lines.append(
+            f"hand {state.hand_id}  pot {state.pot_total}  to_call {state.to_call}  legal {legal}"
+        )
     if policy_decision is not None:
         action = policy_decision.action
         lines.append(
