@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 import pytest
 from holdem_ai import (
     decide,
@@ -5,12 +7,20 @@ from holdem_ai import (
     estimate_showdown_equity,
     evaluate_best_hand,
     explain_decision,
+    reset_decision_policy,
 )
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
 
 
 def cards(*codes: str) -> tuple[Card, ...]:
     return tuple(Card.from_code(code) for code in codes)
+
+
+@pytest.fixture(autouse=True)
+def reset_public_decision_policy() -> Iterator[None]:
+    reset_decision_policy()
+    yield
+    reset_decision_policy()
 
 
 def state_with(
@@ -93,6 +103,44 @@ def test_explain_decision_returns_action_reason_and_metadata() -> None:
     assert decision.required_equity is None
     assert decision.metadata["made_hand"] == "high_card"
     assert decision.metadata["active_opponents"] == 1
+    assert decision.metadata["exploit"] == "base"
+
+
+def test_explain_decision_default_policy_exploits_station_read() -> None:
+    reset_decision_policy()
+    try:
+        decision = None
+        for hand_index in range(13):
+            decision = explain_decision(
+                GameState(
+                    hand_id=f"api-station-{hand_index}",
+                    street=Street.PREFLOP,
+                    players=(
+                        PlayerState(
+                            seat=0,
+                            stack=98,
+                            committed=2,
+                            hole_cards=cards("7c", "2d"),
+                        ),
+                        PlayerState(seat=1, stack=98, committed=2),
+                    ),
+                    board=(),
+                    pots=(Pot(amount=4, eligible_seats=frozenset({0, 1})),),
+                    current_seat=0,
+                    button_seat=0,
+                    small_blind=1,
+                    big_blind=2,
+                    min_raise=4,
+                    to_call=0,
+                    legal_actions=(Action(ActionType.CHECK),),
+                )
+            )
+
+        assert decision is not None
+        assert decision.metadata["exploit"] == "station"
+        assert decision.metadata["opponent_profiles"] == {1: "station"}
+    finally:
+        reset_decision_policy()
 
 
 def test_decide_folds_weak_hand_to_bad_price() -> None:

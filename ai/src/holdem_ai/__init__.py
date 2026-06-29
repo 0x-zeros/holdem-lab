@@ -1,6 +1,6 @@
 """Poker AI package."""
 
-from holdem_ai.api import decide, explain_decision
+from holdem_ai.api import decide, explain_decision, reset_decision_policy
 from holdem_ai.baselines import (
     AggressivePolicy,
     CallStationPolicy,
@@ -70,6 +70,7 @@ __all__ = [
     "preflop_bucket",
     "preflop_equity",
     "profile_from_name",
+    "reset_decision_policy",
     "solve_push_fold",
     "solve_short_stack_preflop",
     "train_cfr",

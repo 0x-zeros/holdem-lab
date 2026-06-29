@@ -405,6 +405,12 @@
   VPIP 被观察时序低估（站理论~0.85 实测~0.50）但相对分离干净；**端到端 nit/鱼增益高方差**（需 100+ 副牌才稳定，故门**逻辑**
   由瞬时单元测试钉死、**增益**由文档大样本背书，不进快测；站剥削效应巨大稳健保留为集成测试）。验证：`verify-dev-env.sh`
   全绿（ruff/mypy/**277 tests**）；网格详见 `docs/ai-strength.md` §6 S4。
+- 阶段 3 AI public API 接入 S4 弱场剥削（2026-06-29）：`holdem_ai.decide()` / `explain_decision()` 默认
+  从纯 `HeuristicPolicy` 升级为 **seat-scoped `FieldExploitPolicy`**（每个受控 seat 一份 `OpponentModel`，避免本地
+  多 AI 对局互相污染读数；新增 `reset_decision_policy()` 供新 session/测试清零）。`profile_from_name("current")`
+  仍保留纯启发式，方便做旧基线评估。验收对打（CRN，seed 20260627，6-max，200 副牌=1200 手，100bb，对
+  5×`call_station`）：`current` +875.3 bb/100 [597.5, 1207.2]；`field_exploit` **+1566.2** [1154.7, 2044.5]；
+  delta **+690.8 bb/100**，且 value-bet 由 46 次增至 140 次，符合“跟注站薄价值”的预期。
 - 阶段 4 bot 接入对手读数（S4 ②）：把 `FieldExploitPolicy`（持久 `OpponentModel`）作为 Poker Legends host dry-run
   的 `policy_explainer` 注入 orchestrator——orchestrator 跨帧持有策略对象，故连续会话里每座位读数会累积；单帧 dry-run
   时读数恒 UNKNOWN→回退 base，决策与裸启发式**逐字节相同**（安全）。dry-run 输出新增 `opponent_reads`（每座位
