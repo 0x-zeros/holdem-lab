@@ -704,30 +704,43 @@ def _resolve_click_point(
     return None, "none"
 
 
+def _hero_turn_from_buttons(detections: Sequence[ActionButtonDetection]) -> bool:
+    """Action buttons visible => it is the hero's turn -- the cheap CV trigger for an LLM read.
+
+    Requires the Fold circle (the canonical "you can act" control) or a 2+ button row, so a stray
+    coloured circle elsewhere does not look like a turn.
+    """
+    if any(detection.color_class == "fold" for detection in detections):
+        return True
+    return len(detections) >= 2
+
+
 def _plan_click_targets(
     frame: NDArray[np.uint8],
     recognition: RecognitionResult,
     policy_decision: PolicyDecision | None,
     *,
     origin: tuple[int, int] | None,
+    detections: Sequence[ActionButtonDetection] | None = None,
 ) -> tuple[tuple[ActionButtonDetection, ...], _ClickTarget | None]:
     """Plan the chosen action's click target from the LLM box + CV buttons (read-only).
 
     Primary coordinate = the LLM's ``box_2d`` centre (robust, free with recognition); CV verifies
-    and, when both agree, supplies the pixel-exact centre. Returns the CV detections (for the HUD)
-    and the resolved target, or ``None`` when no decision is pending or neither source found the
-    button (fail closed -- never click blind).
+    and, when both agree, supplies the pixel-exact centre. ``detections`` may be passed in to reuse
+    a detection already done for the turn gate. Returns the CV detections (for the HUD) and the
+    resolved target, or ``None`` when no decision is pending or neither source found the button
+    (fail closed -- never click blind).
     """
+    buttons = tuple(detections) if detections is not None else detect_action_buttons(frame)
     if policy_decision is None:
-        return (), None
+        return buttons, None
     action = policy_decision.action
     command = _command_for_action(action)
-    detections = detect_action_buttons(frame)
-    cv_detection = next((det for det in detections if det.slot == command), None)
+    cv_detection = next((det for det in buttons if det.slot == command), None)
     llm_center = _llm_box_center(recognition.metadata, command)
     point, source = _resolve_click_point(llm_center, cv_detection, frame.shape[0])
     if point is None:
-        return detections, None
+        return buttons, None
     left, top = origin or (0, 0)
     plan = PokerLegendsClickPlan(
         action_type=action.action_type.value,
@@ -737,7 +750,7 @@ def _plan_click_targets(
         y=top + point[1],
         coordinate_space="screen" if origin is not None else "image",
     )
-    return detections, _ClickTarget(plan=plan, frame_x=point[0], frame_y=point[1], source=source)
+    return buttons, _ClickTarget(plan=plan, frame_x=point[0], frame_y=point[1], source=source)
 
 
 def _draw_click_targets(
@@ -891,6 +904,7 @@ def _run_watch_live(
     if dump_path is not None:
         dump_path.mkdir(parents=True, exist_ok=True)
     dump_index = 0
+    llm_reads = 0
     cached: tuple[RecognitionResult, SafetyDecision, PolicyDecision | None] | None = None
     last_recognized: NDArray[np.uint8] | None = None
     last_recognize_at = 0.0
@@ -902,11 +916,18 @@ def _run_watch_live(
             start = time.time()
             shot = sct.grab(target)
             frame = cast(NDArray[np.uint8], np.ascontiguousarray(np.asarray(shot)[:, :, :3]))
-            # In LLM mode (recognize_min_interval > 0) re-read only on a changed frame and no
-            # more often than the interval, so each costly LLM call earns its keep.
+            # CV turn gate: detect the action buttons every frame (cheap, ~ms). In LLM mode spend a
+            # (slow, costly) read only when the buttons are up -- i.e. it is the hero's turn -- so
+            # LLM latency tracks our own turn, not the game's animation / opponent-action speed.
+            cv_buttons = detect_action_buttons(frame)
+            hero_turn = _hero_turn_from_buttons(cv_buttons)
             changed = last_recognized is None or _frame_changed(frame, last_recognized)
             due = (start - last_recognize_at) >= recognize_min_interval
-            if cached is None or recognize_min_interval <= 0.0 or (changed and due):
+            if recognize_min_interval <= 0.0:
+                should_read = True  # ungated (non-LLM): the CV read is cheap, refresh every frame
+            else:
+                should_read = cached is None or (hero_turn and changed and due)
+            if should_read:
                 cv2.imwrite(str(tmp_frame), frame)
                 cached = _recognize_and_decide(
                     recognizer,
@@ -917,21 +938,29 @@ def _run_watch_live(
                 )
                 last_recognized = frame
                 last_recognize_at = start
+                llm_reads += 1
+            assert cached is not None  # should_read includes `cached is None`, so it is set by now
             recognition, decision, policy_decision = cached
-            # hybrid click target on the live frame (cheap CV; LLM box comes from the cached read)
+            # Plan/draw a click only when CV says it is our turn, so a stale decision from the last
+            # turn is not shown while the opponents act.
             origin = (int(target["left"]), int(target["top"]))
+            turn_decision = policy_decision if hero_turn else None
             detections, click = _plan_click_targets(
-                frame, recognition, policy_decision, origin=origin
+                frame, recognition, turn_decision, origin=origin, detections=cv_buttons
             )
-            lines = _watch_summary_lines(
-                recognition,
-                decision,
-                policy_decision,
-                policy.model,
-                controlled_seat=seat,
-                click=click,
-                click_searched=policy_decision is not None,
-            )
+            lines = [
+                f"cv {len(cv_buttons)}btn  hero_turn~{hero_turn}  "
+                f"llm_reads {llm_reads}  {'READ' if should_read else 'cached'}",
+                *_watch_summary_lines(
+                    recognition,
+                    decision,
+                    policy_decision,
+                    policy.model,
+                    controlled_seat=seat,
+                    click=click,
+                    click_searched=hero_turn,
+                ),
+            ]
             base = _overlay_base(frame, recognition)
             overlay = render_overlay(base, _overlay_layout(layout, base), lines)
             if recognition.metadata.get("game_region_fraction") is None:

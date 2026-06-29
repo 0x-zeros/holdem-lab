@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from holdem_bot.adapters.poker_legends_host import (
     PokerLegendsVisionClickPlanner,
+    _hero_turn_from_buttons,
     _plan_click_targets,
     _resolve_click_point,
 )
@@ -149,7 +150,29 @@ def test_plan_click_targets_hybrid_screen_coords() -> None:
 
 
 def test_plan_click_targets_none_decision() -> None:
+    # no decision -> no click; the detected buttons are still returned (for a faint HUD draw)
     detections, click = _plan_click_targets(
         _table_with_buttons(), RecognitionResult(state=None), None, origin=None
     )
+    assert click is None
+    assert len(detections) == 3
+
+
+def test_plan_click_targets_reuses_passed_detections() -> None:
+    # the frame WOULD detect 3 buttons, but passing () must be honoured -> fail closed, no re-detect
+    frame = _table_with_buttons()
+    decision = cast(Any, _StubDecision(Action(ActionType.FOLD)))
+    detections, click = _plan_click_targets(
+        frame, RecognitionResult(state=None), decision, origin=None, detections=()
+    )
     assert detections == () and click is None
+
+
+def test_hero_turn_from_buttons() -> None:
+    fold = ActionButtonDetection("primary_right", "fold", 540, 340, 30, 0.9)
+    call = ActionButtonDetection("primary_left", "call", 380, 340, 30, 0.9)
+    raise_ = ActionButtonDetection("primary_middle", "raise", 460, 340, 30, 0.6)
+    assert _hero_turn_from_buttons([fold]) is True  # fold alone is the canonical act signal
+    assert _hero_turn_from_buttons([call, raise_]) is True  # a 2+ button row
+    assert _hero_turn_from_buttons([call]) is False  # a lone non-fold circle is not a turn
+    assert _hero_turn_from_buttons([]) is False
