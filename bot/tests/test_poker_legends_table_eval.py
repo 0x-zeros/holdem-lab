@@ -4,15 +4,19 @@ from pathlib import Path
 from holdem_bot.adapters import poker_legends_table_eval
 from holdem_bot.capture import CapturedFrame
 from holdem_bot.recognize import (
+    ActionPanelObservation,
     AssemblyIssue,
     AssemblyStatus,
     ContractLevel,
     FrameEvidence,
     Freshness,
     GameStateAssemblyResult,
+    LayoutObservation,
     RecognitionMode,
     RecognitionResult,
+    RoiEvidence,
     ValidityScope,
+    VisualObservation,
 )
 from holdem_bot.screen_state import ScreenState
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
@@ -84,6 +88,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["frames"] == 2
     assert summary["result_counts"] == {"missing_pot": 1, "state": 1}
     assert summary["issue_counts"] == {"POT_REQUIRED_BY_POLICY": 1}
+    assert summary["action_panel_flag_counts"] == {"missing_current_action_row": 1}
+    assert summary["blocking_action_panel_flag_counts"] == {"missing_current_action_row": 1}
     assert summary["examples"] == {"missing_pot": ["frame_003"], "state": ["frame_001"]}
     rows = summary["rows"]
     assert isinstance(rows, list)
@@ -96,6 +102,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "# Poker Legends Table Recognizer Report" in report
     assert "- state: 1" in report
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
+    assert "- missing_current_action_row: 1" in report
+    assert "## Blocking Action Panel Flag Counts" in report
     assert "| `frame_003` | `missing_pot` | `POT_REQUIRED_BY_POLICY` |" in report
 
 
@@ -146,6 +154,28 @@ class FakeRecognizer:
 def _blocked_result(frame_id: str) -> RecognitionResult:
     evidence = FrameEvidence(session_id=None, frame_id=frame_id)
     screen = ScreenState.actionable_table(hero_turn=True)
+    visual = VisualObservation(
+        frame=evidence,
+        recognition_mode=RecognitionMode.TRUTH_ASSISTED_REPLAY,
+        screen=screen,
+        layout=LayoutObservation(
+            profile_id=None,
+            layout_version=None,
+            transform_type=None,
+            transform_residual_px=None,
+        ),
+        action_panels=(
+            ActionPanelObservation(
+                panel_kind="current_action_row",
+                visible=False,
+                enabled=None,
+                hero_turn_indicator=True,
+                row_bbox=None,
+                ambiguity_flags=("missing_current_action_row",),
+                evidence=RoiEvidence(roi_id="action_panel:current_action_row"),
+            ),
+        ),
+    )
     issue = AssemblyIssue(
         issue_type="missing",
         reason_code="POT_REQUIRED_BY_POLICY",
@@ -190,6 +220,7 @@ def _blocked_result(frame_id: str) -> RecognitionResult:
         recognition_mode=RecognitionMode.TRUTH_ASSISTED_REPLAY,
         safety_contract=ContractLevel.OBSERVE_ONLY,
         frame_evidence=evidence,
+        visual_observation=visual,
         assembly_result=assembly,
     )
 

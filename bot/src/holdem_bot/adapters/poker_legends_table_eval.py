@@ -42,6 +42,8 @@ def evaluate_poker_legends_table_recognizer(
     rows: list[dict[str, object]] = []
     result_counts: dict[str, int] = {}
     issue_counts: dict[str, int] = {}
+    action_panel_flag_counts: dict[str, int] = {}
+    blocking_action_panel_flag_counts: dict[str, int] = {}
     examples: dict[str, list[str]] = {}
 
     frames = _manifest_frames(manifest)
@@ -80,6 +82,12 @@ def evaluate_poker_legends_table_recognizer(
             examples[outcome].append(frame_id)
         for issue_code in _string_list(row.get("issue_codes")):
             issue_counts[issue_code] = issue_counts.get(issue_code, 0) + 1
+        for flag in _action_panel_flags(row.get("action_panels")):
+            action_panel_flag_counts[flag] = action_panel_flag_counts.get(flag, 0) + 1
+            if outcome != "state":
+                blocking_action_panel_flag_counts[flag] = (
+                    blocking_action_panel_flag_counts.get(flag, 0) + 1
+                )
 
     summary: dict[str, object] = {
         "schema_version": 1,
@@ -87,6 +95,10 @@ def evaluate_poker_legends_table_recognizer(
         "actionable_only": actionable_only,
         "result_counts": dict(sorted(result_counts.items())),
         "issue_counts": dict(sorted(issue_counts.items())),
+        "action_panel_flag_counts": dict(sorted(action_panel_flag_counts.items())),
+        "blocking_action_panel_flag_counts": dict(
+            sorted(blocking_action_panel_flag_counts.items())
+        ),
         "examples": dict(sorted(examples.items())),
         "rows": rows,
     }
@@ -204,6 +216,8 @@ def _state_summary(state: GameState | None) -> dict[str, object] | None:
 def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     counts = summary.get("result_counts")
     issue_counts = summary.get("issue_counts")
+    action_panel_flag_counts = summary.get("action_panel_flag_counts")
+    blocking_action_panel_flag_counts = summary.get("blocking_action_panel_flag_counts")
     examples = summary.get("examples")
     rows = _row_mappings(summary.get("rows"))
     blockers = [row for row in rows if row.get("result") != "state"]
@@ -222,6 +236,14 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Issue Counts",
         "",
         *_count_lines(issue_counts),
+        "",
+        "## Action Panel Flag Counts",
+        "",
+        *_count_lines(action_panel_flag_counts),
+        "",
+        "## Blocking Action Panel Flag Counts",
+        "",
+        *_count_lines(blocking_action_panel_flag_counts),
         "",
         "## Examples",
         "",
@@ -312,6 +334,13 @@ def _action_panel_summary(value: object) -> str:
         suffix = f":{'+'.join(flags)}" if flags else ""
         parts.append(f"`{panel.get('panel_kind')}:visible={panel.get('visible')}{suffix}`")
     return "<br>".join(parts)
+
+
+def _action_panel_flags(value: object) -> list[str]:
+    flags: list[str] = []
+    for panel in _row_mappings(value):
+        flags.extend(_string_list(panel.get("ambiguity_flags")))
+    return flags
 
 
 def _seat_summary(value: object) -> str:

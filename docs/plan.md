@@ -558,6 +558,10 @@
   这类 OCR 插点/千分位按整数筹码处理（去标点），但保留 `1.23K` 的小数倍率语义。`card_review_v1__session_001__keyframe_000112`
   的 pot 从低置信 `31` 修成可接受的 `310`；当前 57 帧复跑：`state` 40、`missing_legal_actions` 13、
   `not_enough_players` 2、`preselect_ambiguous` 1、`hero_not_current` 1，`missing_pot` 清零。
+- 阶段 4 Poker Legends table evaluator diagnostics v2：table recognizer evaluator 新增
+  `action_panel_flag_counts` 与 `blocking_action_panel_flag_counts`，把 state 行的诊断 flags 和真正阻塞原因
+  分开统计。当前 57 帧中 blocking flags 为 `missing_passive_action` 10、
+  `missing_current_action_row` 6、`button_label_action_mismatch` 4、`preselect_shortcut_label` 2。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
