@@ -979,7 +979,7 @@ def test_poker_legends_table_recognizer_marks_missing_current_action_row(
     )
 
     assert result.state is None
-    assert result.metadata["state_block_reason"] == "missing_legal_actions"
+    assert result.metadata["state_block_reason"] == "missing_current_action_row"
     assert result.visual_observation is not None
     panel = result.visual_observation.action_panels[0]
     assert panel.panel_kind == "current_action_row"
@@ -1028,7 +1028,7 @@ def test_poker_legends_table_recognizer_requires_passive_action_when_checking_is
     )
 
     assert result.state is None
-    assert result.metadata["state_block_reason"] == "missing_legal_actions"
+    assert result.metadata["state_block_reason"] == "missing_passive_action"
     assert result.visual_observation is not None
     panel = result.visual_observation.action_panels[0]
     assert "missing_passive_action" in panel.ambiguity_flags
@@ -1085,7 +1085,7 @@ def test_poker_legends_table_recognizer_filters_truth_hidden_primary_buttons(
     )
 
     assert result.state is None
-    assert result.metadata["state_block_reason"] == "missing_legal_actions"
+    assert result.metadata["state_block_reason"] == "missing_passive_action"
     table = result.metadata["recognized_table"]
     assert isinstance(table, dict)
     assert [button["action_type"] for button in table["buttons"]] == ["fold"]

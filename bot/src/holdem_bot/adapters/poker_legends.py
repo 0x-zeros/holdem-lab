@@ -927,6 +927,8 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
     ) -> tuple[tuple[Action, ...], int, str | None]:
         # First pass: gate confidence and resolve the amount to call, so the raise
         # floor is sized correctly regardless of where the call button appears.
+        if not buttons:
+            return (), 0, "missing_current_action_row"
         resolved: list[ActionType] = []
         to_call = 0
         for button in buttons:
@@ -980,9 +982,9 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 actions.append(Action(action_type))
         action_types = {action.action_type for action in actions}
         if to_call == 0 and not action_types.intersection({ActionType.CHECK, ActionType.BET}):
-            return (), 0, "missing_legal_actions"
+            return (), 0, "missing_passive_action"
         if to_call > 0 and ActionType.CALL not in action_types:
-            return (), 0, "missing_legal_actions"
+            return (), 0, "missing_call_action"
         return tuple(actions), to_call, None
 
 
@@ -1668,6 +1670,9 @@ def _reason_code_field_and_type(reason: str) -> tuple[str, str, str]:
         "low_card_confidence": ("CARD_LOW_CONFIDENCE", "cards", "low_confidence"),
         "missing_call_amount": ("CALL_AMOUNT_UNTRUSTED", "numbers.call_amount", "missing"),
         "missing_legal_actions": ("ACTION_ROW_UNSTABLE", "actions", "missing"),
+        "missing_current_action_row": ("ACTION_ROW_UNSTABLE", "actions.current_row", "missing"),
+        "missing_passive_action": ("ACTION_ROW_UNSTABLE", "actions.passive_action", "missing"),
+        "missing_call_action": ("ACTION_ROW_UNSTABLE", "actions.call", "missing"),
         "preselect_ambiguous": ("PRESELECT_AMBIGUOUS", "actions", "ambiguous"),
         "missing_street": ("MISSING_STREET", "street", "missing"),
         "board_count_mismatch": ("MISSING_BOARD_CARD", "cards.board", "contradiction"),
