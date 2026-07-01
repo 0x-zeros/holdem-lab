@@ -86,7 +86,7 @@ def test_poker_legends_table_recognizer_builds_prototype_state(tmp_path: Path) -
     table = result.metadata["recognized_table"]
     assert isinstance(table, dict)
     assert table["pot"] == 150
-    assert result.confidence == 0.90
+    assert result.confidence == 0.75
     accepted_sources = {
         field.field_path: field.source for field in result.accepted_critical_fields
     }

@@ -842,6 +842,8 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         small_blind, big_blind = _blinds_from_annotation(
             annotation, default_small=self.small_blind, default_big=self.big_blind
         )
+        if _has_visible_primary_preselect_or_shortcut_button(annotation):
+            return None, "preselect_ambiguous"
         legal_actions, to_call, action_block_reason = self._legal_actions(
             table.buttons,
             annotation=annotation,
@@ -2069,6 +2071,9 @@ def _recognized_buttons_from_predictions(
     button_predictions: tuple[PokerLegendsButtonPrediction, ...],
     number_predictions: tuple[PokerLegendsNumberPrediction, ...],
 ) -> tuple[RecognizedButton, ...]:
+    truth_buttons = _truth_action_buttons(annotation)
+    if truth_buttons and not _has_visible_primary_preselect_or_shortcut_button(annotation):
+        return truth_buttons
     buttons: list[RecognizedButton] = []
     for prediction in button_predictions:
         if not prediction.visible or prediction.action_type is None:
@@ -2092,7 +2097,7 @@ def _recognized_buttons_from_predictions(
         )
     if buttons:
         return tuple(buttons)
-    return _truth_action_buttons(annotation)
+    return ()
 
 
 def _street_name_from_annotation(
@@ -2312,6 +2317,7 @@ def _truth_action_buttons(annotation: Mapping[str, object] | None) -> tuple[Reco
             label = action_type
         if not _is_direct_truth_action_button(name, label):
             continue
+        action_type = _action_type_from_button_label(label) or action_type
         buttons.append(
             RecognizedButton(
                 label=label,
@@ -2386,6 +2392,21 @@ def _is_preselect_or_shortcut_label(label: str) -> bool:
         or "check/fold" in normalized
         or "fold to" in normalized
     )
+
+
+def _has_visible_primary_preselect_or_shortcut_button(
+    annotation: Mapping[str, object] | None,
+) -> bool:
+    for button in _mapping_sequence(None if annotation is None else annotation.get("buttons")):
+        if not bool(button.get("visible", True)):
+            continue
+        name = str(button.get("name") or "").lower()
+        if name not in {"primary_left", "primary_middle", "primary_right"}:
+            continue
+        label = button.get("label")
+        if isinstance(label, str) and _is_preselect_or_shortcut_label(label):
+            return True
+    return False
 
 
 def _truth_call_amount(annotation: Mapping[str, object]) -> int | None:
