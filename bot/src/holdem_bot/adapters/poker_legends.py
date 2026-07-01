@@ -1656,6 +1656,8 @@ def _pot_source(
         return annotation_source
     if _number_prediction_value(number_predictions, "texts", "pot") is not None:
         return "image_ocr"
+    if _pot_from_trusted_committed(annotation) is not None:
+        return "rule_inferred_committed"
     return "rule_or_default"
 
 
@@ -1815,6 +1817,7 @@ def _recognized_table_from_predictions(
         pot=_first_number(
             _pot_from_annotation(annotation),
             _number_prediction_value(number_predictions, "texts", "pot"),
+            _pot_from_trusted_committed(annotation),
         ),
         board=board,
         seats=seats,
@@ -2101,6 +2104,21 @@ def _pot_from_annotation(annotation: Mapping[str, object] | None) -> int | None:
             if value is not None:
                 return value
     return None
+
+
+def _pot_from_trusted_committed(annotation: Mapping[str, object] | None) -> int | None:
+    active_committed: list[int] = []
+    for seat in _mapping_sequence(None if annotation is None else annotation.get("seats")):
+        if _optional_bool(seat.get("active")) is False:
+            continue
+        committed = _optional_int(seat.get("committed"))
+        if committed is None or committed < 0:
+            return None
+        active_committed.append(committed)
+    if len(active_committed) < 2:
+        return None
+    total = sum(active_committed)
+    return total if total > 0 else None
 
 
 def _hero_stack_from_texts(annotation: Mapping[str, object] | None) -> int | None:

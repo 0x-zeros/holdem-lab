@@ -458,6 +458,24 @@ def test_poker_legends_table_recognizer_fails_closed_without_pot(tmp_path: Path)
     assert result.metadata["state_block_reason"] == "missing_pot"
 
 
+def test_poker_legends_table_recognizer_derives_pot_from_explicit_committed(
+    tmp_path: Path,
+) -> None:
+    annotation = actionable_truth()
+    annotation["texts"] = []
+    for seat in cast(list[dict[str, object]], annotation["seats"]):
+        seat["committed"] = 100
+
+    result = _recognize_actionable(tmp_path, annotation)
+
+    assert result.state is not None
+    assert result.state.pots[0].amount == 200
+    pot_field = next(
+        field for field in result.accepted_critical_fields if field.field_path == "numbers.pot"
+    )
+    assert pot_field.source == "rule_inferred_committed"
+
+
 def test_poker_legends_table_recognizer_rejects_low_confidence_number_ocr(
     tmp_path: Path,
 ) -> None:

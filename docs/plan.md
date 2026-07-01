@@ -520,7 +520,7 @@
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 继续校准筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，
   低置信数字只记录不使用；overlay 后面的数字字段继续标为 ignored。
-- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：对剩余 10 个 fail-closed actionable
+- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：对剩余 9 个 fail-closed actionable
   帧逐一归类；能用 reviewed truth 明确修正的继续收敛，无法确认的保留停手。只有当 screen、牌面、
   按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` /
   `low_confidence`。
@@ -533,10 +533,15 @@
 - 阶段 4 Poker Legends table recognizer evaluator v1：新增
   `uv run holdem-bot-evaluate-poker-legends-table-recognizer --dataset-manifest ... --card-part-manifest ...`
   作为正式复跑入口，输出 `table_recognizer_summary.json` / `table_recognizer_report.md`，默认只扫描
-  truth 中 `screen.kind=actionable_table` 的帧。用当前 `multi_source_templates_v2` 复跑 57 帧：
+  truth 中 `screen.kind=actionable_table` 的帧。初次用 `multi_source_templates_v2` 复跑 57 帧：
   `state` 47、`missing_legal_actions` 3、`not_enough_players` 3、`missing_pot` 2、
   `preselect_ambiguous` 1、`hero_not_current` 1；报告已输出 issue count 与 blocker 明细表
   （frame/result/issues/street/pot/buttons/seats/accepted numbers），不再依赖临时脚本解释 blocker。
+- 阶段 4 Poker Legends committed-pot derivation v1：在不猜未知底池的前提下，若 pot OCR/truth 缺失，
+  但至少两个 active seat 都有显式 `committed` 数值且总额 >0，则把 pot 派生为 committed 总和，source
+  记为 `rule_inferred_committed`；`committed=null`、单人 seat、总额 0 仍 fail-closed。当前 57 帧复跑：
+  `state` 48、`missing_legal_actions` 3、`not_enough_players` 3、`missing_pot` 1、
+  `preselect_ambiguous` 1、`hero_not_current` 1。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
