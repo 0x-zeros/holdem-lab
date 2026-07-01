@@ -636,6 +636,11 @@
   `screen_missed_actionable`，recognized actionable 但 truth non-actionable 时标记为
   `screen_false_actionable`。当前 image-only review queue 为 57 行：`missing_table_metadata` 41、
   `screen_missed_actionable` 16；普通 non-actionable hard negatives 仍排除在 queue 外。
+- 阶段 4 Poker Legends table evaluator image-only readiness v1：对 image-only 且 screen 判为
+  `actionable_table` 的 row 输出 `table_readiness_flags`，并汇总 `table_readiness_flag_counts`，只量化 primitive
+  缺口，不启用 image-only GameState 组装。当前 119 帧 image-only 复跑 readiness blocker：
+  `readiness_missing_hero_hole_cards` 33、`readiness_not_enough_players` 30、`readiness_missing_hero_seat` 8、
+  `readiness_missing_passive_action` 8；authorization 仍为 0。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

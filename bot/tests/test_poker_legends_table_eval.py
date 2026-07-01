@@ -153,6 +153,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["recognition_mode_counts"] == {"truth_assisted_replay": 2}
     assert summary["contract_counts"] == {"observe_only": 1, "policy_decision": 1}
     assert summary["assembly_status_counts"] == {"no_state": 1, "single_frame_valid": 1}
+    assert summary["table_readiness_flag_counts"] == {}
     assert summary["authorization_events"] == 1
     assert summary["unsafe_authorization_events"] == 0
     assert summary["stale_authorization_events"] == 0
@@ -178,6 +179,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert rows[0]["state"]["street"] == "flop"
     assert rows[0]["recognition_mode"] == "truth_assisted_replay"
     assert rows[0]["safety_contract"] == "policy_decision"
+    assert rows[0]["table_readiness_flags"] == []
     assert rows[0]["accepted_critical_fields"] == [
         {
             "evidence_refs": [],
@@ -227,6 +229,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "- Screen missed actionable count: 0" in report
     assert "- Review queue frames: 1" in report
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
+    assert "## Table Readiness Flag Counts" in report
     assert "## Review Tag Counts" in report
     assert "## Screen Truth Confusion" in report
     assert "- actionable_table: actionable_table=2" in report
@@ -310,6 +313,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
         "missing_table_metadata": 1,
         "screen_not_actionable": 1,
     }
+    assert image_only_summary["table_readiness_flag_counts"] == {}
     assert image_only_summary["review_queue_by_tag"] == {
         "missing_table_metadata": ["frame_001"],
         "screen_missed_actionable": ["frame_003"],
@@ -335,6 +339,28 @@ class FakeRecognizer:
                 mode=mode,
                 block_reason="missing_table_metadata",
                 reason_code="MISSING_TABLE_METADATA",
+                recognized_table={
+                    "street": "flop",
+                    "pot": 150,
+                    "board": [
+                        {"card": "2C", "visible": True},
+                        {"card": "7D", "visible": True},
+                        {"card": "TS", "visible": True},
+                    ],
+                    "buttons": [{"command": "primary_left", "action_type": "check"}],
+                    "seats": [
+                        {
+                            "seat": 0,
+                            "stack": 1000,
+                            "active": True,
+                            "hole_cards": [
+                                {"card": "AS", "visible": True},
+                                {"card": "KH", "visible": True},
+                            ],
+                        },
+                        {"seat": 1, "stack": 1000, "active": True},
+                    ],
+                },
             )
         if frame_id == "frame_003":
             return _blocked_result(frame_id)
@@ -392,6 +418,7 @@ def _blocked_result(
     block_reason: str = "missing_pot",
     reason_code: str = "POT_REQUIRED_BY_POLICY",
     screen: ScreenState | None = None,
+    recognized_table: dict[str, object] | None = None,
 ) -> RecognitionResult:
     evidence = FrameEvidence(session_id=None, frame_id=frame_id)
     screen = screen or ScreenState.actionable_table(hero_turn=True)
@@ -449,7 +476,7 @@ def _blocked_result(
         confidence=1.0,
         metadata={
             "state_block_reason": block_reason,
-            "recognized_table": {
+            "recognized_table": recognized_table or {
                 "street": "turn",
                 "pot": None,
                 "buttons": [{"command": "primary_left", "action_type": "check"}],

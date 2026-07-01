@@ -57,6 +57,7 @@ def evaluate_poker_legends_table_recognizer(
     recognition_mode_counts: dict[str, int] = {}
     contract_counts: dict[str, int] = {}
     assembly_status_counts: dict[str, int] = {}
+    table_readiness_flag_counts: dict[str, int] = {}
     false_actionable_examples: list[str] = []
     screen_false_actionable_examples: list[str] = []
     screen_missed_actionable_examples: list[str] = []
@@ -182,6 +183,8 @@ def evaluate_poker_legends_table_recognizer(
             examples[outcome].append(frame_id)
         for issue_code in _string_list(row.get("issue_codes")):
             issue_counts[issue_code] = issue_counts.get(issue_code, 0) + 1
+        for flag in _string_list(row.get("table_readiness_flags")):
+            table_readiness_flag_counts[flag] = table_readiness_flag_counts.get(flag, 0) + 1
         for flag in _action_panel_flags(row.get("action_panels")):
             action_panel_flag_counts[flag] = action_panel_flag_counts.get(flag, 0) + 1
             if outcome != "state":
@@ -209,6 +212,7 @@ def evaluate_poker_legends_table_recognizer(
         "recognition_mode_counts": dict(sorted(recognition_mode_counts.items())),
         "contract_counts": dict(sorted(contract_counts.items())),
         "assembly_status_counts": dict(sorted(assembly_status_counts.items())),
+        "table_readiness_flag_counts": dict(sorted(table_readiness_flag_counts.items())),
         "authorization_events": authorization_events,
         "unsafe_authorization_events": unsafe_authorization_events,
         "stale_authorization_events": stale_authorization_events,
@@ -327,6 +331,12 @@ def _row_from_result(
     table_dict = table if isinstance(table, Mapping) else {}
     truth_summary = _truth_summary(truth)
     assembly = result.assembly_result
+    table_readiness_flags = (
+        _table_readiness_flags(table_dict)
+        if result.recognition_mode is RecognitionMode.IMAGE_ONLY_REPLAY
+        and result.screen.kind is ScreenKind.ACTIONABLE_TABLE
+        else []
+    )
     return {
         "frame_id": frame_id,
         "image": str(image_path),
@@ -350,6 +360,7 @@ def _row_from_result(
         "issue_codes": [issue.reason_code for issue in assembly.issues]
         if assembly is not None
         else [],
+        "table_readiness_flags": table_readiness_flags,
         "confidence": result.confidence,
         "state": _state_summary(result.state),
         "recognized_table": _jsonable(table_dict),
@@ -436,6 +447,61 @@ def _truth_summary(truth: Mapping[str, object]) -> dict[str, object]:
             if bool(text.get("visible", True))
         ],
     }
+
+
+def _table_readiness_flags(table: Mapping[str, object]) -> list[str]:
+    if not table:
+        return ["readiness_missing_recognized_table"]
+    flags: list[str] = []
+    seats = _row_mappings(table.get("seats"))
+    hero = _seat_by_index(seats, 0)
+    if hero is None:
+        flags.append("readiness_missing_hero_seat")
+    else:
+        hero_cards = [
+            card
+            for card in _row_mappings(hero.get("hole_cards"))
+            if bool(card.get("visible", True)) and _optional_str(card.get("card"))
+        ]
+        if len(hero_cards) != 2:
+            flags.append("readiness_missing_hero_hole_cards")
+        hero_stack = _optional_int(hero.get("stack"))
+        if hero_stack is None or hero_stack < 0:
+            flags.append("readiness_missing_hero_stack")
+    active_seats = [seat for seat in seats if bool(seat.get("active", True))]
+    if len(active_seats) < 2:
+        flags.append("readiness_not_enough_players")
+    pot = _optional_int(table.get("pot"))
+    if pot is None:
+        flags.append("readiness_missing_pot")
+    board_count = len(
+        [
+            card
+            for card in _row_mappings(table.get("board"))
+            if bool(card.get("visible", True)) and _optional_str(card.get("card"))
+        ]
+    )
+    if board_count not in {0, 3, 4, 5}:
+        flags.append("readiness_invalid_board_count")
+    buttons = _row_mappings(table.get("buttons"))
+    if not buttons:
+        flags.append("readiness_missing_current_action_row")
+    elif not any(
+        _optional_str(button.get("action_type")) in {"check", "call", "bet"}
+        for button in buttons
+    ):
+        flags.append("readiness_missing_passive_action")
+    return flags
+
+
+def _seat_by_index(
+    seats: Sequence[Mapping[str, object]],
+    seat_index: int,
+) -> Mapping[str, object] | None:
+    for seat in seats:
+        if _optional_int(seat.get("seat")) == seat_index:
+            return seat
+    return None
 
 
 def _expected_critical_values(
@@ -726,6 +792,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Assembly Status Counts",
         "",
         *_count_lines(summary.get("assembly_status_counts")),
+        "",
+        "## Table Readiness Flag Counts",
+        "",
+        *_count_lines(summary.get("table_readiness_flag_counts")),
         "",
         "## Screen Kind Counts",
         "",
