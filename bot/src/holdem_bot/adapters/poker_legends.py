@@ -702,8 +702,10 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         accepted_number_predictions = tuple(
             prediction
             for prediction in number_predictions
-            if prediction.normalized_number is not None
-            and prediction.confidence >= self.min_number_confidence
+            if _is_accepted_number_prediction(
+                prediction,
+                min_confidence=self.min_number_confidence,
+            )
         )
         table = _recognized_table_from_predictions(
             source=frame.source,
@@ -2481,6 +2483,31 @@ def _number_roi_names_for_fallbacks(
     elif not button_names and not _has_truth_buttons(annotation):
         button_names.append("primary_left")
     return tuple(dict.fromkeys(text_names)), tuple(dict.fromkeys(button_names))
+
+
+def _is_accepted_number_prediction(
+    prediction: PokerLegendsNumberPrediction,
+    *,
+    min_confidence: float,
+) -> bool:
+    if prediction.normalized_number is None or prediction.confidence < min_confidence:
+        return False
+    if _is_unverified_stack_overlay_prediction(prediction):
+        return False
+    return True
+
+
+def _is_unverified_stack_overlay_prediction(
+    prediction: PokerLegendsNumberPrediction,
+) -> bool:
+    return (
+        prediction.group == "texts"
+        and (
+            prediction.name == "opponent_stack"
+            or prediction.name.endswith("_stack")
+        )
+        and prediction.overlay_number is not None
+    )
 
 
 def _truth_active_seat_count(annotation: Mapping[str, object] | None) -> int:

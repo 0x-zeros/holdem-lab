@@ -32,6 +32,16 @@ def parse_poker_legends_chip_amount(text: str) -> int | None:
     return _normalized_number(text, numbers=numbers)
 
 
+def parse_poker_legends_chip_components(text: str) -> dict[str, int | None]:
+    numbers = parse_poker_legends_chip_numbers(text)
+    base, overlay, total = _number_components(text, numbers=numbers)
+    return {
+        "base_number": base,
+        "overlay_number": overlay,
+        "total_number": total,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class PokerLegendsNumberPrediction:
     name: str
@@ -43,6 +53,9 @@ class PokerLegendsNumberPrediction:
     sum_number: int | None
     normalized_number: int | None
     confidence: float
+    base_number: int | None = None
+    overlay_number: int | None = None
+    total_number: int | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -59,6 +72,9 @@ class PokerLegendsNumberPrediction:
             sum_number=_optional_int(data["sum_number"]),
             normalized_number=_optional_int(data["normalized_number"]),
             confidence=_to_float(data["confidence"]),
+            base_number=_optional_int(data.get("base_number")),
+            overlay_number=_optional_int(data.get("overlay_number")),
+            total_number=_optional_int(data.get("total_number")),
         )
 
 
@@ -113,6 +129,7 @@ class PokerLegendsNumberRecognizer:
         raw = _best_numeric_text(crop, whitelist=whitelist)
         numbers = tuple(_numbers_from_text(raw))
         normalized = _normalized_number(raw, numbers=numbers)
+        base, overlay, total = _number_components(raw, numbers=numbers)
         visible = bool(_normalize_text(raw))
         return PokerLegendsNumberPrediction(
             name=name,
@@ -124,6 +141,9 @@ class PokerLegendsNumberRecognizer:
             sum_number=sum(numbers) if len(numbers) >= 2 else None,
             normalized_number=normalized,
             confidence=_confidence(raw, numbers),
+            base_number=base,
+            overlay_number=overlay,
+            total_number=total,
         )
 
 
@@ -291,6 +311,22 @@ def _normalized_number(text: str, *, numbers: tuple[int, ...]) -> int | None:
     if "+" in normalized and len(numbers) >= 2:
         return sum(numbers)
     return numbers[0]
+
+
+def _number_components(
+    text: str,
+    *,
+    numbers: tuple[int, ...],
+) -> tuple[int | None, int | None, int | None]:
+    if not numbers:
+        return None, None, None
+    normalized = _normalize_numeric_text(text)
+    total = _normalized_number(text, numbers=numbers)
+    if "+" in normalized and len(numbers) >= 2:
+        base = numbers[0]
+        overlay = sum(numbers[1:])
+        return base, overlay, total
+    return total, None, total
 
 
 def _normalize_numeric_text(text: str) -> str:

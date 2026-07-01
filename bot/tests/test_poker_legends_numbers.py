@@ -8,6 +8,7 @@ from holdem_bot.vision import (
     PokerLegendsNumberRecognizer,
     build_poker_legends_number_ocr_report,
     parse_poker_legends_chip_amount,
+    parse_poker_legends_chip_components,
     parse_poker_legends_chip_numbers,
     poker_legends_numbers,
 )
@@ -26,6 +27,9 @@ def test_poker_legends_number_recognizer_parses_core_numeric_rois(tmp_path: Path
 
     assert predictions["pot"].normalized_number == 1350
     assert predictions["hero_stack"].normalized_number == 1000
+    assert predictions["hero_stack"].base_number == 290
+    assert predictions["hero_stack"].overlay_number == 710
+    assert predictions["hero_stack"].total_number == 1000
     assert predictions["primary_left"].normalized_number == 25
 
 
@@ -76,6 +80,16 @@ def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:
     assert parse_poker_legends_chip_numbers("2\n\n,\n\n$\n\n5\n\n00") == (500,)
     assert parse_poker_legends_chip_amount("1,052+50\n\nM") == 1102
     assert parse_poker_legends_chip_amount("$1.25K") == 1250
+    assert parse_poker_legends_chip_components("$334+10") == {
+        "base_number": 334,
+        "overlay_number": 10,
+        "total_number": 344,
+    }
+    assert parse_poker_legends_chip_components("$1,250") == {
+        "base_number": 1250,
+        "overlay_number": None,
+        "total_number": 1250,
+    }
 
 
 def test_poker_legends_number_confidence_marks_fragmented_ocr_low() -> None:

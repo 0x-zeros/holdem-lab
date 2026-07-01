@@ -456,6 +456,18 @@
   追加 reviewed-truth 小样本（session_002 3 张 actionable）：Gemini 字段一致率 62%、均 6.5s；Qwen3-VL-30B
   38%、均 17.6s；Qwen3-VL-8B 19%、均 15.1s。结论：**Gemini 仍是整屏主读者；30B 是本地高准确率备选；
   8B 只适合 smoke/fallback 或后续 ROI crop 小任务；点击坐标继续以 CV 精修为准**。
+- 阶段 4 Poker Legends 数字 OCR hardening v2（字段语义先保守）：`PokerLegendsNumberPrediction`
+  现在同时输出 `base_number` / `overlay_number` / `total_number`，把 `$334+10` 这类叠加筹码文本拆成可审计
+  组件；`normalized_number` 保持兼容语义（总额），但 evaluator 额外统计 component-level truth comparison。
+  为避免把“stack 展示 + 已下注/叠加标记”误当可用 stack，image-only accepted critical path 暂时拒绝
+  stack 类字段中带 `overlay_number` 的 OCR，后续必须由 committed/pot/action-row 规则验证后才能重新放行。
+  最新 image-only replay（119 帧含 non-actionable，输出
+  `/tmp/poker-legends-table-eval-image-only-number-components`）：authorization 0、unsafe 0、stale 0、
+  accepted-critical-wrong 0；accepted 数字从上一版的 hero_stack 9 / right_top_stack 2 收紧到
+  hero_stack 2 / right_top_stack 1（pot 8），其中右上 stack 仍有 1 个 mismatch，继续 fail-closed。
+  truth-assisted 对照（`/tmp/poker-legends-table-eval-truth-assisted-number-components`）：authorization 39、
+  unsafe/stale/accepted-critical-wrong 均为 0。结论：字段语义路线正确，但下一步不能单纯提 coverage，
+  应先做 stack overlay 与 committed/current-bet/pot 的规则验证。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

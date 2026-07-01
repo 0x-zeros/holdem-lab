@@ -60,6 +60,7 @@ def evaluate_poker_legends_table_recognizer(
     table_readiness_flag_counts: dict[str, int] = {}
     number_readiness_flag_counts: dict[str, int] = {}
     number_truth_comparison_counts: dict[str, int] = {}
+    number_component_truth_comparison_counts: dict[str, int] = {}
     false_actionable_examples: list[str] = []
     screen_false_actionable_examples: list[str] = []
     screen_missed_actionable_examples: list[str] = []
@@ -202,6 +203,13 @@ def evaluate_poker_legends_table_recognizer(
                 number_truth_mismatch_examples.append(
                     {"frame_id": frame_id, **dict(number_eval)}
                 )
+        for number_eval in _row_mappings(row.get("number_component_truth_evaluations")):
+            key = _number_component_truth_comparison_key(number_eval)
+            if key is None:
+                continue
+            number_component_truth_comparison_counts[key] = (
+                number_component_truth_comparison_counts.get(key, 0) + 1
+            )
         for flag in _action_panel_flags(row.get("action_panels")):
             action_panel_flag_counts[flag] = action_panel_flag_counts.get(flag, 0) + 1
             if outcome != "state":
@@ -233,6 +241,9 @@ def evaluate_poker_legends_table_recognizer(
         "table_readiness_flag_counts": dict(sorted(table_readiness_flag_counts.items())),
         "number_readiness_flag_counts": dict(sorted(number_readiness_flag_counts.items())),
         "number_truth_comparison_counts": dict(sorted(number_truth_comparison_counts.items())),
+        "number_component_truth_comparison_counts": dict(
+            sorted(number_component_truth_comparison_counts.items())
+        ),
         "number_truth_mismatch_examples": number_truth_mismatch_examples,
         "number_prediction_slot_counts": _number_prediction_slot_counts(
             rows,
@@ -399,6 +410,11 @@ def _row_from_result(
         accepted_number_predictions=accepted_number_predictions,
         truth=truth,
     )
+    number_component_truth_evaluations = _number_component_truth_evaluations(
+        number_predictions=number_predictions,
+        accepted_number_predictions=accepted_number_predictions,
+        truth=truth,
+    )
     return {
         "frame_id": frame_id,
         "image": str(image_path),
@@ -435,6 +451,7 @@ def _row_from_result(
         "number_predictions": number_predictions,
         "accepted_number_predictions": accepted_number_predictions,
         "number_truth_evaluations": number_truth_evaluations,
+        "number_component_truth_evaluations": number_component_truth_evaluations,
         "accepted_critical_fields": [
             field.to_dict() for field in result.accepted_critical_fields
         ],
@@ -959,6 +976,45 @@ def _number_truth_evaluations(
     return evaluations
 
 
+def _number_component_truth_evaluations(
+    *,
+    number_predictions: object,
+    accepted_number_predictions: object,
+    truth: Mapping[str, object],
+) -> list[dict[str, object]]:
+    expected_numbers = _truth_text_numbers_by_name(truth)
+    evaluations: list[dict[str, object]] = []
+    for prediction_set, predictions in (
+        ("raw", number_predictions),
+        ("accepted", accepted_number_predictions),
+    ):
+        for prediction in _row_mappings(predictions):
+            if prediction.get("group") != "texts":
+                continue
+            name = _optional_str(prediction.get("name"))
+            if name is None or name not in expected_numbers:
+                continue
+            expected = expected_numbers[name]
+            for component in ("base_number", "total_number"):
+                predicted = _optional_int(prediction.get(component))
+                if predicted is None:
+                    continue
+                status = "match" if predicted == expected else "mismatch"
+                evaluations.append(
+                    {
+                        "prediction_set": prediction_set,
+                        "field_path": f"numbers.{name}",
+                        "component": component,
+                        "expected": expected,
+                        "predicted": predicted,
+                        "status": status,
+                        "confidence": prediction.get("confidence"),
+                        "raw": prediction.get("raw"),
+                    }
+                )
+    return evaluations
+
+
 def _truth_text_numbers_by_name(truth: Mapping[str, object]) -> dict[str, int]:
     numbers: dict[str, int] = {}
     for text in _row_mappings(truth.get("texts")):
@@ -982,6 +1038,16 @@ def _number_truth_comparison_key(evaluation: Mapping[str, object]) -> str | None
     if prediction_set is None or field_path is None or status is None:
         return None
     return f"{prediction_set}:{field_path}:{status}"
+
+
+def _number_component_truth_comparison_key(evaluation: Mapping[str, object]) -> str | None:
+    prediction_set = _optional_str(evaluation.get("prediction_set"))
+    field_path = _optional_str(evaluation.get("field_path"))
+    component = _optional_str(evaluation.get("component"))
+    status = _optional_str(evaluation.get("status"))
+    if prediction_set is None or field_path is None or component is None or status is None:
+        return None
+    return f"{prediction_set}:{field_path}:{component}:{status}"
 
 
 def _visible_truth_seats(truth: Mapping[str, object]) -> list[Mapping[str, object]]:
@@ -1082,6 +1148,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Number Truth Comparison Counts",
         "",
         *_count_lines(summary.get("number_truth_comparison_counts")),
+        "",
+        "## Number Component Truth Comparison Counts",
+        "",
+        *_count_lines(summary.get("number_component_truth_comparison_counts")),
         "",
         "## Number Truth Mismatch Examples",
         "",

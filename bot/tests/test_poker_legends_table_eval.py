@@ -161,6 +161,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["assembly_status_counts"] == {"no_state": 1, "single_frame_valid": 1}
     assert summary["table_readiness_flag_counts"] == {}
     assert summary["number_truth_comparison_counts"] == {}
+    assert summary["number_component_truth_comparison_counts"] == {}
     assert summary["number_truth_mismatch_examples"] == []
     assert summary["number_prediction_slot_counts"] == {}
     assert summary["accepted_number_prediction_slot_counts"] == {}
@@ -245,6 +246,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "## Number Readiness Flag Counts" in report
     assert "## Number Readiness By Flag" in report
     assert "## Number Truth Comparison Counts" in report
+    assert "## Number Component Truth Comparison Counts" in report
     assert "## Number Truth Mismatch Examples" in report
     assert "## Number Prediction Slot Counts" in report
     assert "## Accepted Number Prediction Slot Counts" in report
@@ -343,6 +345,10 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert image_only_summary["number_truth_comparison_counts"] == {
         "raw:numbers.right_top_stack:mismatch": 1
     }
+    assert image_only_summary["number_component_truth_comparison_counts"] == {
+        "raw:numbers.right_top_stack:base_number:mismatch": 1,
+        "raw:numbers.right_top_stack:total_number:mismatch": 1,
+    }
     assert image_only_summary["number_truth_mismatch_examples"] == [
         {
             "confidence": 0.65,
@@ -391,10 +397,13 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
             "layout_annotation_path": str(annotations / "frame_001.json"),
             "number_predictions": [
                 {
+                    "base_number": 1000,
                     "confidence": 0.65,
                     "group": "texts",
                     "name": "right_top_stack",
                     "normalized_number": 1000,
+                    "overlay_number": None,
+                    "total_number": 1000,
                 }
             ],
             "number_readiness_flags": ["readiness_low_confidence_opponent_stack"],
@@ -457,6 +466,9 @@ class FakeRecognizer:
                         "group": "texts",
                         "name": "right_top_stack",
                         "normalized_number": 1000,
+                        "base_number": 1000,
+                        "overlay_number": None,
+                        "total_number": 1000,
                     },
                 ),
                 accepted_number_predictions=(),
