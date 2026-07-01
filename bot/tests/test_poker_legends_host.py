@@ -9,7 +9,20 @@ from holdem_bot.adapters import (
     PokerLegendsImageCapture,
     PokerLegendsLayoutClickPlanner,
 )
-from holdem_bot.adapters.poker_legends_host import plan_click_main
+from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
+from holdem_bot.adapters.poker_legends_host import plan_click_main, replay_dry_run_main
+from holdem_bot.capture import CapturedFrame
+from holdem_bot.recognize import (
+    AssemblyStatus,
+    ContractLevel,
+    FrameEvidence,
+    Freshness,
+    GameStateAssemblyResult,
+    RecognitionMode,
+    RecognitionResult,
+    ValidityScope,
+)
+from holdem_bot.screen_state import ScreenState
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
 
 
@@ -162,6 +175,90 @@ def test_plan_click_main_writes_dry_run_record(
     assert file_record["action"]["type"] == "raise"
     assert file_record["click_plan"]["command"] == "primary_middle"
     assert file_record["click_plan"]["x"] == 1323
+
+
+def test_replay_dry_run_main_reports_safety_summary(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames = tmp_path / "frames"
+    annotations = tmp_path / "annotations"
+    frames.mkdir()
+    annotations.mkdir()
+    (frames / "frame_001.png").write_bytes(b"fake")
+    (annotations / "frame_001.json").write_text(
+        json.dumps(layout_annotation()),
+        encoding="utf-8",
+    )
+    log_path = tmp_path / "dry_run.jsonl"
+
+    class FakeRecognizer:
+        def recognize(self, frame: CapturedFrame) -> RecognitionResult:
+            frame_id = Path(str(frame.payload)).stem
+            frame_evidence = FrameEvidence(session_id=None, frame_id=frame_id)
+            screen = ScreenState.actionable_table(hero_turn=True)
+            assembly = GameStateAssemblyResult(
+                status=AssemblyStatus.SINGLE_FRAME_VALID,
+                validity_scope=ValidityScope.SINGLE_FRAME,
+                state=state(),
+                contract_level=ContractLevel.POLICY_DECISION,
+                contract_status="satisfied",
+                valid_for=(ContractLevel.POLICY_DECISION,),
+                issues=(),
+                freshness=Freshness(
+                    source_frame_id=frame_id,
+                    current_frame_revalidated=True,
+                    critical_fields_fresh=True,
+                    action_row_fresh=True,
+                    stable_frame_count=1,
+                ),
+                screen_confidence=1.0,
+                observation_id=frame_id,
+            )
+            return RecognitionResult(
+                state=state(),
+                confidence=1.0,
+                screen=screen,
+                recognition_mode=RecognitionMode.IMAGE_ONLY_REPLAY,
+                safety_contract=ContractLevel.POLICY_DECISION,
+                frame_evidence=frame_evidence,
+                assembly_result=assembly,
+            )
+
+    monkeypatch.setattr(
+        PokerLegendsTableRecognizer,
+        "from_manifests",
+        classmethod(lambda cls, **_kwargs: FakeRecognizer()),
+    )
+
+    replay_dry_run_main(
+        [
+            "--frames-dir",
+            str(frames),
+            "--annotations-dir",
+            str(annotations),
+            "--card-part-manifest",
+            "unused-card-parts.json",
+            "--card-classifier-manifest",
+            "unused-card-classifier.json",
+            "--button-manifest",
+            "unused-buttons.json",
+            "--log-jsonl",
+            str(log_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["frames"] == 1
+    assert output["actionable"] == 1
+    assert output["steps"][0]["recognition_mode"] == "image_only_replay"
+    assert output["steps"][0]["assembly_status"] == "single_frame_valid"
+    assert output["steps"][0]["safety_contract"] == "policy_decision"
+    assert output["safety_summary"]["authorization_events"] == 1
+    assert output["safety_summary"]["mode_counts"] == {"image_only_replay": 1}
+    assert output["safety_summary"]["assembly_status_counts"] == {"single_frame_valid": 1}
+    assert log_path.read_text(encoding="utf-8").strip()
 
 
 def layout_annotation() -> dict[str, object]:

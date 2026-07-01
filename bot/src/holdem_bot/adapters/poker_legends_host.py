@@ -30,7 +30,7 @@ from holdem_bot.adapters.poker_legends_llm import (
 from holdem_bot.capture import Capture, CapturedFrame
 from holdem_bot.hand_tracker import HandTracker
 from holdem_bot.orchestrator import BotOrchestrator, BotStepResult
-from holdem_bot.recognize import RecognitionResult, Recognizer
+from holdem_bot.recognize import RecognitionResult, Recognizer, summarize_recognition_safety
 from holdem_bot.screen_state import SafetyDecision, evaluate_safety
 from holdem_bot.vision.annotations import ScreenRect
 from holdem_bot.vision.perception_overlay import render_overlay
@@ -432,6 +432,7 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
     annotations_dir = Path(args.annotations_dir)
 
     steps: list[dict[str, object]] = []
+    recognitions: list[RecognitionResult] = []
     opponent_seats: set[int] = set()
     for frame_path in frame_paths:
         annotation_path = annotations_dir / f"{frame_path.stem}.json"
@@ -446,34 +447,46 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
             planner=PokerLegendsLayoutClickPlanner.from_annotation_path(str(annotation_path)),
             log_path=args.log_jsonl,
         )
-        orchestrator = BotOrchestrator(
-            capture=capture,
+        frame = capture.capture()
+        recognition, decision, policy_decision = _recognize_and_decide(
             recognizer=recognizer,
-            automator=automator,
+            frame=frame,
+            policy=policy,
             seat=args.seat,
             min_confidence=args.min_confidence,
-            policy_explainer=policy.explain,
         )
-        result = orchestrator.run_once()
-        if result.state is not None:
+        recognitions.append(recognition)
+        acted = False
+        if decision.allowed and decision.state is not None and policy_decision is not None:
+            automator.perform(policy_decision.action, decision.state)
+            acted = True
+        if decision.state is not None:
             opponent_seats.update(
-                player.seat for player in result.state.players if player.seat != args.seat
+                player.seat for player in decision.state.players if player.seat != args.seat
             )
         steps.append(
             {
                 "frame": frame_path.stem,
-                "acted": result.acted,
-                "reason": result.reason,
-                "exploit": result.policy_decision.metadata.get("exploit")
-                if result.policy_decision is not None
+                "acted": acted,
+                "reason": "acted" if acted else decision.reason,
+                "recognition_mode": recognition.recognition_mode.value,
+                "assembly_status": recognition.assembly_result.status.value
+                if recognition.assembly_result is not None
+                else None,
+                "safety_contract": recognition.safety_contract.value,
+                "state_block_reason": recognition.metadata.get("state_block_reason"),
+                "exploit": policy_decision.metadata.get("exploit")
+                if policy_decision is not None
                 else None,
             }
         )
 
+    safety_summary = summarize_recognition_safety(recognitions)
     summary = {
         "frames": len(steps),
         "actionable": sum(1 for step in steps if step["acted"]),
         "opponent_reads": [_seat_read_dict(policy.model, seat) for seat in sorted(opponent_seats)],
+        "safety_summary": safety_summary.to_dict(),
         "steps": steps,
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
