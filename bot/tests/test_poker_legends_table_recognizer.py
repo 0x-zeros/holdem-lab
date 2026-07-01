@@ -787,6 +787,11 @@ def test_poker_legends_table_recognizer_uses_direct_truth_buttons_when_image_but
         ActionType.RAISE,
         ActionType.FOLD,
     }
+    assert result.visual_observation is not None
+    panel = result.visual_observation.action_panels[0]
+    assert panel.visible is True
+    assert "missing_current_action_row" not in panel.ambiguity_flags
+    assert [button.slot for button in panel.buttons] == ["check", "raise", "fold"]
 
 
 def test_poker_legends_table_recognizer_accepts_explicit_truth_button_suffix(

@@ -1240,7 +1240,7 @@ def _action_panel_observations(
     *,
     table: RecognizedTable | None,
 ) -> tuple[ActionPanelObservation, ...]:
-    button_observations = tuple(
+    button_observations = _accepted_button_observations(table) or tuple(
         _button_observation(prediction, number_predictions) for prediction in button_predictions
     )
     preselect_buttons = _preselect_button_observations(table)
@@ -1307,6 +1307,18 @@ def _preselect_button_observations(
         _button_observation_from_recognized_button(button, source=table.source)
         for button in table.buttons
         if _is_preselect_or_shortcut_label(button.label)
+    )
+
+
+def _accepted_button_observations(
+    table: RecognizedTable | None,
+) -> tuple[ButtonObservation, ...]:
+    if table is None:
+        return ()
+    return tuple(
+        _button_observation_from_recognized_button(button, source=table.source)
+        for button in table.buttons
+        if not _is_preselect_or_shortcut_label(button.label)
     )
 
 

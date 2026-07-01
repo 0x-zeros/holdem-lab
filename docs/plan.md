@@ -582,6 +582,10 @@
   这类主按钮槽位预选语义仍独立标为 `preselect_ambiguous`。当前 57 帧复跑：`state` 44、
   `missing_legal_actions` 9、`not_enough_players` 2、`preselect_ambiguous` 1、`hero_not_current` 1；
   blocking `missing_passive_action` 从 8 降到 6。
+- 阶段 4 Poker Legends accepted action-panel evidence v1：`VisualObservation.action_panels` 现在优先展示
+  已进入 `RecognizedTable.buttons` 的 accepted buttons，只有没有 accepted buttons 时才回退到 raw image
+  button predictions；这让 truth-assisted state 与 HUD/evaluator 证据一致。当前 57 帧 coverage 不变（`state` 44），
+  但 `missing_current_action_row` 总数从 16 降到 4，且 4 个全部为真正 blocking 行，不再污染 state 行诊断。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
