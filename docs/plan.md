@@ -626,6 +626,11 @@
   119 帧 image-only 复跑：`image_only_replay` 119，authorization events 0、truth-assisted authorization 0、
   unsafe authorization 0、accepted critical wrong 0；其中 41 帧到达 table recognizer 后因
   `missing_table_metadata` fail-closed，78 帧被 screen gate 归为 `screen_not_actionable`。
+- 阶段 4 Poker Legends table evaluator screen confusion v1：evaluator 新增 truth-vs-recognized screen 混淆矩阵、
+  `screen_false_actionable_count` 与 `screen_missed_actionable_count`，区分 screen gate 风险和最终授权风险。当前
+  全量 119 帧 image-only 复跑：screen false actionable 0、screen missed actionable 16；混淆为
+  truth `actionable_table` -> recognized `actionable_table` 41 / `table_observe` 16，truth `blocked_overlay` ->
+  `blocked_overlay` 16 / `table_observe` 1，truth `table_observe` -> `table_observe` 45。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

@@ -143,6 +143,13 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
 
     assert summary["frames"] == 2
     assert summary["screen_kind_counts"] == {"actionable_table": 2}
+    assert summary["screen_confusion_counts"] == {
+        "actionable_table": {"actionable_table": 2}
+    }
+    assert summary["screen_false_actionable_count"] == 0
+    assert summary["screen_false_actionable_examples"] == []
+    assert summary["screen_missed_actionable_count"] == 0
+    assert summary["screen_missed_actionable_examples"] == []
     assert summary["recognition_mode_counts"] == {"truth_assisted_replay": 2}
     assert summary["contract_counts"] == {"observe_only": 1, "policy_decision": 1}
     assert summary["assembly_status_counts"] == {"no_state": 1, "single_frame_valid": 1}
@@ -216,9 +223,13 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "- Truth-assisted authorization events: 1" in report
     assert "- Accepted critical wrong count: 0" in report
     assert "- False actionable count: 0" in report
+    assert "- Screen false actionable count: 0" in report
+    assert "- Screen missed actionable count: 0" in report
     assert "- Review queue frames: 1" in report
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
     assert "## Review Tag Counts" in report
+    assert "## Screen Truth Confusion" in report
+    assert "- actionable_table: actionable_table=2" in report
     assert "## Recognition Mode Counts" in report
     assert "- truth_assisted_replay: 2" in report
     assert "- missing_pot: 1" in report
@@ -248,6 +259,13 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
         "actionable_table": 2,
         "table_observe": 1,
     }
+    assert all_summary["screen_confusion_counts"] == {
+        "actionable_table": {"actionable_table": 2},
+        "table_observe": {"actionable_table": 1},
+    }
+    assert all_summary["screen_false_actionable_count"] == 1
+    assert all_summary["screen_false_actionable_examples"] == ["frame_002"]
+    assert all_summary["screen_missed_actionable_count"] == 0
     assert all_summary["recognition_mode_counts"] == {"truth_assisted_replay": 3}
     assert all_summary["assembly_status_counts"] == {
         "no_state": 1,
@@ -278,6 +296,11 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
 
     assert image_only_summary["frames"] == 2
     assert image_only_summary["image_only_replay"] is True
+    assert image_only_summary["screen_confusion_counts"] == {
+        "actionable_table": {"actionable_table": 2}
+    }
+    assert image_only_summary["screen_false_actionable_count"] == 0
+    assert image_only_summary["screen_missed_actionable_count"] == 0
     assert image_only_summary["recognition_mode_counts"] == {"image_only_replay": 2}
     assert image_only_summary["authorization_events"] == 0
     assert image_only_summary["truth_assisted_authorization_events"] == 0

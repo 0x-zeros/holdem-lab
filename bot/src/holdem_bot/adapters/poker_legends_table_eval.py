@@ -53,10 +53,13 @@ def evaluate_poker_legends_table_recognizer(
     blocking_action_panel_flag_counts: dict[str, int] = {}
     review_tag_counts: dict[str, int] = {}
     screen_kind_counts: dict[str, int] = {}
+    screen_confusion_counts: dict[str, dict[str, int]] = {}
     recognition_mode_counts: dict[str, int] = {}
     contract_counts: dict[str, int] = {}
     assembly_status_counts: dict[str, int] = {}
     false_actionable_examples: list[str] = []
+    screen_false_actionable_examples: list[str] = []
+    screen_missed_actionable_examples: list[str] = []
     accepted_critical_wrong_examples: list[dict[str, object]] = []
     source_policy_violation_examples: list[dict[str, object]] = []
     authorization_events = 0
@@ -117,6 +120,21 @@ def evaluate_poker_legends_table_recognizer(
         )
         rows.append(row)
         outcome = str(row["result"])
+        recognized_screen_kind = result.screen.kind.value
+        screen_confusion_counts.setdefault(truth_screen_kind, {})
+        screen_confusion_counts[truth_screen_kind][recognized_screen_kind] = (
+            screen_confusion_counts[truth_screen_kind].get(recognized_screen_kind, 0) + 1
+        )
+        if (
+            recognized_screen_kind == ScreenKind.ACTIONABLE_TABLE.value
+            and truth_screen_kind != ScreenKind.ACTIONABLE_TABLE.value
+        ):
+            screen_false_actionable_examples.append(frame_id)
+        if (
+            truth_screen_kind == ScreenKind.ACTIONABLE_TABLE.value
+            and recognized_screen_kind != ScreenKind.ACTIONABLE_TABLE.value
+        ):
+            screen_missed_actionable_examples.append(frame_id)
         recognition_mode_counts[result.recognition_mode.value] = (
             recognition_mode_counts.get(result.recognition_mode.value, 0) + 1
         )
@@ -183,6 +201,11 @@ def evaluate_poker_legends_table_recognizer(
         "result_counts": dict(sorted(result_counts.items())),
         "issue_counts": dict(sorted(issue_counts.items())),
         "screen_kind_counts": dict(sorted(screen_kind_counts.items())),
+        "screen_confusion_counts": _sorted_nested_counts(screen_confusion_counts),
+        "screen_false_actionable_count": len(screen_false_actionable_examples),
+        "screen_false_actionable_examples": screen_false_actionable_examples[:8],
+        "screen_missed_actionable_count": len(screen_missed_actionable_examples),
+        "screen_missed_actionable_examples": screen_missed_actionable_examples[:8],
         "recognition_mode_counts": dict(sorted(recognition_mode_counts.items())),
         "contract_counts": dict(sorted(contract_counts.items())),
         "assembly_status_counts": dict(sorted(assembly_status_counts.items())),
@@ -667,6 +690,8 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"{summary.get('truth_assisted_authorization_events', 0)}",
         f"- Non-actionable frames: {summary.get('non_actionable_frames', 0)}",
         f"- False actionable count: {summary.get('false_actionable_count', 0)}",
+        f"- Screen false actionable count: {summary.get('screen_false_actionable_count', 0)}",
+        f"- Screen missed actionable count: {summary.get('screen_missed_actionable_count', 0)}",
         f"- Source policy violation count: {summary.get('source_policy_violation_count', 0)}",
         f"- Accepted critical wrong count: {summary.get('accepted_critical_wrong_count', 0)}",
         f"- Review queue frames: {summary.get('review_queue_frames', 0)}",
@@ -686,6 +711,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Screen Kind Counts",
         "",
         *_count_lines(summary.get("screen_kind_counts")),
+        "",
+        "## Screen Truth Confusion",
+        "",
+        *_nested_count_lines(summary.get("screen_confusion_counts")),
         "",
         "## Result Counts",
         "",
@@ -775,6 +804,28 @@ def _count_lines(value: object) -> list[str]:
     if not isinstance(value, Mapping) or not value:
         return ["- none"]
     return [f"- {key}: {count}" for key, count in sorted(value.items())]
+
+
+def _nested_count_lines(value: object) -> list[str]:
+    if not isinstance(value, Mapping) or not value:
+        return ["- none"]
+    lines: list[str] = []
+    for outer, inner in sorted(value.items()):
+        if not isinstance(inner, Mapping) or not inner:
+            lines.append(f"- {outer}: none")
+            continue
+        parts = ", ".join(f"{key}={count}" for key, count in sorted(inner.items()))
+        lines.append(f"- {outer}: {parts}")
+    return lines
+
+
+def _sorted_nested_counts(
+    counts: Mapping[str, Mapping[str, int]],
+) -> dict[str, dict[str, int]]:
+    return {
+        outer: dict(sorted(inner.items()))
+        for outer, inner in sorted(counts.items())
+    }
 
 
 def _example_dict_lines(value: object) -> list[str]:
