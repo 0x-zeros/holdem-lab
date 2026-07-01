@@ -524,6 +524,12 @@
   帧逐一归类；能用 reviewed truth 明确修正的继续收敛，无法确认的保留停手。只有当 screen、牌面、
   按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` /
   `low_confidence`。
+- 阶段 4 Poker Legends action-row hardening v1：残余 blocker 中的
+  `session_002__keyframe_000334` 原先表现为 `missing_call_amount`，但其主按钮 label 是 `Call Any`，
+  属于预选/快捷语义，不能当作当前行动 call。`PokerLegendsTableRecognizer` 现在把这类
+  `Call Any` / `Check/Fold` / `Fold to ...` label 显式拦为 `preselect_ambiguous`
+  (`PRESELECT_AMBIGUOUS` issue)，继续 fail-closed，不再把问题误归因成 OCR 缺金额。局部复现：
+  该帧 `state=False`、`screen=actionable_table`、block=`preselect_ambiguous`。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

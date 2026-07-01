@@ -936,6 +936,9 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             if action_type is None:
                 continue
             if action_type is ActionType.CALL:
+                label = _truth_button_label(annotation, button.command)
+                if label is not None and _is_preselect_or_shortcut_label(label):
+                    return (), 0, "preselect_ambiguous"
                 amount = _button_amount(annotation, button.command, number_predictions)
                 if amount is None:
                     return (), 0, "missing_call_amount"
@@ -1538,6 +1541,7 @@ def _reason_code_field_and_type(reason: str) -> tuple[str, str, str]:
         "low_card_confidence": ("CARD_LOW_CONFIDENCE", "cards", "low_confidence"),
         "missing_call_amount": ("CALL_AMOUNT_UNTRUSTED", "numbers.call_amount", "missing"),
         "missing_legal_actions": ("ACTION_ROW_UNSTABLE", "actions", "missing"),
+        "preselect_ambiguous": ("PRESELECT_AMBIGUOUS", "actions", "ambiguous"),
         "missing_street": ("MISSING_STREET", "street", "missing"),
         "board_count_mismatch": ("MISSING_BOARD_CARD", "cards.board", "contradiction"),
         "missing_seat_stack": ("MISSING_SEAT_STACK", "numbers.seat_stack", "missing"),
@@ -2206,12 +2210,22 @@ def _button_amount(
 
 
 def _button_amount_from_label(label: str) -> int | None:
-    normalized = label.lower()
-    if "any" in normalized:
+    if _is_preselect_or_shortcut_label(label):
         return None
+    normalized = label.lower()
     if "check" in normalized:
         return 0
     return parse_poker_legends_chip_amount(label)
+
+
+def _is_preselect_or_shortcut_label(label: str) -> bool:
+    normalized = " ".join(label.lower().replace("/", " / ").split())
+    return (
+        "any" in normalized
+        or "check / fold" in normalized
+        or "check/fold" in normalized
+        or "fold to" in normalized
+    )
 
 
 def _truth_call_amount(annotation: Mapping[str, object]) -> int | None:

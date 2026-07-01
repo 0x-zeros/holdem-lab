@@ -803,6 +803,69 @@ def test_poker_legends_table_recognizer_uses_shifted_truth_call_amount(
     assert Action(ActionType.CALL, amount=100) in result.state.legal_actions
 
 
+def test_poker_legends_table_recognizer_blocks_preselect_call_any(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    annotation["buttons"] = [
+        {
+            "name": "primary_left",
+            "visible": True,
+            "action_type": "call",
+            "label": "Call Any",
+        },
+        {
+            "name": "primary_middle",
+            "visible": True,
+            "action_type": "raise",
+            "label": "Raise",
+        },
+        {
+            "name": "primary_right",
+            "visible": True,
+            "action_type": "fold",
+            "label": "Fold",
+        },
+    ]
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer(
+            (
+                button_prediction("primary_left", "call", 0.90),
+                button_prediction("primary_middle", "raise", 0.90),
+                button_prediction("primary_right", "fold", 0.90),
+            )
+        ),
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {"image": str(image), "regions": {}},
+            },
+        )
+    )
+
+    assert result.state is None
+    assert result.metadata["state_block_reason"] == "preselect_ambiguous"
+    assert result.assembly_result is not None
+    assert result.assembly_result.issues[0].reason_code == "PRESELECT_AMBIGUOUS"
+
+
 def test_poker_legends_table_recognizer_infers_street_when_truth_street_lags_board(
     tmp_path: Path,
 ) -> None:
