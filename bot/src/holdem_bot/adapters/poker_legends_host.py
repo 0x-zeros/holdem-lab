@@ -409,6 +409,7 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--seat", type=int, default=0)
     parser.add_argument("--min-confidence", type=float, default=0.80)
     parser.add_argument("--log-jsonl", required=True)
+    parser.add_argument("--safety-report", help="Optional Markdown safety summary output path.")
     parser.add_argument(
         "--use-truth",
         action="store_true",
@@ -433,11 +434,15 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
 
     steps: list[dict[str, object]] = []
     recognitions: list[RecognitionResult] = []
+    expected_screen_kind_by_frame: dict[str, str] = {}
     opponent_seats: set[int] = set()
     for frame_path in frame_paths:
         annotation_path = annotations_dir / f"{frame_path.stem}.json"
         if not annotation_path.exists():
             continue
+        expected_screen_kind = _expected_screen_kind_from_annotation(annotation_path)
+        if expected_screen_kind is not None:
+            expected_screen_kind_by_frame[frame_path.stem] = expected_screen_kind
         capture = PokerLegendsImageCapture(
             image_path=str(frame_path),
             layout_annotation_path=str(annotation_path),
@@ -470,6 +475,8 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
                 "acted": acted,
                 "reason": "acted" if acted else decision.reason,
                 "recognition_mode": recognition.recognition_mode.value,
+                "expected_screen_kind": expected_screen_kind,
+                "observed_screen_kind": recognition.screen.kind.value,
                 "assembly_status": recognition.assembly_result.status.value
                 if recognition.assembly_result is not None
                 else None,
@@ -481,7 +488,10 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
             }
         )
 
-    safety_summary = summarize_recognition_safety(recognitions)
+    safety_summary = summarize_recognition_safety(
+        recognitions,
+        expected_screen_kind_by_frame=expected_screen_kind_by_frame,
+    )
     summary = {
         "frames": len(steps),
         "actionable": sum(1 for step in steps if step["acted"]),
@@ -489,7 +499,92 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
         "safety_summary": safety_summary.to_dict(),
         "steps": steps,
     }
+    if args.safety_report is not None:
+        _write_replay_safety_report(Path(args.safety_report), summary)
     print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+def _expected_screen_kind_from_annotation(path: str | Path) -> str | None:
+    annotation = _read_json_object(path)
+    screen = annotation.get("screen")
+    if not isinstance(screen, Mapping):
+        return None
+    kind = screen.get("kind")
+    return kind if isinstance(kind, str) and kind else None
+
+
+def _write_replay_safety_report(path: Path, summary: Mapping[str, object]) -> None:
+    safety = summary.get("safety_summary")
+    safety_summary = safety if isinstance(safety, Mapping) else {}
+    steps = summary.get("steps")
+    step_rows = (
+        [step for step in steps if isinstance(step, Mapping)] if isinstance(steps, list) else []
+    )
+    false_actionable_rows = [
+        step
+        for step in step_rows
+        if step.get("expected_screen_kind") not in {None, "actionable_table"}
+        and step.get("observed_screen_kind") == "actionable_table"
+    ]
+
+    lines = [
+        "# Poker Legends Replay Safety Report",
+        "",
+        "## Summary",
+        "",
+        f"- Frames: {summary.get('frames', 0)}",
+        f"- Dry-run actions: {summary.get('actionable', 0)}",
+        f"- Authorization events: {safety_summary.get('authorization_events', 0)}",
+        f"- Unsafe authorization events: {safety_summary.get('unsafe_authorization_events', 0)}",
+        f"- Stale authorization events: {safety_summary.get('stale_authorization_events', 0)}",
+        "- Truth-assisted authorization events: "
+        f"{safety_summary.get('truth_assisted_authorization_events', 0)}",
+        "- Expected non-actionable frames: "
+        f"{safety_summary.get('expected_non_actionable_frames', 0)}",
+        f"- False actionable count: {safety_summary.get('false_actionable_count', 0)}",
+        f"- Source-policy violations: {safety_summary.get('source_policy_violation_count', 0)}",
+        "",
+        "## Distributions",
+        "",
+        "### Recognition Modes",
+        "",
+        *_markdown_count_lines(safety_summary.get("mode_counts")),
+        "",
+        "### Assembly Statuses",
+        "",
+        *_markdown_count_lines(safety_summary.get("assembly_status_counts")),
+        "",
+        "### Blocking Issues",
+        "",
+        *_markdown_count_lines(safety_summary.get("blocking_issue_counts")),
+        "",
+        "## False Actionable Frames",
+        "",
+    ]
+    if false_actionable_rows:
+        lines.append("| Frame | Expected | Observed | Assembly | Block |")
+        lines.append("| --- | --- | --- | --- | --- |")
+        for step in false_actionable_rows:
+            lines.append(
+                "| "
+                f"`{step.get('frame')}` | "
+                f"`{step.get('expected_screen_kind')}` | "
+                f"`{step.get('observed_screen_kind')}` | "
+                f"`{step.get('assembly_status')}` | "
+                f"`{step.get('state_block_reason')}` |"
+            )
+    else:
+        lines.append("No false actionable frames.")
+    lines.append("")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _markdown_count_lines(value: object) -> list[str]:
+    if not isinstance(value, Mapping) or not value:
+        return ["- none"]
+    return [f"- `{key}`: {count}" for key, count in sorted(value.items())]
 
 
 def watch_main(argv: Sequence[str] | None = None) -> None:

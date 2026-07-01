@@ -187,11 +187,14 @@ def test_replay_dry_run_main_reports_safety_summary(
     frames.mkdir()
     annotations.mkdir()
     (frames / "frame_001.png").write_bytes(b"fake")
+    annotation = layout_annotation()
+    annotation["screen"] = {"kind": "actionable_table", "confidence": 1.0}
     (annotations / "frame_001.json").write_text(
-        json.dumps(layout_annotation()),
+        json.dumps(annotation),
         encoding="utf-8",
     )
     log_path = tmp_path / "dry_run.jsonl"
+    report_path = tmp_path / "safety.md"
 
     class FakeRecognizer:
         def recognize(self, frame: CapturedFrame) -> RecognitionResult:
@@ -246,6 +249,8 @@ def test_replay_dry_run_main_reports_safety_summary(
             "unused-buttons.json",
             "--log-jsonl",
             str(log_path),
+            "--safety-report",
+            str(report_path),
         ]
     )
 
@@ -253,12 +258,20 @@ def test_replay_dry_run_main_reports_safety_summary(
     assert output["frames"] == 1
     assert output["actionable"] == 1
     assert output["steps"][0]["recognition_mode"] == "image_only_replay"
+    assert output["steps"][0]["expected_screen_kind"] == "actionable_table"
+    assert output["steps"][0]["observed_screen_kind"] == "actionable_table"
     assert output["steps"][0]["assembly_status"] == "single_frame_valid"
     assert output["steps"][0]["safety_contract"] == "policy_decision"
     assert output["safety_summary"]["authorization_events"] == 1
+    assert output["safety_summary"]["expected_actionable_frames"] == 1
+    assert output["safety_summary"]["false_actionable_count"] == 0
     assert output["safety_summary"]["mode_counts"] == {"image_only_replay": 1}
     assert output["safety_summary"]["assembly_status_counts"] == {"single_frame_valid": 1}
     assert log_path.read_text(encoding="utf-8").strip()
+    report = report_path.read_text(encoding="utf-8")
+    assert "# Poker Legends Replay Safety Report" in report
+    assert "- False actionable count: 0" in report
+    assert "No false actionable frames." in report
 
 
 def layout_annotation() -> dict[str, object]:

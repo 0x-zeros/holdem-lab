@@ -174,6 +174,7 @@ def test_recognition_safety_summary_groups_modes_and_authorizations(
 
     summary = summarize_recognition_safety(
         (valid, blocked),
+        expected_screen_kind_by_frame={"frame_001": "table_observe"},
         expected_values_by_frame={"frame_001": {"numbers.pot": 999}},
     )
 
@@ -188,6 +189,8 @@ def test_recognition_safety_summary_groups_modes_and_authorizations(
     }
     assert summary.authorization_events == 1
     assert summary.truth_assisted_authorization_events == 1
+    assert summary.expected_non_actionable_frames == 2
+    assert summary.false_actionable_count == 1
     assert summary.source_policy_violation_count == 1
     assert summary.accepted_critical_wrong_count == 1
     assert summary.unsafe_authorization_events == 1

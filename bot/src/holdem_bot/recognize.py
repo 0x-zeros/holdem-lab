@@ -12,7 +12,7 @@ from typing import Protocol
 from holdem_common import GameState
 
 from holdem_bot.capture import CapturedFrame
-from holdem_bot.screen_state import ScreenState
+from holdem_bot.screen_state import ScreenKind, ScreenState
 
 
 class RecognitionMode(StrEnum):
@@ -441,6 +441,9 @@ class RecognitionSafetySummary:
     assembly_status_counts: Mapping[str, int]
     contract_counts: Mapping[str, int]
     blocking_issue_counts: Mapping[str, int]
+    expected_actionable_frames: int
+    expected_non_actionable_frames: int
+    false_actionable_count: int
     authorization_events: int
     unsafe_authorization_events: int
     stale_authorization_events: int
@@ -456,6 +459,9 @@ class RecognitionSafetySummary:
             "assembly_status_counts": dict(self.assembly_status_counts),
             "contract_counts": dict(self.contract_counts),
             "blocking_issue_counts": dict(self.blocking_issue_counts),
+            "expected_actionable_frames": self.expected_actionable_frames,
+            "expected_non_actionable_frames": self.expected_non_actionable_frames,
+            "false_actionable_count": self.false_actionable_count,
             "authorization_events": self.authorization_events,
             "unsafe_authorization_events": self.unsafe_authorization_events,
             "stale_authorization_events": self.stale_authorization_events,
@@ -691,8 +697,10 @@ def evaluate_accepted_critical_fields(
 def summarize_recognition_safety(
     results: Iterable[RecognitionResult],
     *,
+    expected_screen_kind_by_frame: Mapping[str, str] | None = None,
     expected_values_by_frame: Mapping[str, Mapping[str, object]] | None = None,
 ) -> RecognitionSafetySummary:
+    expected_screen = expected_screen_kind_by_frame or {}
     expected_by_frame = expected_values_by_frame or {}
     total = 0
     mode_counts: dict[str, int] = {}
@@ -700,6 +708,9 @@ def summarize_recognition_safety(
     status_counts: dict[str, int] = {}
     contract_counts: dict[str, int] = {}
     issue_counts: dict[str, int] = {}
+    expected_actionable_frames = 0
+    expected_non_actionable_frames = 0
+    false_actionable_count = 0
     authorization_events = 0
     unsafe_authorization_events = 0
     stale_authorization_events = 0
@@ -728,12 +739,27 @@ def summarize_recognition_safety(
             _increment(status_counts, "missing_assembly_result")
 
         frame_id = result.frame_evidence.frame_id if result.frame_evidence is not None else ""
+        expected_kind = expected_screen.get(frame_id)
+        false_authorization = False
+        if expected_kind is not None:
+            if expected_kind == ScreenKind.ACTIONABLE_TABLE.value:
+                expected_actionable_frames += 1
+            else:
+                expected_non_actionable_frames += 1
+                if result.screen.kind is ScreenKind.ACTIONABLE_TABLE:
+                    false_actionable_count += 1
+                if result.state is not None:
+                    false_authorization = True
         evaluation = evaluate_accepted_critical_fields(
             result,
             expected_values=expected_by_frame.get(frame_id, {}),
         )
         authorization_events += evaluation.authorization_events
-        unsafe_authorization_events += evaluation.unsafe_authorization_events
+        if (
+            evaluation.authorization_events
+            and (evaluation.unsafe_authorization_events or false_authorization)
+        ):
+            unsafe_authorization_events += 1
         source_policy_violation_count += len(evaluation.source_policy_violations)
         accepted_critical_wrong_count += len(evaluation.accepted_critical_wrong_cases)
         if (
@@ -749,6 +775,9 @@ def summarize_recognition_safety(
         assembly_status_counts=status_counts,
         contract_counts=contract_counts,
         blocking_issue_counts=issue_counts,
+        expected_actionable_frames=expected_actionable_frames,
+        expected_non_actionable_frames=expected_non_actionable_frames,
+        false_actionable_count=false_actionable_count,
         authorization_events=authorization_events,
         unsafe_authorization_events=unsafe_authorization_events,
         stale_authorization_events=stale_authorization_events,
