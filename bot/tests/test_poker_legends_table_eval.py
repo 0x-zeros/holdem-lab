@@ -127,6 +127,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["false_actionable_examples"] == []
     assert summary["review_queue_frames"] == 1
     assert summary["review_queue_tag_counts"] == {"missing_pot": 1}
+    assert summary["review_queue_by_tag"] == {"missing_pot": ["frame_003"]}
     assert summary["result_counts"] == {"missing_pot": 1, "state": 1}
     assert summary["issue_counts"] == {"POT_REQUIRED_BY_POLICY": 1}
     assert summary["action_panel_flag_counts"] == {"missing_current_action_row": 1}
@@ -138,6 +139,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert rows[0]["frame_id"] == "frame_001"
     assert rows[0]["state"]["street"] == "flop"
     assert rows[1]["frame_id"] == "frame_003"
+    assert rows[1]["truth_path"] == str(truth / "frame_003.json")
+    assert rows[1]["layout_annotation_path"] == str(annotations / "frame_003.json")
     assert rows[1]["issue_codes"] == ["POT_REQUIRED_BY_POLICY"]
     assert rows[1]["review_tags"] == ["missing_pot"]
     assert rows[1]["truth"]["buttons"] == [
@@ -153,6 +156,10 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
         (out / "table_recognizer_review_queue.json").read_text(encoding="utf-8")
     )
     assert [row["frame_id"] for row in review_queue] == ["frame_003"]
+    review_queue_by_tag = json.loads(
+        (out / "table_recognizer_review_queue_by_tag.json").read_text(encoding="utf-8")
+    )
+    assert review_queue_by_tag == {"missing_pot": ["frame_003"]}
     report = (out / "table_recognizer_report.md").read_text(encoding="utf-8")
     assert "# Poker Legends Table Recognizer Report" in report
     assert "- state: 1" in report
@@ -162,6 +169,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
     assert "## Review Tag Counts" in report
     assert "- missing_pot: 1" in report
+    assert "## Review Queue By Tag" in report
+    assert "- missing_pot: `frame_003`" in report
     assert "- missing_current_action_row: 1" in report
     assert "## Blocking Action Panel Flag Counts" in report
     assert "Truth Buttons" in report
@@ -192,6 +201,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert all_summary["false_actionable_examples"] == ["frame_002"]
     assert all_summary["review_queue_frames"] == 1
     assert all_summary["review_queue_tag_counts"] == {"missing_pot": 1}
+    assert all_summary["review_queue_by_tag"] == {"missing_pot": ["frame_003"]}
 
 
 class FakeRecognizer:

@@ -83,6 +83,8 @@ def evaluate_poker_legends_table_recognizer(
         row = _row_from_result(
             frame_id,
             image_path=image_path,
+            truth_path=truth_path,
+            layout_annotation_path=annotation_path,
             result=result,
             truth=truth,
             truth_screen_kind=truth_screen_kind,
@@ -125,6 +127,7 @@ def evaluate_poker_legends_table_recognizer(
         "false_actionable_examples": false_actionable_examples[:8],
         "review_queue_frames": len(review_queue),
         "review_queue_tag_counts": _review_queue_tag_counts(review_queue),
+        "review_queue_by_tag": _review_queue_by_tag(review_queue),
         "action_panel_flag_counts": dict(sorted(action_panel_flag_counts.items())),
         "blocking_action_panel_flag_counts": dict(
             sorted(blocking_action_panel_flag_counts.items())
@@ -141,6 +144,10 @@ def evaluate_poker_legends_table_recognizer(
     )
     (output / "table_recognizer_review_queue.json").write_text(
         json.dumps(review_queue, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_review_queue_by_tag.json").write_text(
+        json.dumps(summary["review_queue_by_tag"], indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     _write_report(output / "table_recognizer_report.md", summary)
@@ -187,6 +194,8 @@ def _row_from_result(
     frame_id: str,
     *,
     image_path: Path,
+    truth_path: Path,
+    layout_annotation_path: Path,
     result: RecognitionResult,
     truth: Mapping[str, object],
     truth_screen_kind: str,
@@ -200,6 +209,8 @@ def _row_from_result(
     return {
         "frame_id": frame_id,
         "image": str(image_path),
+        "truth_path": str(truth_path),
+        "layout_annotation_path": str(layout_annotation_path),
         "result": outcome,
         "truth_screen_kind": truth_screen_kind,
         "truth": truth_summary,
@@ -339,6 +350,17 @@ def _review_queue_tag_counts(rows: list[dict[str, object]]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _review_queue_by_tag(rows: list[dict[str, object]]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for row in rows:
+        frame_id = str(row.get("frame_id") or "")
+        if not frame_id:
+            continue
+        for tag in _string_list(row.get("review_tags")):
+            grouped.setdefault(tag, []).append(frame_id)
+    return {tag: grouped[tag] for tag in sorted(grouped)}
+
+
 def _visible_truth_seats(truth: Mapping[str, object]) -> list[Mapping[str, object]]:
     return [seat for seat in _row_mappings(truth.get("seats")) if bool(seat.get("visible", True))]
 
@@ -428,6 +450,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         *_count_lines(summary.get("review_queue_tag_counts")),
         "",
+        "## Review Queue By Tag",
+        "",
+        *_frame_list_lines(summary.get("review_queue_by_tag")),
+        "",
         "## Examples",
         "",
     ]
@@ -480,6 +506,19 @@ def _count_lines(value: object) -> list[str]:
     if not isinstance(value, Mapping) or not value:
         return ["- none"]
     return [f"- {key}: {count}" for key, count in sorted(value.items())]
+
+
+def _frame_list_lines(value: object) -> list[str]:
+    if not isinstance(value, Mapping) or not value:
+        return ["- none"]
+    lines: list[str] = []
+    for key, frames in sorted(value.items()):
+        if not isinstance(frames, list) or not frames:
+            lines.append(f"- {key}: none")
+            continue
+        joined = ", ".join(f"`{frame}`" for frame in frames if isinstance(frame, str))
+        lines.append(f"- {key}: {joined or 'none'}")
+    return lines
 
 
 def _row_mappings(value: object) -> list[Mapping[str, object]]:
