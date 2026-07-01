@@ -1072,7 +1072,12 @@ def _visual_observation_from_parts(
             card_predictions,
             controlled_seat=controlled_seat,
         ),
-        action_panels=_action_panel_observations(screen, button_predictions, number_predictions),
+        action_panels=_action_panel_observations(
+            screen,
+            button_predictions,
+            number_predictions,
+            table=table,
+        ),
         numbers=_numeric_observations(number_predictions),
         seats=_seat_observations(table, controlled_seat=controlled_seat),
         warnings=(),
@@ -1220,12 +1225,20 @@ def _action_panel_observations(
     screen: ScreenState,
     button_predictions: tuple[PokerLegendsButtonPrediction, ...],
     number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    *,
+    table: RecognizedTable | None,
 ) -> tuple[ActionPanelObservation, ...]:
     button_observations = tuple(
         _button_observation(prediction, number_predictions) for prediction in button_predictions
     )
+    preselect_buttons = _preselect_button_observations(table)
     if screen.kind is ScreenKind.ACTIONABLE_TABLE:
-        return (
+        ambiguity_flags: list[str] = []
+        if not button_observations:
+            ambiguity_flags.append("missing_current_action_row")
+        if preselect_buttons:
+            ambiguity_flags.append("preselect_shortcut_label")
+        panels = [
             ActionPanelObservation(
                 panel_kind="current_action_row",
                 visible=bool(button_observations),
@@ -1234,10 +1247,25 @@ def _action_panel_observations(
                 row_bbox=None,
                 buttons=button_observations,
                 confidence=screen.confidence,
-                ambiguity_flags=(),
+                ambiguity_flags=tuple(ambiguity_flags),
                 evidence=RoiEvidence(roi_id="action_panel:current_action_row"),
             ),
-        )
+        ]
+        if preselect_buttons:
+            panels.append(
+                ActionPanelObservation(
+                    panel_kind="preselect_strip",
+                    visible=True,
+                    enabled=True,
+                    hero_turn_indicator=screen.hero_turn,
+                    row_bbox=None,
+                    buttons=preselect_buttons,
+                    confidence=min(button.confidence for button in preselect_buttons),
+                    ambiguity_flags=("preselect_shortcut_label",),
+                    evidence=RoiEvidence(roi_id="action_panel:preselect_strip"),
+                )
+            )
+        return tuple(panels)
     return (
         ActionPanelObservation(
             panel_kind="unknown",
@@ -1250,6 +1278,18 @@ def _action_panel_observations(
             ambiguity_flags=(screen.kind.value,),
             evidence=RoiEvidence(roi_id="action_panel:unknown"),
         ),
+    )
+
+
+def _preselect_button_observations(
+    table: RecognizedTable | None,
+) -> tuple[ButtonObservation, ...]:
+    if table is None:
+        return ()
+    return tuple(
+        _button_observation_from_recognized_button(button, source=table.source)
+        for button in table.buttons
+        if _is_preselect_or_shortcut_label(button.label)
     )
 
 
@@ -1285,6 +1325,32 @@ def _button_observation(
         accepted_action=prediction.action_type if prediction.visible else None,
         amount_candidates=amount_candidates,
         confidence=prediction.confidence,
+        evidence=evidence,
+    )
+
+
+def _button_observation_from_recognized_button(
+    button: RecognizedButton,
+    *,
+    source: str,
+) -> ButtonObservation:
+    evidence = RoiEvidence(roi_id=f"button:{button.command}")
+    action_candidates = (
+        Candidate(
+            value=button.action_type,
+            confidence=button.confidence,
+            source=source,
+            raw=asdict(button),
+            evidence=(evidence,),
+        ),
+    ) if button.action_type is not None else ()
+    return ButtonObservation(
+        slot=button.command,
+        visible=True,
+        enabled=True,
+        action_candidates=action_candidates,
+        accepted_action=button.action_type,
+        confidence=button.confidence,
         evidence=evidence,
     )
 

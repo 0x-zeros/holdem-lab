@@ -160,6 +160,11 @@ def _row_from_result(
         "confidence": result.confidence,
         "state": _state_summary(result.state),
         "recognized_table": _jsonable(table_dict),
+        "action_panels": [
+            panel.to_dict() for panel in result.visual_observation.action_panels
+        ]
+        if result.visual_observation is not None
+        else [],
         "accepted_number_predictions": result.metadata.get("accepted_number_predictions", []),
     }
 
@@ -237,9 +242,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     )
     if blockers:
         lines.append(
-            "| Frame | Result | Issues | Street | Pot | Buttons | Seats | Accepted Numbers |"
+            "| Frame | Result | Issues | Action Panels | Street | Pot | Buttons | Seats | "
+            "Accepted Numbers |"
         )
-        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
         for row in blockers:
             table = row.get("recognized_table")
             table_dict = table if isinstance(table, Mapping) else {}
@@ -248,6 +254,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
                 f"`{row.get('frame_id')}` | "
                 f"`{row.get('result')}` | "
                 f"{_inline_codes(row.get('issue_codes'))} | "
+                f"{_action_panel_summary(row.get('action_panels'))} | "
                 f"`{table_dict.get('street')}` | "
                 f"`{table_dict.get('pot')}` | "
                 f"{_button_summary(table_dict.get('buttons'))} | "
@@ -293,6 +300,18 @@ def _button_summary(value: object) -> str:
         f"`{button.get('command')}:{button.get('action_type')}:{button.get('label')}`"
         for button in buttons
     )
+
+
+def _action_panel_summary(value: object) -> str:
+    panels = _row_mappings(value)
+    if not panels:
+        return "`none`"
+    parts: list[str] = []
+    for panel in panels:
+        flags = _string_list(panel.get("ambiguity_flags"))
+        suffix = f":{'+'.join(flags)}" if flags else ""
+        parts.append(f"`{panel.get('panel_kind')}:visible={panel.get('visible')}{suffix}`")
+    return "<br>".join(parts)
 
 
 def _seat_summary(value: object) -> str:

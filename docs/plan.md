@@ -542,6 +542,11 @@
   记为 `rule_inferred_committed`；`committed=null`、单人 seat、总额 0 仍 fail-closed。当前 57 帧复跑：
   `state` 48、`missing_legal_actions` 3、`not_enough_players` 3、`missing_pot` 1、
   `preselect_ambiguous` 1、`hero_not_current` 1。
+- 阶段 4 Poker Legends action-panel evidence v1：`VisualObservation.action_panels` 现在显式标记
+  actionable 但缺当前动作按钮行的 `missing_current_action_row`，并在遇到 `Call Any` / `Check/Fold`
+  等预选/快捷标签时追加 `preselect_strip` negative panel；table recognizer evaluator 的 blocker 表同步展示
+  action panel flags。当前 57 帧复跑 state 覆盖不变（48/57），但 3 个 `missing_legal_actions` 均可解释为
+  `missing_current_action_row`，`session_002__keyframe_000334` 明确为 `preselect_strip`。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

@@ -882,6 +882,52 @@ def test_poker_legends_table_recognizer_blocks_preselect_call_any(
     assert result.metadata["state_block_reason"] == "preselect_ambiguous"
     assert result.assembly_result is not None
     assert result.assembly_result.issues[0].reason_code == "PRESELECT_AMBIGUOUS"
+    assert result.visual_observation is not None
+    panels = {panel.panel_kind: panel for panel in result.visual_observation.action_panels}
+    assert "preselect_shortcut_label" in panels["current_action_row"].ambiguity_flags
+    assert panels["preselect_strip"].visible is True
+    assert panels["preselect_strip"].buttons[0].slot == "primary_left"
+
+
+def test_poker_legends_table_recognizer_marks_missing_current_action_row(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    annotation["buttons"] = []
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer(()),
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {"image": str(image), "regions": {}},
+            },
+        )
+    )
+
+    assert result.state is None
+    assert result.metadata["state_block_reason"] == "missing_legal_actions"
+    assert result.visual_observation is not None
+    panel = result.visual_observation.action_panels[0]
+    assert panel.panel_kind == "current_action_row"
+    assert panel.visible is False
+    assert "missing_current_action_row" in panel.ambiguity_flags
 
 
 def test_poker_legends_table_recognizer_infers_street_when_truth_street_lags_board(
