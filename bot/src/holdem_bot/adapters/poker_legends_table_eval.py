@@ -335,8 +335,14 @@ def _row_from_result(
         "result": outcome,
         "truth_screen_kind": truth_screen_kind,
         "truth": truth_summary,
-        "review_tags": _review_tags(outcome, truth_summary, table_dict),
         "screen_kind": result.screen.kind.value,
+        "review_tags": _review_tags(
+            outcome,
+            truth_summary,
+            table_dict,
+            truth_screen_kind=truth_screen_kind,
+            recognized_screen_kind=result.screen.kind.value,
+        ),
         "recognition_mode": result.recognition_mode.value,
         "safety_contract": result.safety_contract.value,
         "assembly_status": assembly.status.value if assembly is not None else None,
@@ -569,9 +575,22 @@ def _review_tags(
     outcome: str,
     truth: Mapping[str, object],
     table: Mapping[str, object],
+    *,
+    truth_screen_kind: str,
+    recognized_screen_kind: str,
 ) -> list[str]:
     if outcome == "state":
         return []
+    if (
+        truth_screen_kind != ScreenKind.ACTIONABLE_TABLE.value
+        and recognized_screen_kind == ScreenKind.ACTIONABLE_TABLE.value
+    ):
+        return ["screen_false_actionable"]
+    if (
+        truth_screen_kind == ScreenKind.ACTIONABLE_TABLE.value
+        and recognized_screen_kind != ScreenKind.ACTIONABLE_TABLE.value
+    ):
+        return ["screen_missed_actionable"]
     if outcome == "screen_not_actionable":
         return ["negative_screen_state"]
     if outcome == "hero_not_current":

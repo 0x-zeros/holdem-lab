@@ -297,15 +297,23 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert image_only_summary["frames"] == 2
     assert image_only_summary["image_only_replay"] is True
     assert image_only_summary["screen_confusion_counts"] == {
-        "actionable_table": {"actionable_table": 2}
+        "actionable_table": {"actionable_table": 1, "table_observe": 1}
     }
     assert image_only_summary["screen_false_actionable_count"] == 0
-    assert image_only_summary["screen_missed_actionable_count"] == 0
+    assert image_only_summary["screen_missed_actionable_count"] == 1
+    assert image_only_summary["screen_missed_actionable_examples"] == ["frame_003"]
     assert image_only_summary["recognition_mode_counts"] == {"image_only_replay": 2}
     assert image_only_summary["authorization_events"] == 0
     assert image_only_summary["truth_assisted_authorization_events"] == 0
     assert image_only_summary["unsafe_authorization_events"] == 0
-    assert image_only_summary["result_counts"] == {"missing_table_metadata": 2}
+    assert image_only_summary["result_counts"] == {
+        "missing_table_metadata": 1,
+        "screen_not_actionable": 1,
+    }
+    assert image_only_summary["review_queue_by_tag"] == {
+        "missing_table_metadata": ["frame_001"],
+        "screen_missed_actionable": ["frame_003"],
+    }
 
 
 class FakeRecognizer:
@@ -314,6 +322,14 @@ class FakeRecognizer:
         frame_id = Path(str(frame.payload)).stem
         if mode is RecognitionMode.IMAGE_ONLY_REPLAY:
             assert "poker_legends_annotation_path" not in frame.metadata
+            if frame_id == "frame_003":
+                return _blocked_result(
+                    frame_id,
+                    mode=mode,
+                    block_reason="screen_not_actionable",
+                    reason_code="SCREEN_NOT_ACTIONABLE",
+                    screen=ScreenState.table_observe(),
+                )
             return _blocked_result(
                 frame_id,
                 mode=mode,
@@ -375,9 +391,10 @@ def _blocked_result(
     mode: RecognitionMode = RecognitionMode.TRUTH_ASSISTED_REPLAY,
     block_reason: str = "missing_pot",
     reason_code: str = "POT_REQUIRED_BY_POLICY",
+    screen: ScreenState | None = None,
 ) -> RecognitionResult:
     evidence = FrameEvidence(session_id=None, frame_id=frame_id)
-    screen = ScreenState.actionable_table(hero_turn=True)
+    screen = screen or ScreenState.actionable_table(hero_turn=True)
     visual = VisualObservation(
         frame=evidence,
         recognition_mode=mode,
