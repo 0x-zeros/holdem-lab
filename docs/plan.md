@@ -651,6 +651,12 @@
   `readiness_low_confidence_hero_stack` 8；数字覆盖分布显示 41 个 image-only actionable-table row 均有
   raw `pot`/`hero_stack`/`right_top_stack`/`primary_left` 预测，accepted 分别为 pot 41、hero_stack 33、
   right_top_stack 14、primary_left 38；authorization events 0、unsafe authorization 0。
+- 阶段 4 Poker Legends table evaluator number truth comparison v1：evaluator 现在把 replay 中的 raw/accepted
+  text 数字预测与 reviewed truth text 做离线 exact-match 对照，并输出 mismatch examples；该指标只用于评估，
+  不进入 recognizer/safety gate。当前 119 帧 image-only 复跑显示数字 OCR 仍不可作为安全 critical source：
+  raw hero_stack 19 match / 22 mismatch、raw pot 22 / 12、raw right_top_stack 4 / 19；accepted hero_stack
+  16 / 17、accepted pot 22 / 12、accepted right_top_stack 2 / 7。因此下一步应修 parser/ROI/规则校验，
+  不能直接通过降低阈值来解锁 image-only GameState。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

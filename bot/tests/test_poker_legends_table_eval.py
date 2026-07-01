@@ -66,6 +66,12 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
                             "visible": True,
                             "value": "$150",
                             "normalized_number": 150,
+                        },
+                        {
+                            "name": "right_top_stack",
+                            "visible": True,
+                            "value": "$995",
+                            "normalized_number": 995,
                         }
                     ],
                 }
@@ -154,6 +160,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["contract_counts"] == {"observe_only": 1, "policy_decision": 1}
     assert summary["assembly_status_counts"] == {"no_state": 1, "single_frame_valid": 1}
     assert summary["table_readiness_flag_counts"] == {}
+    assert summary["number_truth_comparison_counts"] == {}
+    assert summary["number_truth_mismatch_examples"] == []
     assert summary["number_prediction_slot_counts"] == {}
     assert summary["accepted_number_prediction_slot_counts"] == {}
     assert summary["number_prediction_confidence_counts"] == {}
@@ -236,6 +244,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "## Table Readiness Flag Counts" in report
     assert "## Number Readiness Flag Counts" in report
     assert "## Number Readiness By Flag" in report
+    assert "## Number Truth Comparison Counts" in report
+    assert "## Number Truth Mismatch Examples" in report
     assert "## Number Prediction Slot Counts" in report
     assert "## Accepted Number Prediction Slot Counts" in report
     assert "## Number Prediction Confidence Counts" in report
@@ -330,6 +340,21 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert image_only_summary["number_readiness_flag_counts"] == {
         "readiness_low_confidence_opponent_stack": 1
     }
+    assert image_only_summary["number_truth_comparison_counts"] == {
+        "raw:numbers.right_top_stack:mismatch": 1
+    }
+    assert image_only_summary["number_truth_mismatch_examples"] == [
+        {
+            "confidence": 0.65,
+            "expected": 995,
+            "field_path": "numbers.right_top_stack",
+            "frame_id": "frame_001",
+            "predicted": 1000,
+            "prediction_set": "raw",
+            "raw": None,
+            "status": "mismatch",
+        }
+    ]
     assert image_only_summary["number_prediction_slot_counts"] == {
         "texts:right_top_stack": 1
     }
