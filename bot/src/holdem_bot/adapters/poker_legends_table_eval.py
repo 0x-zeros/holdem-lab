@@ -13,8 +13,14 @@ from holdem_common import GameState
 
 from holdem_bot.adapters.poker_legends import PokerLegendsTableRecognizer
 from holdem_bot.capture import CapturedFrame
-from holdem_bot.recognize import RecognitionResult
+from holdem_bot.recognize import (
+    AcceptedCriticalFieldEvaluation,
+    RecognitionMode,
+    RecognitionResult,
+    evaluate_accepted_critical_fields,
+)
 from holdem_bot.screen_state import ScreenKind
+from holdem_bot.vision.poker_legends_numbers import parse_poker_legends_chip_amount
 
 
 def evaluate_poker_legends_table_recognizer(
@@ -46,8 +52,18 @@ def evaluate_poker_legends_table_recognizer(
     blocking_action_panel_flag_counts: dict[str, int] = {}
     review_tag_counts: dict[str, int] = {}
     screen_kind_counts: dict[str, int] = {}
+    recognition_mode_counts: dict[str, int] = {}
+    contract_counts: dict[str, int] = {}
+    assembly_status_counts: dict[str, int] = {}
     false_actionable_examples: list[str] = []
+    accepted_critical_wrong_examples: list[dict[str, object]] = []
+    source_policy_violation_examples: list[dict[str, object]] = []
     authorization_events = 0
+    unsafe_authorization_events = 0
+    stale_authorization_events = 0
+    truth_assisted_authorization_events = 0
+    source_policy_violation_count = 0
+    accepted_critical_wrong_count = 0
     non_actionable_frames = 0
     examples: dict[str, list[str]] = {}
 
@@ -80,21 +96,64 @@ def evaluate_poker_legends_table_recognizer(
                 },
             )
         )
+        critical_eval = evaluate_accepted_critical_fields(
+            result,
+            expected_values=_expected_critical_values(
+                truth,
+                controlled_seat=controlled_seat,
+            ),
+        )
         row = _row_from_result(
             frame_id,
             image_path=image_path,
             truth_path=truth_path,
             layout_annotation_path=annotation_path,
             result=result,
+            critical_eval=critical_eval,
             truth=truth,
             truth_screen_kind=truth_screen_kind,
         )
         rows.append(row)
         outcome = str(row["result"])
+        recognition_mode_counts[result.recognition_mode.value] = (
+            recognition_mode_counts.get(result.recognition_mode.value, 0) + 1
+        )
+        contract_counts[result.safety_contract.value] = (
+            contract_counts.get(result.safety_contract.value, 0) + 1
+        )
+        assembly_key = (
+            result.assembly_result.status.value
+            if result.assembly_result is not None
+            else "missing_assembly_result"
+        )
+        assembly_status_counts[assembly_key] = assembly_status_counts.get(assembly_key, 0) + 1
+        false_authorization = False
         if result.state is not None:
             authorization_events += 1
             if truth_screen_kind != ScreenKind.ACTIONABLE_TABLE.value:
+                false_authorization = True
                 false_actionable_examples.append(frame_id)
+            if result.recognition_mode is RecognitionMode.TRUTH_ASSISTED_REPLAY:
+                truth_assisted_authorization_events += 1
+            if (
+                result.assembly_result is not None
+                and not result.assembly_result.freshness.current_frame_revalidated
+            ):
+                stale_authorization_events += 1
+            if critical_eval.unsafe_authorization_events or false_authorization:
+                unsafe_authorization_events += 1
+        source_policy_violation_count += len(critical_eval.source_policy_violations)
+        accepted_critical_wrong_count += len(critical_eval.accepted_critical_wrong_cases)
+        for violation in critical_eval.source_policy_violations:
+            if len(source_policy_violation_examples) < 8:
+                source_policy_violation_examples.append(
+                    {"frame_id": frame_id, **violation.to_dict()}
+                )
+        for mismatch in critical_eval.accepted_critical_wrong_cases:
+            if len(accepted_critical_wrong_examples) < 8:
+                accepted_critical_wrong_examples.append(
+                    {"frame_id": frame_id, **mismatch.to_dict()}
+                )
         if truth_screen_kind != ScreenKind.ACTIONABLE_TABLE.value:
             non_actionable_frames += 1
         result_counts[outcome] = result_counts.get(outcome, 0) + 1
@@ -121,10 +180,20 @@ def evaluate_poker_legends_table_recognizer(
         "result_counts": dict(sorted(result_counts.items())),
         "issue_counts": dict(sorted(issue_counts.items())),
         "screen_kind_counts": dict(sorted(screen_kind_counts.items())),
+        "recognition_mode_counts": dict(sorted(recognition_mode_counts.items())),
+        "contract_counts": dict(sorted(contract_counts.items())),
+        "assembly_status_counts": dict(sorted(assembly_status_counts.items())),
         "authorization_events": authorization_events,
+        "unsafe_authorization_events": unsafe_authorization_events,
+        "stale_authorization_events": stale_authorization_events,
+        "truth_assisted_authorization_events": truth_assisted_authorization_events,
         "non_actionable_frames": non_actionable_frames,
         "false_actionable_count": len(false_actionable_examples),
         "false_actionable_examples": false_actionable_examples[:8],
+        "source_policy_violation_count": source_policy_violation_count,
+        "source_policy_violation_examples": source_policy_violation_examples,
+        "accepted_critical_wrong_count": accepted_critical_wrong_count,
+        "accepted_critical_wrong_examples": accepted_critical_wrong_examples,
         "review_queue_frames": len(review_queue),
         "review_queue_tag_counts": _review_queue_tag_counts(review_queue),
         "review_queue_by_tag": _review_queue_by_tag(review_queue),
@@ -197,6 +266,7 @@ def _row_from_result(
     truth_path: Path,
     layout_annotation_path: Path,
     result: RecognitionResult,
+    critical_eval: AcceptedCriticalFieldEvaluation,
     truth: Mapping[str, object],
     truth_screen_kind: str,
 ) -> dict[str, object]:
@@ -216,6 +286,8 @@ def _row_from_result(
         "truth": truth_summary,
         "review_tags": _review_tags(outcome, truth_summary, table_dict),
         "screen_kind": result.screen.kind.value,
+        "recognition_mode": result.recognition_mode.value,
+        "safety_contract": result.safety_contract.value,
         "assembly_status": assembly.status.value if assembly is not None else None,
         "validity_scope": assembly.validity_scope.value if assembly is not None else None,
         "issue_codes": [issue.reason_code for issue in assembly.issues]
@@ -230,6 +302,15 @@ def _row_from_result(
         if result.visual_observation is not None
         else [],
         "accepted_number_predictions": result.metadata.get("accepted_number_predictions", []),
+        "accepted_critical_fields": [
+            field.to_dict() for field in result.accepted_critical_fields
+        ],
+        "source_policy_violations": [
+            violation.to_dict() for violation in critical_eval.source_policy_violations
+        ],
+        "accepted_critical_wrong_cases": [
+            mismatch.to_dict() for mismatch in critical_eval.accepted_critical_wrong_cases
+        ],
     }
 
 
@@ -298,6 +379,139 @@ def _truth_summary(truth: Mapping[str, object]) -> dict[str, object]:
             if bool(text.get("visible", True))
         ],
     }
+
+
+def _expected_critical_values(
+    truth: Mapping[str, object],
+    *,
+    controlled_seat: int,
+) -> dict[str, object]:
+    expected: dict[str, object] = {}
+    screen = truth.get("screen")
+    if isinstance(screen, Mapping) and bool(screen.get("hero_turn")):
+        expected["screen.actionability"] = controlled_seat
+    hero_cards = _truth_cards(truth.get("hero_hole_cards"))
+    if hero_cards:
+        expected["cards.hero"] = tuple(hero_cards)
+    if "board" in truth:
+        expected["cards.board"] = tuple(_truth_cards(truth.get("board")))
+    pot = _truth_text_number(truth, "pot")
+    if pot is not None:
+        expected["numbers.pot"] = pot
+    hero_stack = _truth_text_number(truth, "hero_stack")
+    if hero_stack is None:
+        hero_stack = _truth_hero_stack_from_seats(truth)
+    if hero_stack is not None:
+        expected["numbers.hero_stack"] = hero_stack
+    legal_labels = tuple(
+        action_type
+        for action_type in (
+            _truth_button_action_type(button)
+            for button in _visible_direct_truth_action_buttons(truth)
+        )
+        if action_type
+    )
+    if legal_labels:
+        expected["actions.legal_labels"] = legal_labels
+    call_amount = _truth_call_amount(truth)
+    if call_amount is not None:
+        expected["numbers.call_amount"] = call_amount
+    return expected
+
+
+def _truth_cards(value: object) -> list[str]:
+    cards: list[str] = []
+    for entry in sorted(
+        _row_mappings(value),
+        key=lambda item: str(item.get("slot") or ""),
+    ):
+        if not bool(entry.get("visible", True)):
+            continue
+        card = _canonical_card_code(entry.get("card"))
+        if card is not None:
+            cards.append(card)
+    return cards
+
+
+def _canonical_card_code(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    code = value.strip().replace(" ", "").upper()
+    if len(code) < 2:
+        return None
+    suit = code[-1].lower()
+    rank = code[:-1]
+    if rank == "10":
+        rank = "T"
+    if rank not in {"2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"}:
+        return None
+    if suit not in {"c", "d", "h", "s"}:
+        return None
+    return f"{rank}{suit}"
+
+
+def _truth_text_number(truth: Mapping[str, object], name: str) -> int | None:
+    for text in _row_mappings(truth.get("texts")):
+        if str(text.get("name") or "") != name or not bool(text.get("visible", True)):
+            continue
+        number = _optional_int(text.get("normalized_number"))
+        if number is not None:
+            return number
+        value = text.get("value")
+        if isinstance(value, str):
+            return parse_poker_legends_chip_amount(value)
+    return None
+
+
+def _truth_hero_stack_from_seats(truth: Mapping[str, object]) -> int | None:
+    for seat in _visible_truth_seats(truth):
+        if str(seat.get("name") or "") == "hero":
+            return _optional_int(seat.get("stack"))
+    return None
+
+
+def _truth_call_amount(truth: Mapping[str, object]) -> int | None:
+    for button in _visible_direct_truth_action_buttons(truth):
+        if _truth_button_action_type(button) != "call":
+            continue
+        label = button.get("label")
+        if isinstance(label, str):
+            amount = parse_poker_legends_chip_amount(label)
+            if amount is not None:
+                return amount
+    committed: list[int] = []
+    for seat in _visible_truth_seats(truth):
+        seat_committed = _optional_int(seat.get("committed"))
+        if seat_committed is not None:
+            committed.append(seat_committed)
+    hero_committed = None
+    for seat in _visible_truth_seats(truth):
+        if str(seat.get("name") or "") == "hero":
+            hero_committed = _optional_int(seat.get("committed"))
+            break
+    if hero_committed is None or not committed:
+        return None
+    to_call = max(committed) - hero_committed
+    return to_call if to_call > 0 else None
+
+
+def _truth_button_action_type(button: Mapping[str, object]) -> str | None:
+    label = button.get("label")
+    if isinstance(label, str):
+        normalized = label.strip().lower()
+        if "check" in normalized:
+            return "check"
+        if "call" in normalized:
+            return "call"
+        if "fold" in normalized:
+            return "fold"
+        if "all in" in normalized or "all-in" in normalized:
+            return "all_in"
+        if "bet" in normalized:
+            return "bet"
+        if "raise" in normalized or "blind" in normalized:
+            return "raise"
+    return _optional_str(button.get("action_type"))
 
 
 def _review_tags(
@@ -387,8 +601,8 @@ def _visible_direct_truth_action_buttons(truth: Mapping[str, object]) -> list[Ma
 
 def _has_truth_action_type(truth: Mapping[str, object], action_types: set[str]) -> bool:
     for button in _visible_direct_truth_action_buttons(truth):
-        action_type = button.get("action_type")
-        if isinstance(action_type, str) and action_type in action_types:
+        action_type = _truth_button_action_type(button)
+        if action_type in action_types:
             return True
     return False
 
@@ -418,9 +632,27 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Frames scanned: {summary.get('frames', 0)}",
         f"- Actionable only: {summary.get('actionable_only', True)}",
         f"- Authorization events: {summary.get('authorization_events', 0)}",
+        f"- Unsafe authorization events: {summary.get('unsafe_authorization_events', 0)}",
+        f"- Stale authorization events: {summary.get('stale_authorization_events', 0)}",
+        "- Truth-assisted authorization events: "
+        f"{summary.get('truth_assisted_authorization_events', 0)}",
         f"- Non-actionable frames: {summary.get('non_actionable_frames', 0)}",
         f"- False actionable count: {summary.get('false_actionable_count', 0)}",
+        f"- Source policy violation count: {summary.get('source_policy_violation_count', 0)}",
+        f"- Accepted critical wrong count: {summary.get('accepted_critical_wrong_count', 0)}",
         f"- Review queue frames: {summary.get('review_queue_frames', 0)}",
+        "",
+        "## Recognition Mode Counts",
+        "",
+        *_count_lines(summary.get("recognition_mode_counts")),
+        "",
+        "## Contract Counts",
+        "",
+        *_count_lines(summary.get("contract_counts")),
+        "",
+        "## Assembly Status Counts",
+        "",
+        *_count_lines(summary.get("assembly_status_counts")),
         "",
         "## Screen Kind Counts",
         "",
@@ -453,6 +685,14 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Review Queue By Tag",
         "",
         *_frame_list_lines(summary.get("review_queue_by_tag")),
+        "",
+        "## Accepted Critical Wrong Examples",
+        "",
+        *_example_dict_lines(summary.get("accepted_critical_wrong_examples")),
+        "",
+        "## Source Policy Violation Examples",
+        "",
+        *_example_dict_lines(summary.get("source_policy_violation_examples")),
         "",
         "## Examples",
         "",
@@ -508,6 +748,29 @@ def _count_lines(value: object) -> list[str]:
     return [f"- {key}: {count}" for key, count in sorted(value.items())]
 
 
+def _example_dict_lines(value: object) -> list[str]:
+    if not isinstance(value, list) or not value:
+        return ["- none"]
+    lines: list[str] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        frame_id = item.get("frame_id", "")
+        field_path = item.get("field_path", "")
+        expected = item.get("expected")
+        accepted = item.get("accepted")
+        source = item.get("source", "")
+        mode = item.get("recognition_mode", "")
+        if "expected" in item or "accepted" in item:
+            lines.append(
+                f"- `{frame_id}` `{field_path}` expected={expected!r} "
+                f"accepted={accepted!r} source=`{source}`"
+            )
+        else:
+            lines.append(f"- `{frame_id}` `{field_path}` source=`{source}` mode=`{mode}`")
+    return lines or ["- none"]
+
+
 def _frame_list_lines(value: object) -> list[str]:
     if not isinstance(value, Mapping) or not value:
         return ["- none"]
@@ -531,6 +794,20 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
 
 
 def _inline_codes(value: object) -> str:

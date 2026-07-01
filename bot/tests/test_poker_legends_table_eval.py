@@ -4,6 +4,7 @@ from pathlib import Path
 from holdem_bot.adapters import poker_legends_table_eval
 from holdem_bot.capture import CapturedFrame
 from holdem_bot.recognize import (
+    AcceptedCriticalField,
     ActionPanelObservation,
     AssemblyIssue,
     AssemblyStatus,
@@ -48,6 +49,27 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
             "frame_id": frame_id,
             "screen": {"kind": screen_kind},
         }
+        if frame_id == "frame_001":
+            truth_payload.update(
+                {
+                    "buttons": [
+                        {
+                            "name": "primary_left",
+                            "visible": True,
+                            "action_type": "raise",
+                            "label": "Check",
+                        }
+                    ],
+                    "texts": [
+                        {
+                            "name": "pot",
+                            "visible": True,
+                            "value": "$150",
+                            "normalized_number": 150,
+                        }
+                    ],
+                }
+            )
         if frame_id == "frame_003":
             truth_payload.update(
                 {
@@ -121,10 +143,19 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
 
     assert summary["frames"] == 2
     assert summary["screen_kind_counts"] == {"actionable_table": 2}
+    assert summary["recognition_mode_counts"] == {"truth_assisted_replay": 2}
+    assert summary["contract_counts"] == {"observe_only": 1, "policy_decision": 1}
+    assert summary["assembly_status_counts"] == {"no_state": 1, "single_frame_valid": 1}
     assert summary["authorization_events"] == 1
+    assert summary["unsafe_authorization_events"] == 0
+    assert summary["stale_authorization_events"] == 0
+    assert summary["truth_assisted_authorization_events"] == 1
     assert summary["non_actionable_frames"] == 0
     assert summary["false_actionable_count"] == 0
     assert summary["false_actionable_examples"] == []
+    assert summary["source_policy_violation_count"] == 0
+    assert summary["accepted_critical_wrong_count"] == 0
+    assert summary["accepted_critical_wrong_examples"] == []
     assert summary["review_queue_frames"] == 1
     assert summary["review_queue_tag_counts"] == {"missing_pot": 1}
     assert summary["review_queue_by_tag"] == {"missing_pot": ["frame_003"]}
@@ -138,6 +169,22 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert isinstance(rows, list)
     assert rows[0]["frame_id"] == "frame_001"
     assert rows[0]["state"]["street"] == "flop"
+    assert rows[0]["recognition_mode"] == "truth_assisted_replay"
+    assert rows[0]["safety_contract"] == "policy_decision"
+    assert rows[0]["accepted_critical_fields"] == [
+        {
+            "evidence_refs": [],
+            "field_path": "numbers.pot",
+            "source": "reviewed_truth",
+            "value": 150,
+        },
+        {
+            "evidence_refs": [],
+            "field_path": "actions.legal_labels",
+            "source": "reviewed_truth",
+            "value": ("check",),
+        }
+    ]
     assert rows[1]["frame_id"] == "frame_003"
     assert rows[1]["truth_path"] == str(truth / "frame_003.json")
     assert rows[1]["layout_annotation_path"] == str(annotations / "frame_003.json")
@@ -164,10 +211,15 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "# Poker Legends Table Recognizer Report" in report
     assert "- state: 1" in report
     assert "- Authorization events: 1" in report
+    assert "- Unsafe authorization events: 0" in report
+    assert "- Truth-assisted authorization events: 1" in report
+    assert "- Accepted critical wrong count: 0" in report
     assert "- False actionable count: 0" in report
     assert "- Review queue frames: 1" in report
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
     assert "## Review Tag Counts" in report
+    assert "## Recognition Mode Counts" in report
+    assert "- truth_assisted_replay: 2" in report
     assert "- missing_pot: 1" in report
     assert "## Review Queue By Tag" in report
     assert "- missing_pot: `frame_003`" in report
@@ -195,10 +247,20 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
         "actionable_table": 2,
         "table_observe": 1,
     }
+    assert all_summary["recognition_mode_counts"] == {"truth_assisted_replay": 3}
+    assert all_summary["assembly_status_counts"] == {
+        "no_state": 1,
+        "single_frame_valid": 2,
+    }
     assert all_summary["authorization_events"] == 2
+    assert all_summary["unsafe_authorization_events"] == 1
+    assert all_summary["stale_authorization_events"] == 0
+    assert all_summary["truth_assisted_authorization_events"] == 2
     assert all_summary["non_actionable_frames"] == 1
     assert all_summary["false_actionable_count"] == 1
     assert all_summary["false_actionable_examples"] == ["frame_002"]
+    assert all_summary["source_policy_violation_count"] == 0
+    assert all_summary["accepted_critical_wrong_count"] == 0
     assert all_summary["review_queue_frames"] == 1
     assert all_summary["review_queue_tag_counts"] == {"missing_pot": 1}
     assert all_summary["review_queue_by_tag"] == {"missing_pot": ["frame_003"]}
@@ -245,6 +307,14 @@ class FakeRecognizer:
             safety_contract=ContractLevel.POLICY_DECISION,
             frame_evidence=evidence,
             assembly_result=assembly,
+            accepted_critical_fields=(
+                AcceptedCriticalField("numbers.pot", "reviewed_truth", 150),
+                AcceptedCriticalField(
+                    "actions.legal_labels",
+                    "reviewed_truth",
+                    ("check",),
+                ),
+            ),
         )
 
 

@@ -615,6 +615,12 @@
   `table_recognizer_review_queue_by_tag.json` / report 的 `Review Queue By Tag`。当前全量 119 帧复跑核心
   计数不变：authorization events 44、non-actionable frames 62、false actionable 0；review queue 仍为
   13 行，并可直接按 tag 跳转补标注或查 ROI。
+- 阶段 4 Poker Legends table evaluator critical safety summary v1：evaluator 现在输出
+  `recognition_mode_counts`、`contract_counts`、`assembly_status_counts`、`unsafe_authorization_events`、
+  `stale_authorization_events`、`truth_assisted_authorization_events`、`source_policy_violation_count`、
+  `accepted_critical_wrong_count`，每个 row 同步导出 `accepted_critical_fields` 与 mismatch/source-policy
+  examples。当前全量 119 帧复跑：`truth_assisted_replay` 119，authorization events 44，其中
+  truth-assisted authorization 44、unsafe authorization 0、stale authorization 0、accepted critical wrong 0。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
