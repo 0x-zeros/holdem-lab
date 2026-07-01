@@ -477,3 +477,7 @@ def _to_float(value: object) -> float:
     if isinstance(value, str) and value.strip():
         return float(value)
     raise TypeError(f"expected float-like value: {value!r}")
+
+
+if __name__ == "__main__":
+    main()
