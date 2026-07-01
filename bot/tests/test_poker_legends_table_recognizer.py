@@ -691,6 +691,58 @@ def test_poker_legends_table_recognizer_adds_single_truth_opponent_from_stack_te
     assert result.state.player(1).stack == 1200
 
 
+def test_poker_legends_table_recognizer_adds_single_ocr_opponent_from_stack_text(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    annotation["seats"] = [
+        {
+            "name": "hero",
+            "visible": True,
+            "stack": 900,
+            "committed": 0,
+            "active": True,
+            "current": True,
+            "confidence": 1.0,
+        }
+    ]
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer((button_prediction("primary_left", "check", 0.90),)),
+        number_recognizer=FakeNumberRecognizer(
+            (number_prediction("texts", "right_top_stack", 1200),),
+            expected_text_names=("right_top_stack",),
+            expected_button_names=(),
+        ),
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {"image": str(image), "regions": {}},
+            },
+        )
+    )
+
+    assert result.state is not None
+    assert len(result.state.players) == 2
+    assert result.state.player(1).stack == 1200
+
+
 def test_poker_legends_table_recognizer_uses_direct_truth_buttons_when_image_buttons_missing(
     tmp_path: Path,
 ) -> None:
@@ -928,6 +980,53 @@ def test_poker_legends_table_recognizer_marks_missing_current_action_row(
     assert panel.panel_kind == "current_action_row"
     assert panel.visible is False
     assert "missing_current_action_row" in panel.ambiguity_flags
+
+
+def test_poker_legends_table_recognizer_requires_passive_action_when_checking_is_free(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    annotation["buttons"] = [
+        {"name": "primary_middle", "visible": True, "action_type": "raise", "label": "Raise"},
+        {"name": "primary_right", "visible": True, "action_type": "fold", "label": "Fold"},
+    ]
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer(
+            (
+                button_prediction("primary_middle", "raise", 0.90),
+                button_prediction("primary_right", "fold", 0.90),
+            )
+        ),
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {"image": str(image), "regions": {}},
+            },
+        )
+    )
+
+    assert result.state is None
+    assert result.metadata["state_block_reason"] == "missing_legal_actions"
+    assert result.visual_observation is not None
+    panel = result.visual_observation.action_panels[0]
+    assert "missing_passive_action" in panel.ambiguity_flags
 
 
 def test_poker_legends_table_recognizer_infers_street_when_truth_street_lags_board(

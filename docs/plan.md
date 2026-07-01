@@ -547,6 +547,13 @@
   等预选/快捷标签时追加 `preselect_strip` negative panel；table recognizer evaluator 的 blocker 表同步展示
   action panel flags。当前 57 帧复跑 state 覆盖不变（48/57），但 3 个 `missing_legal_actions` 均可解释为
   `missing_current_action_row`，`session_002__keyframe_000334` 明确为 `preselect_strip`。
+- 阶段 4 Poker Legends action-row contract hardening v2：table recognizer 现在要求免费行动局面必须看到
+  `check`/`bet` 这类 passive/start action，面对跟注压力必须看到 `call`，否则继续 fail-closed 为
+  `missing_legal_actions`；action-panel flags 同步标出 `missing_passive_action` 与
+  `button_label_action_mismatch`。同时只在高置信 OCR 读到 `right_top_stack` 时才为单 hero seat 补最小对手
+  seat。当前 57 帧复跑：`state` 39、`missing_legal_actions` 13、`not_enough_players` 2、
+  `missing_pot` 1、`preselect_ambiguous` 1、`hero_not_current` 1；覆盖下降来自旧 valid prototype 中 9 帧按钮行
+  不完整/错位，按安全设计视为 discovered previous false valid，而不是追覆盖。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

@@ -971,6 +971,11 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                     )
             else:
                 actions.append(Action(action_type))
+        action_types = {action.action_type for action in actions}
+        if to_call == 0 and not action_types.intersection({ActionType.CHECK, ActionType.BET}):
+            return (), 0, "missing_legal_actions"
+        if to_call > 0 and ActionType.CALL not in action_types:
+            return (), 0, "missing_legal_actions"
         return tuple(actions), to_call, None
 
 
@@ -1238,6 +1243,11 @@ def _action_panel_observations(
             ambiguity_flags.append("missing_current_action_row")
         if preselect_buttons:
             ambiguity_flags.append("preselect_shortcut_label")
+        if table is not None and table.buttons:
+            if not _has_passive_or_start_action(table.buttons):
+                ambiguity_flags.append("missing_passive_action")
+            if _has_button_label_action_mismatch(table.buttons):
+                ambiguity_flags.append("button_label_action_mismatch")
         panels = [
             ActionPanelObservation(
                 panel_kind="current_action_row",
@@ -1291,6 +1301,30 @@ def _preselect_button_observations(
         for button in table.buttons
         if _is_preselect_or_shortcut_label(button.label)
     )
+
+
+def _has_passive_or_start_action(buttons: tuple[RecognizedButton, ...]) -> bool:
+    return any(button.action_type in {"check", "call", "bet"} for button in buttons)
+
+
+def _has_button_label_action_mismatch(buttons: tuple[RecognizedButton, ...]) -> bool:
+    return any(_button_label_action_mismatch(button) for button in buttons)
+
+
+def _button_label_action_mismatch(button: RecognizedButton) -> bool:
+    normalized = button.label.strip().lower()
+    if not normalized or _is_preselect_or_shortcut_label(normalized):
+        return False
+    action_type = button.action_type
+    if "check" in normalized:
+        return action_type != "check"
+    if "call" in normalized:
+        return action_type != "call"
+    if "fold" in normalized:
+        return action_type != "fold"
+    if "raise" in normalized:
+        return action_type != "raise"
+    return False
 
 
 def _button_observation(
@@ -1943,7 +1977,11 @@ def _recognized_seats_from_annotation(
                 )
             )
     if len(seats) == 1:
-        opponent_stack = _opponent_stack_from_texts(annotation)
+        opponent_stack = _first_number(
+            _opponent_stack_from_texts(annotation),
+            _number_prediction_value(number_predictions, "texts", "right_top_stack"),
+            _number_prediction_value(number_predictions, "texts", "opponent_stack"),
+        )
         if opponent_stack is not None:
             seats.append(
                 RecognizedSeat(
@@ -2346,6 +2384,8 @@ def _number_roi_names_for_fallbacks(
         text_names.append("pot")
     if _annotation_hero_stack(annotation) is None and _hero_stack_from_texts(annotation) is None:
         text_names.append("hero_stack")
+    if _truth_active_seat_count(annotation) < 2 and _opponent_stack_from_texts(annotation) is None:
+        text_names.append("right_top_stack")
 
     button_names: list[str] = []
     for button in _mapping_sequence(None if annotation is None else annotation.get("buttons")):
@@ -2365,6 +2405,14 @@ def _number_roi_names_for_fallbacks(
     elif not button_names and not _has_truth_buttons(annotation):
         button_names.append("primary_left")
     return tuple(dict.fromkeys(text_names)), tuple(dict.fromkeys(button_names))
+
+
+def _truth_active_seat_count(annotation: Mapping[str, object] | None) -> int:
+    count = 0
+    for seat in _mapping_sequence(None if annotation is None else annotation.get("seats")):
+        if _optional_bool(seat.get("active")) is not False:
+            count += 1
+    return count
 
 
 def _annotation_hero_stack(annotation: Mapping[str, object] | None) -> int | None:
