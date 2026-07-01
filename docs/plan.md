@@ -644,7 +644,8 @@
   authorization 仍为 0。
 - 阶段 4 Poker Legends table evaluator number readiness v1：image-only row 现在同时导出原始
   `number_predictions` 与 `accepted_number_predictions`，并把部分 table readiness blocker 拆成数字证据缺口，
-  仍不放宽数字接受阈值、不启用 image-only GameState 组装。当前 119 帧 image-only 复跑：
+  额外输出 `table_recognizer_number_readiness_by_flag.json` 供按 frame 复核，仍不放宽数字接受阈值、
+  不启用 image-only GameState 组装。当前 119 帧 image-only 复跑：
   `readiness_low_confidence_opponent_stack` 19、`readiness_missing_opponent_stack_ocr` 8、
   `readiness_low_confidence_hero_stack` 8；authorization events 0、unsafe authorization 0。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、

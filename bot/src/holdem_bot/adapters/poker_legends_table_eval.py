@@ -231,6 +231,10 @@ def evaluate_poker_legends_table_recognizer(
         "review_queue_frames": len(review_queue),
         "review_queue_tag_counts": _review_queue_tag_counts(review_queue),
         "review_queue_by_tag": _review_queue_by_tag(review_queue),
+        "number_readiness_by_flag": _rows_by_string_field(
+            rows,
+            field_name="number_readiness_flags",
+        ),
         "action_panel_flag_counts": dict(sorted(action_panel_flag_counts.items())),
         "blocking_action_panel_flag_counts": dict(
             sorted(blocking_action_panel_flag_counts.items())
@@ -251,6 +255,10 @@ def evaluate_poker_legends_table_recognizer(
     )
     (output / "table_recognizer_review_queue_by_tag.json").write_text(
         json.dumps(summary["review_queue_by_tag"], indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_number_readiness_by_flag.json").write_text(
+        json.dumps(summary["number_readiness_by_flag"], indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     _write_report(output / "table_recognizer_report.md", summary)
@@ -788,14 +796,22 @@ def _review_queue_tag_counts(rows: list[dict[str, object]]) -> dict[str, int]:
 
 
 def _review_queue_by_tag(rows: list[dict[str, object]]) -> dict[str, list[str]]:
+    return _rows_by_string_field(rows, field_name="review_tags")
+
+
+def _rows_by_string_field(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    field_name: str,
+) -> dict[str, list[str]]:
     grouped: dict[str, list[str]] = {}
     for row in rows:
         frame_id = str(row.get("frame_id") or "")
         if not frame_id:
             continue
-        for tag in _string_list(row.get("review_tags")):
-            grouped.setdefault(tag, []).append(frame_id)
-    return {tag: grouped[tag] for tag in sorted(grouped)}
+        for value in _string_list(row.get(field_name)):
+            grouped.setdefault(value, []).append(frame_id)
+    return {value: grouped[value] for value in sorted(grouped)}
 
 
 def _visible_truth_seats(truth: Mapping[str, object]) -> list[Mapping[str, object]]:
@@ -887,6 +903,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Number Readiness Flag Counts",
         "",
         *_count_lines(summary.get("number_readiness_flag_counts")),
+        "",
+        "## Number Readiness By Flag",
+        "",
+        *_frame_list_lines(summary.get("number_readiness_by_flag")),
         "",
         "## Screen Kind Counts",
         "",

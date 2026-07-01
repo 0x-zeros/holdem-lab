@@ -231,6 +231,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
     assert "## Table Readiness Flag Counts" in report
     assert "## Number Readiness Flag Counts" in report
+    assert "## Number Readiness By Flag" in report
     assert "## Review Tag Counts" in report
     assert "## Screen Truth Confusion" in report
     assert "- actionable_table: actionable_table=2" in report
@@ -320,9 +321,20 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert image_only_summary["number_readiness_flag_counts"] == {
         "readiness_low_confidence_opponent_stack": 1
     }
+    assert image_only_summary["number_readiness_by_flag"] == {
+        "readiness_low_confidence_opponent_stack": ["frame_001"]
+    }
     assert image_only_summary["review_queue_by_tag"] == {
         "missing_table_metadata": ["frame_001"],
         "screen_missed_actionable": ["frame_003"],
+    }
+    number_readiness_by_flag = json.loads(
+        (image_only_out / "table_recognizer_number_readiness_by_flag.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert number_readiness_by_flag == {
+        "readiness_low_confidence_opponent_stack": ["frame_001"]
     }
 
 
