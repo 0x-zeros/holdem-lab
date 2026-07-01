@@ -117,6 +117,7 @@ from holdem_bot.vision.poker_legends_session import (
     PokerLegendsTimelineEvent,
     build_poker_legends_session_timeline,
 )
+from holdem_bot.vision.poker_legends_temporal import PokerLegendsTemporalTracker
 from holdem_bot.vision.poker_legends_truth import (
     build_poker_legends_truth_overlay,
     merge_poker_legends_truth,
@@ -199,6 +200,7 @@ __all__ = [
     "PokerLegendsHandSegment",
     "PokerLegendsSessionTimeline",
     "PokerLegendsSessionTracker",
+    "PokerLegendsTemporalTracker",
     "PokerLegendsTemplateSource",
     "PokerLegendsTimelineEvent",
     "RecognitionScore",

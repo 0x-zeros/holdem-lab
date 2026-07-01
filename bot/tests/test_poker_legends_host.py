@@ -186,13 +186,14 @@ def test_replay_dry_run_main_reports_safety_summary(
     annotations = tmp_path / "annotations"
     frames.mkdir()
     annotations.mkdir()
-    (frames / "frame_001.png").write_bytes(b"fake")
     annotation = layout_annotation()
     annotation["screen"] = {"kind": "actionable_table", "confidence": 1.0}
-    (annotations / "frame_001.json").write_text(
-        json.dumps(annotation),
-        encoding="utf-8",
-    )
+    for frame_id in ("frame_001", "frame_002"):
+        (frames / f"{frame_id}.png").write_bytes(b"fake")
+        (annotations / f"{frame_id}.json").write_text(
+            json.dumps(annotation),
+            encoding="utf-8",
+        )
     log_path = tmp_path / "dry_run.jsonl"
     report_path = tmp_path / "safety.md"
 
@@ -255,18 +256,28 @@ def test_replay_dry_run_main_reports_safety_summary(
     )
 
     output = json.loads(capsys.readouterr().out)
-    assert output["frames"] == 1
+    assert output["frames"] == 2
     assert output["actionable"] == 1
     assert output["steps"][0]["recognition_mode"] == "image_only_replay"
     assert output["steps"][0]["expected_screen_kind"] == "actionable_table"
     assert output["steps"][0]["observed_screen_kind"] == "actionable_table"
-    assert output["steps"][0]["assembly_status"] == "single_frame_valid"
-    assert output["steps"][0]["safety_contract"] == "policy_decision"
+    assert output["steps"][0]["assembly_status"] == "temporally_unstable"
+    assert output["steps"][0]["validity_scope"] == "single_frame"
+    assert output["steps"][0]["safety_contract"] == "observe_only"
+    assert output["steps"][0]["stable_frame_count"] == 1
+    assert output["steps"][0]["state_block_reason"] == "temporally_unstable"
+    assert output["steps"][1]["assembly_status"] == "temporally_stable_valid"
+    assert output["steps"][1]["validity_scope"] == "temporal_window"
+    assert output["steps"][1]["safety_contract"] == "policy_decision"
+    assert output["steps"][1]["stable_frame_count"] == 2
     assert output["safety_summary"]["authorization_events"] == 1
-    assert output["safety_summary"]["expected_actionable_frames"] == 1
+    assert output["safety_summary"]["expected_actionable_frames"] == 2
     assert output["safety_summary"]["false_actionable_count"] == 0
-    assert output["safety_summary"]["mode_counts"] == {"image_only_replay": 1}
-    assert output["safety_summary"]["assembly_status_counts"] == {"single_frame_valid": 1}
+    assert output["safety_summary"]["mode_counts"] == {"image_only_replay": 2}
+    assert output["safety_summary"]["assembly_status_counts"] == {
+        "temporally_unstable": 1,
+        "temporally_stable_valid": 1,
+    }
     assert log_path.read_text(encoding="utf-8").strip()
     report = report_path.read_text(encoding="utf-8")
     assert "# Poker Legends Replay Safety Report" in report

@@ -225,6 +225,16 @@
   不做真实点击。命令行入口为 `uv run holdem-bot-capture-macos-screen --out-dir ...` 与
   `uv run holdem-bot-plan-poker-legends-click --layout-annotation ... --action ...`。该阶段仍停在
   dry-run，不进入真 Poker Legends 点击测试。
+- 阶段 4 Poker Legends perception redesign Slice 0-3：按
+  `docs/poker-legends-perception-redesign.md` 落地 observation-first / contract-first 骨架。Slice 0/1
+  已把 `RecognitionMode`、frame/ROI evidence、`VisualObservation`、`GameStateAssemblyResult`、
+  structured issues 与 contract level 变成 `RecognitionResult` 的一等字段，旧 metadata 只作兼容镜像；
+  image-only 模式会拒绝 reviewed-truth critical field。Slice 2 已新增 replay safety summary /
+  Markdown report，显式统计 authorization、unsafe authorization、truth-assisted authorization、
+  expected non-actionable 与 false actionable。Slice 3 新增 `PokerLegendsTemporalTracker` 并接入
+  replay dry-run 与 live HUD 连续帧路径：默认需要 2 帧当前窗口稳定后才把 `single_frame_valid` 升级为
+  `temporally_stable_valid`，overlay clear / 新手牌边界会重新稳定，旧 stable state 不会授权当前行动。
+  仍然只做 dry-run / overlay，不做真实点击。
 - 阶段 3/4 AI heuristic v1：`holdem_ai.decide(state) -> Action` 入口保持不变，新增
   `explain_decision(state) -> PolicyDecision`，供 bot/dry-run 审计策略理由。策略评分从原先只看私牌
   扩展为可解释手牌评估：成牌类型、flush/straight/combo draw、估算 outs、pot odds、位置 bonus、

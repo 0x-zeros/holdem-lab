@@ -38,6 +38,7 @@ from holdem_bot.vision.poker_legends_action_buttons import (
     ActionButtonDetection,
     detect_action_buttons,
 )
+from holdem_bot.vision.poker_legends_temporal import PokerLegendsTemporalTracker
 
 _Runner = Callable[[Sequence[str]], None]
 
@@ -411,6 +412,12 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--log-jsonl", required=True)
     parser.add_argument("--safety-report", help="Optional Markdown safety summary output path.")
     parser.add_argument(
+        "--temporal-window",
+        type=int,
+        default=2,
+        help="Stable-frame window required before replay dry-run authorization.",
+    )
+    parser.add_argument(
         "--use-truth",
         action="store_true",
         help="Bypass CV with each frame's truth annotation (isolates the read from recognition).",
@@ -426,6 +433,9 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
         controlled_seat=args.seat,
     )
     policy = FieldExploitPolicy()
+    temporal_tracker = PokerLegendsTemporalTracker(
+        required_stable_frames=args.temporal_window,
+    )
 
     frame_paths = sorted(Path(args.frames_dir).glob("*.png"))
     if args.limit is not None:
@@ -459,6 +469,7 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
             policy=policy,
             seat=args.seat,
             min_confidence=args.min_confidence,
+            temporal_tracker=temporal_tracker,
         )
         recognitions.append(recognition)
         acted = False
@@ -480,8 +491,15 @@ def replay_dry_run_main(argv: Sequence[str] | None = None) -> None:
                 "assembly_status": recognition.assembly_result.status.value
                 if recognition.assembly_result is not None
                 else None,
+                "validity_scope": recognition.assembly_result.validity_scope.value
+                if recognition.assembly_result is not None
+                else None,
+                "stable_frame_count": recognition.assembly_result.freshness.stable_frame_count
+                if recognition.assembly_result is not None
+                else None,
                 "safety_contract": recognition.safety_contract.value,
                 "state_block_reason": recognition.metadata.get("state_block_reason"),
+                "temporal_tracker": recognition.metadata.get("temporal_tracker"),
                 "exploit": policy_decision.metadata.get("exploit")
                 if policy_decision is not None
                 else None,
@@ -619,6 +637,12 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--dump-dir", help="live mode: directory for 's' frame dumps")
     parser.add_argument("--fps", type=float, default=4.0)
     parser.add_argument(
+        "--temporal-window",
+        type=int,
+        default=2,
+        help="Stable-frame window required before live HUD policy decisions.",
+    )
+    parser.add_argument(
         "--llm",
         action="store_true",
         help="read the table with a vision LLM (Gemini) instead of template CV",
@@ -718,6 +742,7 @@ def watch_main(argv: Sequence[str] | None = None) -> None:
         min_confidence=args.min_confidence,
         fps=args.fps,
         dump_dir=args.dump_dir,
+        temporal_window=args.temporal_window,
         recognize_min_interval=args.llm_min_interval if args.llm else 0.0,
     )
 
@@ -912,6 +937,7 @@ def _recognize_and_decide(
     seat: int,
     min_confidence: float,
     hand_tracker: HandTracker | None = None,
+    temporal_tracker: PokerLegendsTemporalTracker | None = None,
 ) -> tuple[RecognitionResult, SafetyDecision, PolicyDecision | None]:
     """Faithful per-frame pipeline: recognise -> the same safety gate -> decide if allowed.
 
@@ -922,6 +948,8 @@ def _recognize_and_decide(
     temp frame name), so the opponent model can actually accumulate per-hand reads.
     """
     recognition = recognizer.recognize(frame)
+    if temporal_tracker is not None:
+        recognition = temporal_tracker.update(recognition)
     if hand_tracker is not None and recognition.state is not None:
         stamped = replace(recognition.state, hand_id=hand_tracker.hand_id(recognition.state))
         recognition = replace(recognition, state=stamped)
@@ -1005,6 +1033,7 @@ def _run_watch_live(
     min_confidence: float,
     fps: float,
     dump_dir: str | None,
+    temporal_window: int,
     recognize_min_interval: float = 0.0,
 ) -> None:
     try:
@@ -1021,6 +1050,7 @@ def _run_watch_live(
     dump_index = 0
     llm_reads = 0
     hand_tracker = HandTracker()
+    temporal_tracker = PokerLegendsTemporalTracker(required_stable_frames=temporal_window)
     cached: tuple[RecognitionResult, SafetyDecision, PolicyDecision | None] | None = None
     last_recognized: NDArray[np.uint8] | None = None
     last_recognize_at = 0.0
@@ -1052,6 +1082,7 @@ def _run_watch_live(
                     seat=seat,
                     min_confidence=min_confidence,
                     hand_tracker=hand_tracker,
+                    temporal_tracker=temporal_tracker,
                 )
                 last_recognized = frame
                 last_recognize_at = start
