@@ -16,11 +16,26 @@ from holdem_bot.recognize import (
     REVIEWED_TRUTH_SOURCE,
     TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
     AcceptedCriticalField,
+    ActionPanelObservation,
+    AssemblyIssue,
+    AssemblyStatus,
+    ButtonObservation,
+    Candidate,
+    CardSlotObservation,
+    ContractLevel,
     FrameEvidence,
+    Freshness,
+    GameStateAssemblyResult,
+    LayoutObservation,
+    NumericObservation,
     RecognitionMode,
     RecognitionResult,
     Recognizer,
+    RoiEvidence,
+    SeatObservation,
     SourcePolicyViolation,
+    ValidityScope,
+    VisualObservation,
     frame_evidence_from_frame,
     recognition_mode_from_frame,
     source_policy_violations_for_fields,
@@ -398,13 +413,43 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             recognition_mode=mode,
             frame_evidence=frame_evidence,
         )
+        visual = _visual_observation_from_parts(
+            frame_evidence=frame_evidence,
+            recognition_mode=mode,
+            screen=screen,
+            layout_annotation=None,
+            table=table,
+            card_predictions=(),
+            button_predictions=(),
+            number_predictions=(),
+            controlled_seat=self.controlled_seat,
+        )
         if screen.kind is not ScreenKind.ACTIONABLE_TABLE:
+            assembly = _assembly_result_from_outcome(
+                state=None,
+                block_reason="screen_not_actionable",
+                screen=screen,
+                observation=visual,
+                table_confidence=table.confidence,
+                accepted_fields=(),
+                source_policy_violations=(),
+            )
+            metadata = _slice0_metadata(
+                metadata,
+                recognition_mode=mode,
+                frame_evidence=frame_evidence,
+                visual_observation=visual,
+                assembly_result=assembly,
+            )
             return RecognitionResult(
                 state=None,
                 confidence=screen.confidence,
                 metadata=metadata,
                 screen=screen,
+                visual_observation=visual,
+                assembly_result=assembly,
                 recognition_mode=mode,
+                safety_contract=assembly.contract_level,
                 frame_evidence=frame_evidence,
             )
         state, block_reason = self._state_from_table(
@@ -433,12 +478,32 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         )
         if block_reason is not None:
             metadata["state_block_reason"] = block_reason
+        assembly = _assembly_result_from_outcome(
+            state=state,
+            block_reason=block_reason,
+            screen=screen,
+            observation=visual,
+            table_confidence=table.confidence,
+            accepted_fields=accepted_fields,
+            source_policy_violations=(),
+        )
+        metadata = _slice0_metadata(
+            metadata,
+            recognition_mode=mode,
+            frame_evidence=frame_evidence,
+            accepted_critical_fields=accepted_fields,
+            visual_observation=visual,
+            assembly_result=assembly,
+        )
         return RecognitionResult(
             state=state,
             confidence=table.confidence,
             metadata=metadata,
             screen=screen,
+            visual_observation=visual,
+            assembly_result=assembly,
             recognition_mode=mode,
+            safety_contract=assembly.contract_level,
             frame_evidence=frame_evidence,
             accepted_critical_fields=accepted_fields,
         )
@@ -471,6 +536,16 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 confidence=0.0,
                 reason=TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
             )
+            visual = _visual_observation_from_context(context, screen=screen)
+            assembly = _assembly_result_from_outcome(
+                state=None,
+                block_reason=TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
+                screen=screen,
+                observation=visual,
+                table_confidence=0.0,
+                accepted_fields=(),
+                source_policy_violations=(violation,),
+            )
             metadata = _slice0_metadata(
                 {
                     "source": frame.source,
@@ -480,6 +555,8 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 recognition_mode=context.recognition_mode,
                 frame_evidence=context.frame_evidence,
                 source_policy_violations=(violation,),
+                visual_observation=visual,
+                assembly_result=assembly,
             )
             if context.image_path is not None:
                 metadata["image"] = str(context.image_path)
@@ -489,11 +566,15 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 confidence=0.0,
                 metadata=metadata,
                 screen=screen,
+                visual_observation=visual,
+                assembly_result=assembly,
                 recognition_mode=context.recognition_mode,
+                safety_contract=assembly.contract_level,
                 frame_evidence=context.frame_evidence,
                 source_policy_violations=(violation,),
             )
         screen = self._screen_state(frame, context)
+        visual = _visual_observation_from_context(context, screen=screen)
         metadata = _slice0_metadata(
             {
                 "source": frame.source,
@@ -501,6 +582,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             },
             recognition_mode=context.recognition_mode,
             frame_evidence=context.frame_evidence,
+            visual_observation=visual,
         )
         if context.annotation is not None:
             metadata["frame_id"] = context.frame_id
@@ -508,32 +590,89 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             metadata["image"] = str(context.image_path)
 
         if screen.kind is not ScreenKind.ACTIONABLE_TABLE:
+            assembly = _assembly_result_from_outcome(
+                state=None,
+                block_reason="screen_not_actionable",
+                screen=screen,
+                observation=visual,
+                table_confidence=screen.confidence,
+                accepted_fields=(),
+                source_policy_violations=(),
+            )
+            metadata = _slice0_metadata(
+                metadata,
+                recognition_mode=context.recognition_mode,
+                frame_evidence=context.frame_evidence,
+                visual_observation=visual,
+                assembly_result=assembly,
+            )
             return RecognitionResult(
                 state=None,
                 confidence=screen.confidence,
                 metadata=metadata,
                 screen=screen,
+                visual_observation=visual,
+                assembly_result=assembly,
                 recognition_mode=context.recognition_mode,
+                safety_contract=assembly.contract_level,
                 frame_evidence=context.frame_evidence,
             )
         if context.image_path is None:
             metadata["state_block_reason"] = "missing_image_path"
+            assembly = _assembly_result_from_outcome(
+                state=None,
+                block_reason="missing_image_path",
+                screen=screen,
+                observation=visual,
+                table_confidence=0.0,
+                accepted_fields=(),
+                source_policy_violations=(),
+            )
+            metadata = _slice0_metadata(
+                metadata,
+                recognition_mode=context.recognition_mode,
+                frame_evidence=context.frame_evidence,
+                visual_observation=visual,
+                assembly_result=assembly,
+            )
             return RecognitionResult(
                 state=None,
                 confidence=0.0,
                 metadata=metadata,
                 screen=screen,
+                visual_observation=visual,
+                assembly_result=assembly,
                 recognition_mode=context.recognition_mode,
+                safety_contract=assembly.contract_level,
                 frame_evidence=context.frame_evidence,
             )
         if context.layout_annotation is None:
             metadata["state_block_reason"] = "missing_layout_annotation"
+            assembly = _assembly_result_from_outcome(
+                state=None,
+                block_reason="missing_layout_annotation",
+                screen=screen,
+                observation=visual,
+                table_confidence=0.0,
+                accepted_fields=(),
+                source_policy_violations=(),
+            )
+            metadata = _slice0_metadata(
+                metadata,
+                recognition_mode=context.recognition_mode,
+                frame_evidence=context.frame_evidence,
+                visual_observation=visual,
+                assembly_result=assembly,
+            )
             return RecognitionResult(
                 state=None,
                 confidence=0.0,
                 metadata=metadata,
                 screen=screen,
+                visual_observation=visual,
+                assembly_result=assembly,
                 recognition_mode=context.recognition_mode,
+                safety_contract=assembly.contract_level,
                 frame_evidence=context.frame_evidence,
             )
 
@@ -577,6 +716,15 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             number_predictions=accepted_number_predictions,
             controlled_seat=self.controlled_seat,
         )
+        visual = _visual_observation_from_context(
+            context,
+            screen=screen,
+            table=table,
+            card_predictions=card_predictions,
+            button_predictions=button_predictions,
+            number_predictions=accepted_number_predictions,
+            controlled_seat=self.controlled_seat,
+        )
         state, block_reason = self._state_from_table(
             table,
             annotation=context.annotation,
@@ -612,19 +760,35 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         if policy_violations:
             state = None
             metadata["state_block_reason"] = TRUTH_ASSISTED_SOURCE_BLOCK_REASON
+        raw_block_reason = metadata.get("state_block_reason")
+        assembly_block_reason = raw_block_reason if isinstance(raw_block_reason, str) else None
+        assembly = _assembly_result_from_outcome(
+            state=state,
+            block_reason=assembly_block_reason,
+            screen=screen,
+            observation=visual,
+            table_confidence=table.confidence,
+            accepted_fields=accepted_fields,
+            source_policy_violations=policy_violations,
+        )
         metadata = _slice0_metadata(
             metadata,
             recognition_mode=context.recognition_mode,
             frame_evidence=context.frame_evidence,
             accepted_critical_fields=accepted_fields,
             source_policy_violations=policy_violations,
+            visual_observation=visual,
+            assembly_result=assembly,
         )
         return RecognitionResult(
             state=state,
             confidence=table.confidence,
             metadata=metadata,
             screen=screen,
+            visual_observation=visual,
+            assembly_result=assembly,
             recognition_mode=context.recognition_mode,
+            safety_contract=assembly.contract_level,
             frame_evidence=context.frame_evidence,
             accepted_critical_fields=accepted_fields,
             source_policy_violations=policy_violations,
@@ -835,6 +999,8 @@ def _slice0_metadata(
     frame_evidence: FrameEvidence,
     accepted_critical_fields: tuple[AcceptedCriticalField, ...] = (),
     source_policy_violations: tuple[SourcePolicyViolation, ...] = (),
+    visual_observation: VisualObservation | None = None,
+    assembly_result: GameStateAssemblyResult | None = None,
 ) -> dict[str, object]:
     merged = dict(metadata)
     merged["recognition_mode"] = recognition_mode.value
@@ -847,7 +1013,535 @@ def _slice0_metadata(
         merged["source_policy_violations"] = [
             violation.to_dict() for violation in source_policy_violations
         ]
+    if visual_observation is not None:
+        merged["visual_observation"] = visual_observation.to_dict()
+    if assembly_result is not None:
+        merged["assembly_result"] = assembly_result.to_dict()
+        for issue in assembly_result.issues:
+            if issue.blocking:
+                merged.setdefault("state_block_reason", issue.reason_code.lower())
+                break
     return merged
+
+
+def _visual_observation_from_context(
+    context: _FrameContext,
+    *,
+    screen: ScreenState,
+    table: RecognizedTable | None = None,
+    card_predictions: tuple[PokerLegendsCardConsensusPrediction, ...] = (),
+    button_predictions: tuple[PokerLegendsButtonPrediction, ...] = (),
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...] = (),
+    controlled_seat: int = 0,
+) -> VisualObservation:
+    return _visual_observation_from_parts(
+        frame_evidence=context.frame_evidence,
+        recognition_mode=context.recognition_mode,
+        screen=screen,
+        layout_annotation=context.layout_annotation,
+        table=table,
+        card_predictions=card_predictions,
+        button_predictions=button_predictions,
+        number_predictions=number_predictions,
+        controlled_seat=controlled_seat,
+    )
+
+
+def _visual_observation_from_parts(
+    *,
+    frame_evidence: FrameEvidence,
+    recognition_mode: RecognitionMode,
+    screen: ScreenState,
+    layout_annotation: Mapping[str, object] | None,
+    table: RecognizedTable | None,
+    card_predictions: tuple[PokerLegendsCardConsensusPrediction, ...],
+    button_predictions: tuple[PokerLegendsButtonPrediction, ...],
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    controlled_seat: int,
+) -> VisualObservation:
+    return VisualObservation(
+        frame=frame_evidence,
+        recognition_mode=recognition_mode,
+        screen=screen,
+        layout=_layout_observation(layout_annotation, frame_evidence=frame_evidence),
+        cards=_card_slot_observations(
+            table,
+            card_predictions,
+            controlled_seat=controlled_seat,
+        ),
+        action_panels=_action_panel_observations(screen, button_predictions, number_predictions),
+        numbers=_numeric_observations(number_predictions),
+        seats=_seat_observations(table, controlled_seat=controlled_seat),
+        warnings=(),
+    )
+
+
+def _layout_observation(
+    annotation: Mapping[str, object] | None,
+    *,
+    frame_evidence: FrameEvidence,
+) -> LayoutObservation:
+    if annotation is None:
+        return LayoutObservation(
+            profile_id=None,
+            layout_version=None,
+            transform_type=None,
+            transform_residual_px=None,
+            confidence=0.0,
+            image_size=frame_evidence.image_size,
+            source="missing_layout_annotation",
+            warnings=("missing_layout_annotation",),
+        )
+    profile = annotation.get("layout_profile") or annotation.get("profile_id")
+    layout_version = annotation.get("layout_version") or annotation.get("layout")
+    return LayoutObservation(
+        profile_id=str(profile) if isinstance(profile, str) and profile else None,
+        layout_version=str(layout_version)
+        if isinstance(layout_version, str) and layout_version
+        else None,
+        transform_type="static_roi",
+        transform_residual_px=None,
+        anchor_scores={},
+        roi_generation=str(annotation.get("roi_generation"))
+        if isinstance(annotation.get("roi_generation"), str)
+        else None,
+        confidence=1.0,
+        image_size=_layout_image_size(annotation) or frame_evidence.image_size,
+        source="layout_annotation",
+        warnings=(),
+    )
+
+
+def _layout_image_size(annotation: Mapping[str, object]) -> tuple[int, int] | None:
+    width = _optional_int(annotation.get("width"))
+    height = _optional_int(annotation.get("height"))
+    if width is None or height is None:
+        return None
+    return (width, height)
+
+
+def _card_slot_observations(
+    table: RecognizedTable | None,
+    predictions: tuple[PokerLegendsCardConsensusPrediction, ...],
+    *,
+    controlled_seat: int,
+) -> tuple[CardSlotObservation, ...]:
+    if predictions:
+        return tuple(_card_slot_from_prediction(prediction) for prediction in predictions)
+    if table is None:
+        return ()
+    cards: list[CardSlotObservation] = []
+    for card in table.board:
+        cards.append(_card_slot_from_recognized_card("board", card, source=table.source))
+    for seat in table.seats:
+        for card in seat.hole_cards:
+            group = (
+                "hero_hole_cards"
+                if seat.seat == controlled_seat
+                else f"seat_{seat.seat}_hole_cards"
+            )
+            cards.append(_card_slot_from_recognized_card(group, card, source=table.source))
+    return tuple(cards)
+
+
+def _card_slot_from_prediction(
+    prediction: PokerLegendsCardConsensusPrediction,
+) -> CardSlotObservation:
+    evidence = RoiEvidence(roi_id=f"card:{prediction.group}:{prediction.slot}")
+    candidate = (
+        Candidate(
+            value=prediction.card,
+            confidence=prediction.confidence,
+            source="image_card_consensus",
+            raw=prediction.to_dict(),
+            evidence=(evidence,),
+        ),
+    ) if prediction.card is not None else ()
+    return CardSlotObservation(
+        group=prediction.group,
+        slot=prediction.slot,
+        occupancy=_card_occupancy(prediction.visible, prediction.card),
+        card_candidates=candidate,
+        accepted_card=prediction.card if prediction.visible else None,
+        accepted_by_single_frame=prediction.visible and prediction.card is not None,
+        confidence=prediction.confidence,
+        consensus_components={
+            "method": prediction.method,
+            "full_card": prediction.full_card,
+            "part_card": prediction.part_card,
+            "classifier_card": prediction.classifier_card,
+            "full_confidence": prediction.full_confidence,
+            "part_confidence": prediction.part_confidence,
+            "classifier_confidence": prediction.classifier_confidence,
+        },
+        evidence=evidence,
+    )
+
+
+def _card_slot_from_recognized_card(
+    group: str,
+    card: RecognizedCard,
+    *,
+    source: str,
+) -> CardSlotObservation:
+    evidence = RoiEvidence(roi_id=f"card:{group}:{card.slot}")
+    candidate = (
+        Candidate(
+            value=card.card,
+            confidence=card.confidence,
+            source=source,
+            evidence=(evidence,),
+        ),
+    ) if card.card is not None else ()
+    return CardSlotObservation(
+        group=group,
+        slot=card.slot,
+        occupancy=_card_occupancy(card.visible, card.card),
+        card_candidates=candidate,
+        accepted_card=card.card if card.visible else None,
+        accepted_by_single_frame=card.visible and card.card is not None,
+        confidence=card.confidence,
+        evidence=evidence,
+    )
+
+
+def _card_occupancy(visible: bool, card: str | None) -> str:
+    if visible and card is not None:
+        return "face_up"
+    if visible:
+        return "unknown"
+    return "empty"
+
+
+def _action_panel_observations(
+    screen: ScreenState,
+    button_predictions: tuple[PokerLegendsButtonPrediction, ...],
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+) -> tuple[ActionPanelObservation, ...]:
+    button_observations = tuple(
+        _button_observation(prediction, number_predictions) for prediction in button_predictions
+    )
+    if screen.kind is ScreenKind.ACTIONABLE_TABLE:
+        return (
+            ActionPanelObservation(
+                panel_kind="current_action_row",
+                visible=bool(button_observations),
+                enabled=True if button_observations else None,
+                hero_turn_indicator=screen.hero_turn,
+                row_bbox=None,
+                buttons=button_observations,
+                confidence=screen.confidence,
+                ambiguity_flags=(),
+                evidence=RoiEvidence(roi_id="action_panel:current_action_row"),
+            ),
+        )
+    return (
+        ActionPanelObservation(
+            panel_kind="unknown",
+            visible=False,
+            enabled=None,
+            hero_turn_indicator=screen.hero_turn,
+            row_bbox=None,
+            buttons=button_observations,
+            confidence=screen.confidence,
+            ambiguity_flags=(screen.kind.value,),
+            evidence=RoiEvidence(roi_id="action_panel:unknown"),
+        ),
+    )
+
+
+def _button_observation(
+    prediction: PokerLegendsButtonPrediction,
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+) -> ButtonObservation:
+    evidence = RoiEvidence(roi_id=f"button:{prediction.slot}")
+    action_candidates = (
+        Candidate(
+            value=prediction.action_type,
+            confidence=prediction.confidence,
+            source="image_button_recognizer",
+            raw=prediction.to_dict(),
+            evidence=(evidence,),
+        ),
+    ) if prediction.action_type is not None else ()
+    amount = _number_prediction(number_predictions, "buttons", prediction.slot)
+    amount_candidates = (
+        Candidate(
+            value=amount.normalized_number,
+            confidence=amount.confidence,
+            source="image_ocr",
+            raw=amount.to_dict(),
+            evidence=(evidence,),
+        ),
+    ) if amount is not None else ()
+    return ButtonObservation(
+        slot=prediction.slot,
+        visible=prediction.visible,
+        enabled=True if prediction.visible else None,
+        action_candidates=action_candidates,
+        accepted_action=prediction.action_type if prediction.visible else None,
+        amount_candidates=amount_candidates,
+        confidence=prediction.confidence,
+        evidence=evidence,
+    )
+
+
+def _numeric_observations(
+    predictions: tuple[PokerLegendsNumberPrediction, ...],
+) -> tuple[NumericObservation, ...]:
+    return tuple(_numeric_observation(prediction) for prediction in predictions)
+
+
+def _numeric_observation(prediction: PokerLegendsNumberPrediction) -> NumericObservation:
+    evidence = RoiEvidence(roi_id=f"number:{prediction.group}:{prediction.name}")
+    candidate = (
+        Candidate(
+            value=prediction.normalized_number,
+            confidence=prediction.confidence,
+            source="image_ocr",
+            raw=prediction.to_dict(),
+            evidence=(evidence,),
+        ),
+    ) if prediction.normalized_number is not None else ()
+    normalized = (
+        str(prediction.normalized_number)
+        if prediction.normalized_number is not None
+        else None
+    )
+    return NumericObservation(
+        role=_numeric_role(prediction.group, prediction.name),
+        group=prediction.group,
+        name=prediction.name,
+        visible=prediction.visible,
+        raw_text=prediction.raw,
+        normalized_text=normalized,
+        unit=None,
+        scale=None,
+        candidates=candidate,
+        accepted_value=prediction.normalized_number,
+        ocr_confidence=prediction.confidence,
+        parse_confidence=prediction.confidence if prediction.normalized_number is not None else 0.0,
+        value_confidence=prediction.confidence if prediction.normalized_number is not None else 0.0,
+        parser_version="poker_legends_numbers_v1",
+        format_flags=(),
+        evidence=evidence,
+    )
+
+
+def _numeric_role(group: str, name: str) -> str:
+    if group == "buttons":
+        return "call_amount" if name == "primary_left" else "button_amount"
+    if name in {"pot", "pot_size"}:
+        return "pot"
+    if name == "hero_stack":
+        return "hero_stack"
+    if name.endswith("_stack") or name == "opponent_stack":
+        return "seat_stack"
+    return name
+
+
+def _seat_observations(
+    table: RecognizedTable | None,
+    *,
+    controlled_seat: int,
+) -> tuple[SeatObservation, ...]:
+    if table is None:
+        return ()
+    return tuple(_seat_observation(seat, controlled_seat=controlled_seat) for seat in table.seats)
+
+
+def _seat_observation(
+    seat: RecognizedSeat,
+    *,
+    controlled_seat: int,
+) -> SeatObservation:
+    evidence = RoiEvidence(roi_id=f"seat:{seat.seat}")
+    stack_candidate = (
+        Candidate(
+            value=seat.stack,
+            confidence=seat.confidence,
+            source="recognized_table",
+            evidence=(evidence,),
+        ),
+    ) if seat.stack >= 0 else ()
+    return SeatObservation(
+        seat=seat.seat,
+        occupied=True,
+        in_hand=seat.active,
+        has_hole_cards=bool(seat.hole_cards),
+        folded=False if seat.active else None,
+        all_in=True if seat.stack == 0 else False,
+        sitting_out=False if seat.active else None,
+        current_actor=seat.current,
+        hero_seat=seat.seat == controlled_seat,
+        dealer_button_nearby=seat.position in _BUTTON_LABELS if seat.position is not None else None,
+        small_blind_marker=seat.position == "sb" if seat.position is not None else None,
+        big_blind_marker=seat.position == "bb" if seat.position is not None else None,
+        stack_candidates=stack_candidate,
+        accepted_stack=seat.stack if seat.stack >= 0 else None,
+        committed_current_street=seat.committed,
+        committed_total_hand=seat.committed,
+        showing_cards=tuple(
+            _card_slot_from_recognized_card(
+                "hero_hole_cards" if seat.seat == controlled_seat else f"seat_{seat.seat}_cards",
+                card,
+                source="recognized_table",
+            )
+            for card in seat.hole_cards
+        ),
+        confidence=seat.confidence,
+        evidence=evidence,
+    )
+
+
+def _assembly_result_from_outcome(
+    *,
+    state: GameState | None,
+    block_reason: str | None,
+    screen: ScreenState,
+    observation: VisualObservation,
+    table_confidence: float,
+    accepted_fields: tuple[AcceptedCriticalField, ...],
+    source_policy_violations: tuple[SourcePolicyViolation, ...],
+) -> GameStateAssemblyResult:
+    issues = tuple(
+        [
+            *(
+                _issue_from_source_policy_violation(violation)
+                for violation in source_policy_violations
+            ),
+            *(() if block_reason is None else (_issue_from_block_reason(block_reason),)),
+        ]
+    )
+    status = _assembly_status(
+        state=state,
+        screen=screen,
+        block_reason=block_reason,
+        source_policy_violations=source_policy_violations,
+    )
+    valid_for = _valid_contracts_for_state(state)
+    contract_level = (
+        ContractLevel.POLICY_DECISION if state is not None else ContractLevel.OBSERVE_ONLY
+    )
+    contract_status = "satisfied" if state is not None else "blocked"
+    return GameStateAssemblyResult(
+        status=status,
+        validity_scope=ValidityScope.SINGLE_FRAME if state is not None else ValidityScope.NONE,
+        state=state,
+        contract_level=contract_level,
+        contract_status=contract_status,
+        valid_for=valid_for,
+        issues=issues,
+        freshness=Freshness(
+            source_frame_id=observation.frame.frame_id,
+            current_frame_revalidated=True,
+            critical_fields_fresh=state is not None,
+            action_row_fresh=state is not None,
+            stable_frame_count=1 if state is not None else 0,
+        ),
+        field_confidences=_field_confidences(accepted_fields, table_confidence),
+        critical_min_confidence=table_confidence if state is not None else None,
+        layout_confidence=observation.layout.confidence,
+        screen_confidence=screen.confidence,
+        rule_consistency="consistent" if state is not None else "blocked",
+        observation_id=observation.frame.frame_id,
+    )
+
+
+def _assembly_status(
+    *,
+    state: GameState | None,
+    screen: ScreenState,
+    block_reason: str | None,
+    source_policy_violations: tuple[SourcePolicyViolation, ...],
+) -> AssemblyStatus:
+    if source_policy_violations:
+        return AssemblyStatus.INVALID
+    if screen.kind is not ScreenKind.ACTIONABLE_TABLE:
+        return AssemblyStatus.BLOCKED_SCREEN
+    if state is not None:
+        return AssemblyStatus.SINGLE_FRAME_VALID
+    if block_reason in {"board_count_mismatch", "low_card_confidence"}:
+        return AssemblyStatus.INVALID
+    return AssemblyStatus.NO_STATE
+
+
+def _valid_contracts_for_state(state: GameState | None) -> tuple[ContractLevel, ...]:
+    if state is None:
+        return (ContractLevel.OBSERVE_ONLY,)
+    valid = [ContractLevel.OBSERVE_ONLY, ContractLevel.GAME_STATE, ContractLevel.POLICY_DECISION]
+    action_types = {action.action_type for action in state.legal_actions}
+    if action_types <= {ActionType.FOLD, ActionType.CHECK}:
+        valid.append(ContractLevel.FOLD_CHECK_ONLY)
+    if ActionType.CALL in action_types:
+        valid.append(ContractLevel.CALL_DECISION)
+    if ActionType.BET in action_types or ActionType.RAISE in action_types:
+        valid.append(ContractLevel.SIZING_DECISION)
+    return tuple(valid)
+
+
+def _field_confidences(
+    accepted_fields: tuple[AcceptedCriticalField, ...],
+    table_confidence: float,
+) -> dict[str, float]:
+    return {field.field_path: table_confidence for field in accepted_fields}
+
+
+def _issue_from_source_policy_violation(violation: SourcePolicyViolation) -> AssemblyIssue:
+    return AssemblyIssue(
+        issue_type="source_policy",
+        reason_code="TRUTH_ASSISTED_FIELD_IN_IMAGE_ONLY_MODE",
+        field_path=violation.field_path,
+        rule_name="image_only_source_policy",
+        severity="hard",
+        blocking=True,
+        required_by_contract=(ContractLevel.POLICY_DECISION,),
+        source=violation.source,
+        message=violation.reason,
+    )
+
+
+def _issue_from_block_reason(reason: str) -> AssemblyIssue:
+    reason_code, field_path, issue_type = _reason_code_field_and_type(reason)
+    return AssemblyIssue(
+        issue_type=issue_type,
+        reason_code=reason_code,
+        field_path=field_path,
+        rule_name="single_frame_contract",
+        severity="hard",
+        blocking=True,
+        required_by_contract=(ContractLevel.POLICY_DECISION,),
+        message=reason,
+    )
+
+
+def _reason_code_field_and_type(reason: str) -> tuple[str, str, str]:
+    mapping = {
+        "screen_not_actionable": ("SCREEN_NOT_ACTIONABLE", "screen.kind", "missing"),
+        "missing_image_path": ("MISSING_IMAGE", "frame.image", "missing"),
+        "missing_layout_annotation": ("LAYOUT_LOW_CONFIDENCE", "layout", "missing"),
+        "missing_table_metadata": ("MISSING_TABLE_METADATA", "table", "missing"),
+        "hero_not_current": ("HERO_TURN_NOT_CONFIRMED", "screen.hero_turn", "missing"),
+        "missing_pot": ("POT_REQUIRED_BY_POLICY", "numbers.pot", "missing"),
+        "missing_seats": ("MISSING_SEATS", "seats", "missing"),
+        "missing_hero_seat": ("MISSING_HERO_SEAT", "seats.hero", "missing"),
+        "missing_hero_stack": ("MISSING_HERO_STACK", "numbers.hero_stack", "missing"),
+        "missing_hero_hole_cards": ("MISSING_HERO_CARDS", "cards.hero", "missing"),
+        "low_card_confidence": ("CARD_LOW_CONFIDENCE", "cards", "low_confidence"),
+        "missing_call_amount": ("CALL_AMOUNT_UNTRUSTED", "numbers.call_amount", "missing"),
+        "missing_legal_actions": ("ACTION_ROW_UNSTABLE", "actions", "missing"),
+        "missing_street": ("MISSING_STREET", "street", "missing"),
+        "board_count_mismatch": ("MISSING_BOARD_CARD", "cards.board", "contradiction"),
+        "missing_seat_stack": ("MISSING_SEAT_STACK", "numbers.seat_stack", "missing"),
+        "not_enough_players": ("NOT_ENOUGH_PLAYERS", "seats", "missing"),
+        "low_button_confidence": ("ACTION_ROW_UNSTABLE", "actions.buttons", "low_confidence"),
+        TRUTH_ASSISTED_SOURCE_BLOCK_REASON: (
+            "TRUTH_ASSISTED_FIELD_IN_IMAGE_ONLY_MODE",
+            "source_policy",
+            "source_policy",
+        ),
+    }
+    return mapping.get(reason, (reason.upper(), "unknown", "missing"))
 
 
 def _frame_id_from_inputs(

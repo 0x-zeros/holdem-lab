@@ -5,8 +5,11 @@ from holdem_bot import CapturedFrame, ScreenKind
 from holdem_bot.adapters import PokerLegendsTableRecognizer
 from holdem_bot.recognize import (
     TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
+    AssemblyStatus,
+    ContractLevel,
     RecognitionMode,
     RecognitionResult,
+    ValidityScope,
     evaluate_accepted_critical_fields,
 )
 from holdem_bot.vision import PokerLegendsCardConsensusPrediction, PokerLegendsNumberPrediction
@@ -57,6 +60,17 @@ def test_poker_legends_table_recognizer_builds_prototype_state(tmp_path: Path) -
     assert result.frame_evidence.frame_id == "frame_001"
     assert result.frame_evidence.image_hash is not None
     assert result.metadata["frame_evidence"] == result.frame_evidence.to_dict()
+    assert result.visual_observation is not None
+    assert result.visual_observation.frame == result.frame_evidence
+    assert len(result.visual_observation.cards) == 5
+    assert result.visual_observation.action_panels[0].panel_kind == "current_action_row"
+    assert result.assembly_result is not None
+    assert result.assembly_result.status is AssemblyStatus.SINGLE_FRAME_VALID
+    assert result.assembly_result.validity_scope is ValidityScope.SINGLE_FRAME
+    assert result.assembly_result.contract_level is ContractLevel.POLICY_DECISION
+    assert result.safety_contract is ContractLevel.POLICY_DECISION
+    assert result.metadata["visual_observation"] == result.visual_observation.to_dict()
+    assert result.metadata["assembly_result"] == result.assembly_result.to_dict()
     assert result.state is not None
     assert result.state.metadata["source"] == "poker_legends_prototype"
     assert result.state.street is Street.FLOP
@@ -113,6 +127,14 @@ def test_poker_legends_table_recognizer_blocks_truth_assist_in_image_only_mode(
     assert result.recognition_mode is RecognitionMode.IMAGE_ONLY_REPLAY
     assert result.state is None
     assert result.metadata["state_block_reason"] == TRUTH_ASSISTED_SOURCE_BLOCK_REASON
+    assert result.assembly_result is not None
+    assert result.assembly_result.status is AssemblyStatus.INVALID
+    assert result.assembly_result.validity_scope is ValidityScope.NONE
+    assert result.assembly_result.issues[0].reason_code == (
+        "TRUTH_ASSISTED_FIELD_IN_IMAGE_ONLY_MODE"
+    )
+    assert result.safety_contract is ContractLevel.OBSERVE_ONLY
+    assert result.visual_observation is not None
     assert result.source_policy_violations
     assert result.source_policy_violations[0].field_path == "poker_legends_annotation"
     assert result.metadata["source_policy_violations"] == [

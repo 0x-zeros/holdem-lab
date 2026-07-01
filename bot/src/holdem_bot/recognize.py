@@ -22,6 +22,33 @@ class RecognitionMode(StrEnum):
     SYNTHETIC_TEST = "synthetic_test"
 
 
+class AssemblyStatus(StrEnum):
+    BLOCKED_SCREEN = "blocked_screen"
+    NO_STATE = "no_state"
+    SINGLE_FRAME_VALID = "single_frame_valid"
+    TEMPORALLY_UNSTABLE = "temporally_unstable"
+    TEMPORALLY_STABLE_VALID = "temporally_stable_valid"
+    INVALID = "invalid"
+    UNSAFE_TRANSITION = "unsafe_transition"
+
+
+class ValidityScope(StrEnum):
+    NONE = "none"
+    SINGLE_FRAME = "single_frame"
+    TEMPORAL_WINDOW = "temporal_window"
+    HAND_LOCKED = "hand_locked"
+
+
+class ContractLevel(StrEnum):
+    OBSERVE_ONLY = "observe_only"
+    GAME_STATE = "game_state"
+    POLICY_DECISION = "policy_decision"
+    FOLD_CHECK_ONLY = "fold_check_only"
+    CALL_DECISION = "call_decision"
+    SIZING_DECISION = "sizing_decision"
+    CLICK_PLAN = "click_plan"
+
+
 IMAGE_ONLY_RECOGNITION_MODES = frozenset(
     {RecognitionMode.IMAGE_ONLY_LIVE, RecognitionMode.IMAGE_ONLY_REPLAY}
 )
@@ -88,6 +115,248 @@ class RoiEvidence:
             "crop_quality": self.crop_quality,
             "occlusion_score": self.occlusion_score,
             "blur_score": self.blur_score,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    value: object
+    confidence: float
+    source: str
+    raw: object | None = None
+    evidence: tuple[RoiEvidence, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "value": self.value,
+            "confidence": self.confidence,
+            "source": self.source,
+            "raw": self.raw,
+            "evidence": [item.to_dict() for item in self.evidence],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class LayoutObservation:
+    profile_id: str | None
+    layout_version: str | None
+    transform_type: str | None
+    transform_residual_px: float | None
+    anchor_scores: Mapping[str, float] = field(default_factory=dict)
+    roi_generation: str | None = None
+    confidence: float = 1.0
+    image_size: tuple[int, int] | None = None
+    source: str = "unknown"
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "profile_id": self.profile_id,
+            "layout_version": self.layout_version,
+            "transform_type": self.transform_type,
+            "transform_residual_px": self.transform_residual_px,
+            "anchor_scores": dict(self.anchor_scores),
+            "roi_generation": self.roi_generation,
+            "confidence": self.confidence,
+            "image_size": list(self.image_size) if self.image_size is not None else None,
+            "source": self.source,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CardSlotObservation:
+    group: str
+    slot: str
+    occupancy: str
+    rank_candidates: tuple[Candidate, ...] = ()
+    suit_candidates: tuple[Candidate, ...] = ()
+    card_candidates: tuple[Candidate, ...] = ()
+    accepted_card: str | None = None
+    locked_card: str | None = None
+    accepted_by_single_frame: bool = False
+    locked_by_tracker: bool = False
+    confidence: float = 0.0
+    consensus_components: Mapping[str, object] = field(default_factory=dict)
+    evidence: RoiEvidence | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "group": self.group,
+            "slot": self.slot,
+            "occupancy": self.occupancy,
+            "rank_candidates": [candidate.to_dict() for candidate in self.rank_candidates],
+            "suit_candidates": [candidate.to_dict() for candidate in self.suit_candidates],
+            "card_candidates": [candidate.to_dict() for candidate in self.card_candidates],
+            "accepted_card": self.accepted_card,
+            "locked_card": self.locked_card,
+            "accepted_by_single_frame": self.accepted_by_single_frame,
+            "locked_by_tracker": self.locked_by_tracker,
+            "confidence": self.confidence,
+            "consensus_components": dict(self.consensus_components),
+            "evidence": self.evidence.to_dict() if self.evidence is not None else None,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ButtonObservation:
+    slot: str
+    visible: bool
+    enabled: bool | None
+    action_candidates: tuple[Candidate, ...] = ()
+    accepted_action: str | None = None
+    amount_candidates: tuple[Candidate, ...] = ()
+    confidence: float = 0.0
+    evidence: RoiEvidence | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "slot": self.slot,
+            "visible": self.visible,
+            "enabled": self.enabled,
+            "action_candidates": [candidate.to_dict() for candidate in self.action_candidates],
+            "accepted_action": self.accepted_action,
+            "amount_candidates": [candidate.to_dict() for candidate in self.amount_candidates],
+            "confidence": self.confidence,
+            "evidence": self.evidence.to_dict() if self.evidence is not None else None,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ActionPanelObservation:
+    panel_kind: str
+    visible: bool
+    enabled: bool | None
+    hero_turn_indicator: bool | None
+    row_bbox: tuple[int, int, int, int] | None
+    buttons: tuple[ButtonObservation, ...] = ()
+    confidence: float = 0.0
+    ambiguity_flags: tuple[str, ...] = ()
+    evidence: RoiEvidence | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "panel_kind": self.panel_kind,
+            "visible": self.visible,
+            "enabled": self.enabled,
+            "hero_turn_indicator": self.hero_turn_indicator,
+            "row_bbox": list(self.row_bbox) if self.row_bbox is not None else None,
+            "buttons": [button.to_dict() for button in self.buttons],
+            "confidence": self.confidence,
+            "ambiguity_flags": list(self.ambiguity_flags),
+            "evidence": self.evidence.to_dict() if self.evidence is not None else None,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class NumericObservation:
+    role: str
+    group: str
+    name: str
+    visible: bool
+    raw_text: str
+    normalized_text: str | None
+    unit: str | None
+    scale: str | None
+    candidates: tuple[Candidate, ...] = ()
+    accepted_value: int | None = None
+    ocr_confidence: float = 0.0
+    parse_confidence: float = 0.0
+    value_confidence: float = 0.0
+    parser_version: str = "unknown"
+    format_flags: tuple[str, ...] = ()
+    evidence: RoiEvidence | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "role": self.role,
+            "group": self.group,
+            "name": self.name,
+            "visible": self.visible,
+            "raw_text": self.raw_text,
+            "normalized_text": self.normalized_text,
+            "unit": self.unit,
+            "scale": self.scale,
+            "candidates": [candidate.to_dict() for candidate in self.candidates],
+            "accepted_value": self.accepted_value,
+            "ocr_confidence": self.ocr_confidence,
+            "parse_confidence": self.parse_confidence,
+            "value_confidence": self.value_confidence,
+            "parser_version": self.parser_version,
+            "format_flags": list(self.format_flags),
+            "evidence": self.evidence.to_dict() if self.evidence is not None else None,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SeatObservation:
+    seat: int
+    occupied: bool | None
+    in_hand: bool | None
+    has_hole_cards: bool | None
+    folded: bool | None
+    all_in: bool | None
+    sitting_out: bool | None
+    current_actor: bool | None
+    hero_seat: bool
+    dealer_button_nearby: bool | None
+    small_blind_marker: bool | None
+    big_blind_marker: bool | None
+    stack_candidates: tuple[Candidate, ...] = ()
+    accepted_stack: int | None = None
+    committed_current_street: int | None = None
+    committed_total_hand: int | None = None
+    showing_cards: tuple[CardSlotObservation, ...] = ()
+    confidence: float = 0.0
+    evidence: RoiEvidence | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "seat": self.seat,
+            "occupied": self.occupied,
+            "in_hand": self.in_hand,
+            "has_hole_cards": self.has_hole_cards,
+            "folded": self.folded,
+            "all_in": self.all_in,
+            "sitting_out": self.sitting_out,
+            "current_actor": self.current_actor,
+            "hero_seat": self.hero_seat,
+            "dealer_button_nearby": self.dealer_button_nearby,
+            "small_blind_marker": self.small_blind_marker,
+            "big_blind_marker": self.big_blind_marker,
+            "stack_candidates": [candidate.to_dict() for candidate in self.stack_candidates],
+            "accepted_stack": self.accepted_stack,
+            "committed_current_street": self.committed_current_street,
+            "committed_total_hand": self.committed_total_hand,
+            "showing_cards": [card.to_dict() for card in self.showing_cards],
+            "confidence": self.confidence,
+            "evidence": self.evidence.to_dict() if self.evidence is not None else None,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class VisualObservation:
+    frame: FrameEvidence
+    recognition_mode: RecognitionMode
+    screen: ScreenState
+    layout: LayoutObservation
+    cards: tuple[CardSlotObservation, ...] = ()
+    action_panels: tuple[ActionPanelObservation, ...] = ()
+    numbers: tuple[NumericObservation, ...] = ()
+    seats: tuple[SeatObservation, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "frame": self.frame.to_dict(),
+            "recognition_mode": self.recognition_mode.value,
+            "screen": _screen_state_to_dict(self.screen),
+            "layout": self.layout.to_dict(),
+            "cards": [card.to_dict() for card in self.cards],
+            "action_panels": [panel.to_dict() for panel in self.action_panels],
+            "numbers": [number.to_dict() for number in self.numbers],
+            "seats": [seat.to_dict() for seat in self.seats],
+            "warnings": list(self.warnings),
         }
 
 
@@ -165,12 +434,129 @@ class AcceptedCriticalFieldEvaluation:
 
 
 @dataclass(frozen=True, slots=True)
+class Freshness:
+    source_frame_id: str
+    current_frame_revalidated: bool
+    critical_fields_fresh: bool
+    action_row_fresh: bool
+    state_age_ms: int | None = None
+    stable_frame_count: int = 0
+    stable_duration_ms: int = 0
+    tracker_hand_id: str | None = None
+    tracker_generation: int | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_frame_id": self.source_frame_id,
+            "current_frame_revalidated": self.current_frame_revalidated,
+            "critical_fields_fresh": self.critical_fields_fresh,
+            "action_row_fresh": self.action_row_fresh,
+            "state_age_ms": self.state_age_ms,
+            "stable_frame_count": self.stable_frame_count,
+            "stable_duration_ms": self.stable_duration_ms,
+            "tracker_hand_id": self.tracker_hand_id,
+            "tracker_generation": self.tracker_generation,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ContractRequirement:
+    field_path: str
+    required_for: tuple[ContractLevel, ...]
+    risk_tier: str
+    min_confidence: float
+    freshness_required: bool
+    allowed_sources: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "field_path": self.field_path,
+            "required_for": [level.value for level in self.required_for],
+            "risk_tier": self.risk_tier,
+            "min_confidence": self.min_confidence,
+            "freshness_required": self.freshness_required,
+            "allowed_sources": list(self.allowed_sources),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AssemblyIssue:
+    issue_type: str
+    reason_code: str
+    field_path: str
+    rule_name: str
+    severity: str
+    blocking: bool
+    required_by_contract: tuple[ContractLevel, ...] = ()
+    observed_value: object | None = None
+    candidate_values: tuple[object, ...] = ()
+    source: str | None = None
+    evidence_refs: tuple[str, ...] = ()
+    message: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "issue_type": self.issue_type,
+            "reason_code": self.reason_code,
+            "field_path": self.field_path,
+            "rule_name": self.rule_name,
+            "severity": self.severity,
+            "blocking": self.blocking,
+            "required_by_contract": [level.value for level in self.required_by_contract],
+            "observed_value": self.observed_value,
+            "candidate_values": list(self.candidate_values),
+            "source": self.source,
+            "evidence_refs": list(self.evidence_refs),
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class GameStateAssemblyResult:
+    status: AssemblyStatus
+    validity_scope: ValidityScope
+    state: GameState | None
+    contract_level: ContractLevel
+    contract_status: str
+    valid_for: tuple[ContractLevel, ...]
+    issues: tuple[AssemblyIssue, ...]
+    freshness: Freshness
+    field_confidences: Mapping[str, float] = field(default_factory=dict)
+    critical_min_confidence: float | None = None
+    layout_confidence: float = 0.0
+    screen_confidence: float = 0.0
+    rule_consistency: str = "not_evaluated"
+    observation_id: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status.value,
+            "validity_scope": self.validity_scope.value,
+            "state_present": self.state is not None,
+            "contract_level": self.contract_level.value,
+            "contract_status": self.contract_status,
+            "valid_for": [level.value for level in self.valid_for],
+            "issues": [issue.to_dict() for issue in self.issues],
+            "freshness": self.freshness.to_dict(),
+            "field_confidences": dict(self.field_confidences),
+            "critical_min_confidence": self.critical_min_confidence,
+            "layout_confidence": self.layout_confidence,
+            "screen_confidence": self.screen_confidence,
+            "rule_consistency": self.rule_consistency,
+            "observation_id": self.observation_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class RecognitionResult:
     state: GameState | None
     confidence: float = 1.0
     metadata: Mapping[str, object] = field(default_factory=dict)
     screen: ScreenState = field(default_factory=ScreenState.actionable_table)
+    visual_observation: VisualObservation | None = None
+    assembly_result: GameStateAssemblyResult | None = None
     recognition_mode: RecognitionMode = RecognitionMode.SYNTHETIC_TEST
+    safety_contract: ContractLevel = ContractLevel.OBSERVE_ONLY
     frame_evidence: FrameEvidence | None = None
     accepted_critical_fields: tuple[AcceptedCriticalField, ...] = ()
     source_policy_violations: tuple[SourcePolicyViolation, ...] = ()
@@ -317,3 +703,14 @@ def _optional_float(value: object) -> float | None:
     if isinstance(value, int | float):
         return float(value)
     return None
+
+
+def _screen_state_to_dict(screen: ScreenState) -> dict[str, object]:
+    return {
+        "kind": screen.kind.value,
+        "confidence": screen.confidence,
+        "reason": screen.reason,
+        "blocking_reason": screen.blocking_reason,
+        "hero_turn": screen.hero_turn,
+        "metadata": dict(screen.metadata),
+    }
