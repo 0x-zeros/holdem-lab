@@ -41,6 +41,7 @@ def evaluate_poker_legends_table_recognizer(
     annotation_dir = _annotation_dir(manifest, manifest_path=manifest_path)
     rows: list[dict[str, object]] = []
     result_counts: dict[str, int] = {}
+    issue_counts: dict[str, int] = {}
     examples: dict[str, list[str]] = {}
 
     frames = _manifest_frames(manifest)
@@ -77,12 +78,15 @@ def evaluate_poker_legends_table_recognizer(
         examples.setdefault(outcome, [])
         if len(examples[outcome]) < 8:
             examples[outcome].append(frame_id)
+        for issue_code in _string_list(row.get("issue_codes")):
+            issue_counts[issue_code] = issue_counts.get(issue_code, 0) + 1
 
     summary: dict[str, object] = {
         "schema_version": 1,
         "frames": len(rows),
         "actionable_only": actionable_only,
         "result_counts": dict(sorted(result_counts.items())),
+        "issue_counts": dict(sorted(issue_counts.items())),
         "examples": dict(sorted(examples.items())),
         "rows": rows,
     }
@@ -194,7 +198,10 @@ def _state_summary(state: GameState | None) -> dict[str, object] | None:
 
 def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     counts = summary.get("result_counts")
+    issue_counts = summary.get("issue_counts")
     examples = summary.get("examples")
+    rows = _row_mappings(summary.get("rows"))
+    blockers = [row for row in rows if row.get("result") != "state"]
     lines = [
         "# Poker Legends Table Recognizer Report",
         "",
@@ -207,6 +214,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         *_count_lines(counts),
         "",
+        "## Issue Counts",
+        "",
+        *_count_lines(issue_counts),
+        "",
         "## Examples",
         "",
     ]
@@ -217,6 +228,34 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
                 lines.append(f"- {key}: {joined}")
     else:
         lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "## Blocking Details",
+            "",
+        ]
+    )
+    if blockers:
+        lines.append(
+            "| Frame | Result | Issues | Street | Pot | Buttons | Seats | Accepted Numbers |"
+        )
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+        for row in blockers:
+            table = row.get("recognized_table")
+            table_dict = table if isinstance(table, Mapping) else {}
+            lines.append(
+                "| "
+                f"`{row.get('frame_id')}` | "
+                f"`{row.get('result')}` | "
+                f"{_inline_codes(row.get('issue_codes'))} | "
+                f"`{table_dict.get('street')}` | "
+                f"`{table_dict.get('pot')}` | "
+                f"{_button_summary(table_dict.get('buttons'))} | "
+                f"{_seat_summary(table_dict.get('seats'))} | "
+                f"{_number_summary(row.get('accepted_number_predictions'))} |"
+            )
+    else:
+        lines.append("No blocking rows.")
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -225,6 +264,60 @@ def _count_lines(value: object) -> list[str]:
     if not isinstance(value, Mapping) or not value:
         return ["- none"]
     return [f"- {key}: {count}" for key, count in sorted(value.items())]
+
+
+def _row_mappings(value: object) -> list[Mapping[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _inline_codes(value: object) -> str:
+    values = _string_list(value)
+    if not values:
+        return "`none`"
+    return ", ".join(f"`{item}`" for item in values)
+
+
+def _button_summary(value: object) -> str:
+    buttons = _row_mappings(value)
+    if not buttons:
+        return "`none`"
+    return "<br>".join(
+        f"`{button.get('command')}:{button.get('action_type')}:{button.get('label')}`"
+        for button in buttons
+    )
+
+
+def _seat_summary(value: object) -> str:
+    seats = _row_mappings(value)
+    if not seats:
+        return "`none`"
+    return "<br>".join(
+        "`seat={seat} stack={stack} committed={committed} current={current}`".format(
+            seat=seat.get("seat"),
+            stack=seat.get("stack"),
+            committed=seat.get("committed"),
+            current=seat.get("current"),
+        )
+        for seat in seats
+    )
+
+
+def _number_summary(value: object) -> str:
+    numbers = _row_mappings(value)
+    if not numbers:
+        return "`none`"
+    return "<br>".join(
+        f"`{number.get('group')}:{number.get('name')}={number.get('normalized_number')}`"
+        for number in numbers
+    )
 
 
 def _annotation_dir(manifest: Mapping[str, object], *, manifest_path: Path) -> Path:

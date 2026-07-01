@@ -4,6 +4,7 @@ from pathlib import Path
 from holdem_bot.adapters import poker_legends_table_eval
 from holdem_bot.capture import CapturedFrame
 from holdem_bot.recognize import (
+    AssemblyIssue,
     AssemblyStatus,
     ContractLevel,
     FrameEvidence,
@@ -31,6 +32,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     for frame_id, screen_kind in (
         ("frame_001", "actionable_table"),
         ("frame_002", "table_observe"),
+        ("frame_003", "actionable_table"),
     ):
         image = frames / f"{frame_id}.png"
         image.write_bytes(b"fake")
@@ -53,7 +55,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
                         "image": str(frames / f"{frame_id}.png"),
                         "truth_path": str(truth / f"{frame_id}.json"),
                     }
-                    for frame_id in ("frame_001", "frame_002")
+                    for frame_id in ("frame_001", "frame_002", "frame_003")
                 ],
             }
         ),
@@ -79,22 +81,29 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
         output_dir=out,
     )
 
-    assert summary["frames"] == 1
-    assert summary["result_counts"] == {"state": 1}
-    assert summary["examples"] == {"state": ["frame_001"]}
+    assert summary["frames"] == 2
+    assert summary["result_counts"] == {"missing_pot": 1, "state": 1}
+    assert summary["issue_counts"] == {"POT_REQUIRED_BY_POLICY": 1}
+    assert summary["examples"] == {"missing_pot": ["frame_003"], "state": ["frame_001"]}
     rows = summary["rows"]
     assert isinstance(rows, list)
     assert rows[0]["frame_id"] == "frame_001"
     assert rows[0]["state"]["street"] == "flop"
+    assert rows[1]["frame_id"] == "frame_003"
+    assert rows[1]["issue_codes"] == ["POT_REQUIRED_BY_POLICY"]
     assert (out / "table_recognizer_summary.json").exists()
     report = (out / "table_recognizer_report.md").read_text(encoding="utf-8")
     assert "# Poker Legends Table Recognizer Report" in report
     assert "- state: 1" in report
+    assert "- POT_REQUIRED_BY_POLICY: 1" in report
+    assert "| `frame_003` | `missing_pot` | `POT_REQUIRED_BY_POLICY` |" in report
 
 
 class FakeRecognizer:
     def recognize(self, frame: CapturedFrame) -> RecognitionResult:
         frame_id = Path(str(frame.payload)).stem
+        if frame_id == "frame_003":
+            return _blocked_result(frame_id)
         state = _state(frame_id)
         evidence = FrameEvidence(session_id=None, frame_id=frame_id)
         screen = ScreenState.actionable_table(hero_turn=True)
@@ -132,6 +141,57 @@ class FakeRecognizer:
             frame_evidence=evidence,
             assembly_result=assembly,
         )
+
+
+def _blocked_result(frame_id: str) -> RecognitionResult:
+    evidence = FrameEvidence(session_id=None, frame_id=frame_id)
+    screen = ScreenState.actionable_table(hero_turn=True)
+    issue = AssemblyIssue(
+        issue_type="missing",
+        reason_code="POT_REQUIRED_BY_POLICY",
+        field_path="numbers.pot",
+        rule_name="single_frame_contract",
+        severity="hard",
+        blocking=True,
+        required_by_contract=(ContractLevel.POLICY_DECISION,),
+        message="missing_pot",
+    )
+    assembly = GameStateAssemblyResult(
+        status=AssemblyStatus.NO_STATE,
+        validity_scope=ValidityScope.NONE,
+        state=None,
+        contract_level=ContractLevel.OBSERVE_ONLY,
+        contract_status="blocked",
+        valid_for=(ContractLevel.OBSERVE_ONLY,),
+        issues=(issue,),
+        freshness=Freshness(
+            source_frame_id=frame_id,
+            current_frame_revalidated=True,
+            critical_fields_fresh=False,
+            action_row_fresh=False,
+        ),
+        screen_confidence=1.0,
+        observation_id=frame_id,
+    )
+    return RecognitionResult(
+        state=None,
+        confidence=1.0,
+        metadata={
+            "state_block_reason": "missing_pot",
+            "recognized_table": {
+                "street": "turn",
+                "pot": None,
+                "buttons": [{"command": "primary_left", "action_type": "check"}],
+                "seats": [{"seat": 0, "stack": 1000, "committed": 0, "current": True}],
+            },
+            "assembly_result": assembly.to_dict(),
+        },
+        screen=screen,
+        recognition_mode=RecognitionMode.TRUTH_ASSISTED_REPLAY,
+        safety_contract=ContractLevel.OBSERVE_ONLY,
+        frame_evidence=evidence,
+        assembly_result=assembly,
+    )
 
 
 def _state(hand_id: str) -> GameState:

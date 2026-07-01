@@ -535,7 +535,8 @@
   作为正式复跑入口，输出 `table_recognizer_summary.json` / `table_recognizer_report.md`，默认只扫描
   truth 中 `screen.kind=actionable_table` 的帧。用当前 `multi_source_templates_v2` 复跑 57 帧：
   `state` 47、`missing_legal_actions` 3、`not_enough_players` 3、`missing_pot` 2、
-  `preselect_ambiguous` 1、`hero_not_current` 1；不再依赖临时脚本解释 blocker。
+  `preselect_ambiguous` 1、`hero_not_current` 1；报告已输出 issue count 与 blocker 明细表
+  （frame/result/issues/street/pot/buttons/seats/accepted numbers），不再依赖临时脚本解释 blocker。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
