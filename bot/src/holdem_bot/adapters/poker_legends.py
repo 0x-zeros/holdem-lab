@@ -11,7 +11,20 @@ from typing import Any, Protocol, cast
 from holdem_common import Action, ActionType, Card, GameState, PlayerState, Pot, Street
 
 from holdem_bot.capture import CapturedFrame
-from holdem_bot.recognize import RecognitionResult, Recognizer
+from holdem_bot.recognize import (
+    IMAGE_ONLY_RECOGNITION_MODES,
+    REVIEWED_TRUTH_SOURCE,
+    TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
+    AcceptedCriticalField,
+    FrameEvidence,
+    RecognitionMode,
+    RecognitionResult,
+    Recognizer,
+    SourcePolicyViolation,
+    frame_evidence_from_frame,
+    recognition_mode_from_frame,
+    source_policy_violations_for_fields,
+)
 from holdem_bot.screen_state import ScreenKind, ScreenState
 from holdem_bot.vision.poker_legends_buttons import (
     PokerLegendsButtonPrediction,
@@ -98,49 +111,116 @@ class PokerLegendsScreenStateRecognizer(Recognizer):
 
     def recognize(self, frame: CapturedFrame) -> RecognitionResult:
         annotation = self._annotation_from_frame(frame)
+        image_path = self._image_path_from_frame(frame)
+        mode = recognition_mode_from_frame(frame, has_annotation=annotation is not None)
+        frame_id = _frame_id_from_inputs(annotation, image_path)
+        evidence = frame_evidence_from_frame(frame, frame_id=frame_id, image_path=image_path)
         if annotation is None:
-            image_path = self._image_path_from_frame(frame)
             if image_path is not None:
                 detection = detect_poker_legends_screen_state(
                     image_path,
                     layout_annotation=self._layout_annotation_from_frame(frame),
                 )
-                return RecognitionResult(
-                    state=None,
-                    confidence=detection.screen.confidence,
-                    metadata={
+                metadata = _slice0_metadata(
+                    {
                         "source": frame.source,
                         "image": str(image_path),
                         "screen_kind": detection.screen.kind.value,
                         "active_primary_buttons": detection.active_primary_buttons,
                         "overlay_signals": detection.overlay_signals,
                     },
+                    recognition_mode=mode,
+                    frame_evidence=evidence,
+                )
+                return RecognitionResult(
+                    state=None,
+                    confidence=detection.screen.confidence,
+                    metadata=metadata,
                     screen=detection.screen,
+                    recognition_mode=mode,
+                    frame_evidence=evidence,
                 )
             screen = ScreenState.unknown_or_transition(
                 confidence=0.0,
                 reason="unsupported Poker Legends frame payload",
             )
+            metadata = _slice0_metadata(
+                {"source": frame.source, "screen_kind": screen.kind.value},
+                recognition_mode=mode,
+                frame_evidence=evidence,
+            )
             return RecognitionResult(
                 state=None,
                 confidence=0.0,
-                metadata={"source": frame.source, "screen_kind": screen.kind.value},
+                metadata=metadata,
                 screen=screen,
+                recognition_mode=mode,
+                frame_evidence=evidence,
+            )
+
+        if mode in IMAGE_ONLY_RECOGNITION_MODES:
+            if image_path is not None:
+                detection = detect_poker_legends_screen_state(
+                    image_path,
+                    layout_annotation=self._layout_annotation_from_frame(frame),
+                )
+                screen = detection.screen
+                metadata = _slice0_metadata(
+                    {
+                        "source": frame.source,
+                        "image": str(image_path),
+                        "screen_kind": screen.kind.value,
+                        "active_primary_buttons": detection.active_primary_buttons,
+                        "overlay_signals": detection.overlay_signals,
+                    },
+                    recognition_mode=mode,
+                    frame_evidence=evidence,
+                )
+                return RecognitionResult(
+                    state=None,
+                    confidence=screen.confidence,
+                    metadata=metadata,
+                    screen=screen,
+                    recognition_mode=mode,
+                    frame_evidence=evidence,
+                )
+            screen = ScreenState.unknown_or_transition(
+                confidence=0.0,
+                reason="image-only mode requires image-based screen detection",
+            )
+            metadata = _slice0_metadata(
+                {"source": frame.source, "screen_kind": screen.kind.value},
+                recognition_mode=mode,
+                frame_evidence=evidence,
+            )
+            return RecognitionResult(
+                state=None,
+                confidence=0.0,
+                metadata=metadata,
+                screen=screen,
+                recognition_mode=mode,
+                frame_evidence=evidence,
             )
 
         screen = screen_state_from_poker_legends_annotation(annotation)
-        metadata = {
-            "source": frame.source,
-            "frame_id": annotation.get("frame_id"),
-            "screen_kind": screen.kind.value,
-            "blocking_reason": screen.blocking_reason,
-            "hero_turn": screen.hero_turn,
-        }
+        metadata = _slice0_metadata(
+            {
+                "source": frame.source,
+                "frame_id": annotation.get("frame_id"),
+                "screen_kind": screen.kind.value,
+                "blocking_reason": screen.blocking_reason,
+                "hero_turn": screen.hero_turn,
+            },
+            recognition_mode=mode,
+            frame_evidence=evidence,
+        )
         return RecognitionResult(
             state=None,
             confidence=screen.confidence,
             metadata=metadata,
             screen=screen,
+            recognition_mode=mode,
+            frame_evidence=evidence,
         )
 
     def _annotation_from_frame(self, frame: CapturedFrame) -> Mapping[str, object] | None:
@@ -272,6 +352,8 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         all read by the LLM); no pixel CV runs. The same ``_state_from_table`` guards apply.
         """
         fid = frame_id or str(annotation.get("frame_id") or "llm")
+        mode = RecognitionMode.TRUTH_ASSISTED_REPLAY
+        frame_evidence = FrameEvidence(session_id=None, frame_id=fid)
         raw_ts = annotation.get("table_state")
         table_state: Mapping[str, object] = raw_ts if isinstance(raw_ts, Mapping) else {}
         hero_cards = _llm_cards(annotation.get("hero_hole_cards"))
@@ -307,14 +389,23 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             buttons=buttons,
             confidence=confidence if confidence > 0 else screen.confidence,
         )
-        metadata: dict[str, object] = {
-            "source": "poker_legends_llm",
-            "screen_kind": screen.kind.value,
-            "recognized_table": _recognized_table_to_dict(table),
-        }
+        metadata = _slice0_metadata(
+            {
+                "source": "poker_legends_llm",
+                "screen_kind": screen.kind.value,
+                "recognized_table": _recognized_table_to_dict(table),
+            },
+            recognition_mode=mode,
+            frame_evidence=frame_evidence,
+        )
         if screen.kind is not ScreenKind.ACTIONABLE_TABLE:
             return RecognitionResult(
-                state=None, confidence=screen.confidence, metadata=metadata, screen=screen
+                state=None,
+                confidence=screen.confidence,
+                metadata=metadata,
+                screen=screen,
+                recognition_mode=mode,
+                frame_evidence=frame_evidence,
             )
         state, block_reason = self._state_from_table(
             table,
@@ -323,23 +414,94 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             card_predictions=(),
             number_predictions=(),
         )
+        accepted_fields = _accepted_critical_fields_for_state(
+            state=state,
+            table=table,
+            annotation=annotation,
+            screen_source="vlm_annotation",
+            annotation_source="vlm_annotation",
+            card_predictions=(),
+            button_predictions=(),
+            number_predictions=(),
+            controlled_seat=self.controlled_seat,
+        )
+        metadata = _slice0_metadata(
+            metadata,
+            recognition_mode=mode,
+            frame_evidence=frame_evidence,
+            accepted_critical_fields=accepted_fields,
+        )
         if block_reason is not None:
             metadata["state_block_reason"] = block_reason
         return RecognitionResult(
-            state=state, confidence=table.confidence, metadata=metadata, screen=screen
+            state=state,
+            confidence=table.confidence,
+            metadata=metadata,
+            screen=screen,
+            recognition_mode=mode,
+            frame_evidence=frame_evidence,
+            accepted_critical_fields=accepted_fields,
         )
 
     def recognize(self, frame: CapturedFrame) -> RecognitionResult:
-        context = _FrameContext(
-            annotation=self._annotation_from_frame(frame),
-            image_path=self._image_path_from_frame(frame),
-            layout_annotation=self._layout_annotation_from_frame(frame),
+        annotation = self._annotation_from_frame(frame)
+        image_path = self._image_path_from_frame(frame)
+        layout_annotation = self._layout_annotation_from_frame(frame)
+        mode = recognition_mode_from_frame(frame, has_annotation=annotation is not None)
+        frame_id = _frame_id_from_inputs(annotation, image_path)
+        frame_evidence = frame_evidence_from_frame(
+            frame,
+            frame_id=frame_id,
+            image_path=image_path,
         )
+        context = _FrameContext(
+            annotation=annotation,
+            image_path=image_path,
+            layout_annotation=layout_annotation,
+            recognition_mode=mode,
+            frame_evidence=frame_evidence,
+        )
+        if context.recognition_mode in IMAGE_ONLY_RECOGNITION_MODES and annotation is not None:
+            violation = SourcePolicyViolation(
+                field_path="poker_legends_annotation",
+                source=REVIEWED_TRUTH_SOURCE,
+                recognition_mode=context.recognition_mode,
+            )
+            screen = ScreenState.unknown_or_transition(
+                confidence=0.0,
+                reason=TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
+            )
+            metadata = _slice0_metadata(
+                {
+                    "source": frame.source,
+                    "screen_kind": screen.kind.value,
+                    "state_block_reason": TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
+                },
+                recognition_mode=context.recognition_mode,
+                frame_evidence=context.frame_evidence,
+                source_policy_violations=(violation,),
+            )
+            if context.image_path is not None:
+                metadata["image"] = str(context.image_path)
+            metadata["frame_id"] = context.frame_id
+            return RecognitionResult(
+                state=None,
+                confidence=0.0,
+                metadata=metadata,
+                screen=screen,
+                recognition_mode=context.recognition_mode,
+                frame_evidence=context.frame_evidence,
+                source_policy_violations=(violation,),
+            )
         screen = self._screen_state(frame, context)
-        metadata: dict[str, object] = {
-            "source": frame.source,
-            "screen_kind": screen.kind.value,
-        }
+        metadata = _slice0_metadata(
+            {
+                "source": frame.source,
+                "screen_kind": screen.kind.value,
+            },
+            recognition_mode=context.recognition_mode,
+            frame_evidence=context.frame_evidence,
+        )
         if context.annotation is not None:
             metadata["frame_id"] = context.frame_id
         if context.image_path is not None:
@@ -351,6 +513,8 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 confidence=screen.confidence,
                 metadata=metadata,
                 screen=screen,
+                recognition_mode=context.recognition_mode,
+                frame_evidence=context.frame_evidence,
             )
         if context.image_path is None:
             metadata["state_block_reason"] = "missing_image_path"
@@ -359,6 +523,8 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 confidence=0.0,
                 metadata=metadata,
                 screen=screen,
+                recognition_mode=context.recognition_mode,
+                frame_evidence=context.frame_evidence,
             )
         if context.layout_annotation is None:
             metadata["state_block_reason"] = "missing_layout_annotation"
@@ -367,6 +533,8 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 confidence=0.0,
                 metadata=metadata,
                 screen=screen,
+                recognition_mode=context.recognition_mode,
+                frame_evidence=context.frame_evidence,
             )
 
         card_predictions = self.card_recognizer.recognize(
@@ -426,11 +594,40 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             ]
         if block_reason is not None:
             metadata["state_block_reason"] = block_reason
+        accepted_fields = _accepted_critical_fields_for_state(
+            state=state,
+            table=table,
+            annotation=context.annotation,
+            screen_source=_screen_source(context),
+            annotation_source=REVIEWED_TRUTH_SOURCE,
+            card_predictions=card_predictions,
+            button_predictions=button_predictions,
+            number_predictions=accepted_number_predictions,
+            controlled_seat=self.controlled_seat,
+        )
+        policy_violations = source_policy_violations_for_fields(
+            context.recognition_mode,
+            accepted_fields,
+        )
+        if policy_violations:
+            state = None
+            metadata["state_block_reason"] = TRUTH_ASSISTED_SOURCE_BLOCK_REASON
+        metadata = _slice0_metadata(
+            metadata,
+            recognition_mode=context.recognition_mode,
+            frame_evidence=context.frame_evidence,
+            accepted_critical_fields=accepted_fields,
+            source_policy_violations=policy_violations,
+        )
         return RecognitionResult(
             state=state,
             confidence=table.confidence,
             metadata=metadata,
             screen=screen,
+            recognition_mode=context.recognition_mode,
+            frame_evidence=context.frame_evidence,
+            accepted_critical_fields=accepted_fields,
+            source_policy_violations=policy_violations,
         )
 
     def _screen_state(self, frame: CapturedFrame, context: _FrameContext) -> ScreenState:
@@ -617,16 +814,185 @@ class _FrameContext:
         annotation: Mapping[str, object] | None,
         image_path: Path | None,
         layout_annotation: Mapping[str, object] | None,
+        recognition_mode: RecognitionMode,
+        frame_evidence: FrameEvidence,
     ) -> None:
         self.annotation = annotation
         self.image_path = image_path
         self.layout_annotation = layout_annotation
+        self.recognition_mode = recognition_mode
+        self.frame_evidence = frame_evidence
 
     @property
     def frame_id(self) -> str:
-        if self.annotation is None:
-            return "unknown"
-        return str(self.annotation.get("frame_id") or "unknown")
+        return self.frame_evidence.frame_id
+
+
+def _slice0_metadata(
+    metadata: Mapping[str, object],
+    *,
+    recognition_mode: RecognitionMode,
+    frame_evidence: FrameEvidence,
+    accepted_critical_fields: tuple[AcceptedCriticalField, ...] = (),
+    source_policy_violations: tuple[SourcePolicyViolation, ...] = (),
+) -> dict[str, object]:
+    merged = dict(metadata)
+    merged["recognition_mode"] = recognition_mode.value
+    merged["frame_evidence"] = frame_evidence.to_dict()
+    if accepted_critical_fields:
+        merged["accepted_critical_fields"] = [
+            field.to_dict() for field in accepted_critical_fields
+        ]
+    if source_policy_violations:
+        merged["source_policy_violations"] = [
+            violation.to_dict() for violation in source_policy_violations
+        ]
+    return merged
+
+
+def _frame_id_from_inputs(
+    annotation: Mapping[str, object] | None,
+    image_path: Path | None,
+) -> str:
+    if annotation is None:
+        return image_path.stem if image_path is not None else "unknown"
+    return str(annotation.get("frame_id") or "unknown")
+
+
+def _screen_source(context: _FrameContext) -> str:
+    if context.annotation is not None:
+        return REVIEWED_TRUTH_SOURCE
+    return "image_screen_state"
+
+
+def _accepted_critical_fields_for_state(
+    *,
+    state: GameState | None,
+    table: RecognizedTable,
+    annotation: Mapping[str, object] | None,
+    screen_source: str,
+    annotation_source: str,
+    card_predictions: tuple[PokerLegendsCardConsensusPrediction, ...],
+    button_predictions: tuple[PokerLegendsButtonPrediction, ...],
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    controlled_seat: int,
+) -> tuple[AcceptedCriticalField, ...]:
+    if state is None:
+        return ()
+    hero = state.player(controlled_seat)
+    fields = [
+        AcceptedCriticalField("screen.actionability", screen_source, table.current_seat),
+        AcceptedCriticalField(
+            "cards.hero",
+            _card_source(card_predictions, table.source),
+            tuple(card.code for card in hero.hole_cards),
+        ),
+        AcceptedCriticalField(
+            "cards.board",
+            _card_source(card_predictions, table.source),
+            tuple(card.code for card in state.board),
+        ),
+        AcceptedCriticalField(
+            "numbers.pot",
+            _pot_source(annotation, number_predictions, annotation_source=annotation_source),
+            state.pots[0].amount if state.pots else None,
+        ),
+        AcceptedCriticalField(
+            "numbers.hero_stack",
+            _hero_stack_source(
+                annotation,
+                number_predictions,
+                annotation_source=annotation_source,
+            ),
+            hero.stack,
+        ),
+        AcceptedCriticalField(
+            "actions.legal_labels",
+            _button_source(annotation, button_predictions, annotation_source=annotation_source),
+            tuple(action.action_type.value for action in state.legal_actions),
+        ),
+    ]
+    if state.to_call > 0 or any(
+        action.action_type is ActionType.CALL for action in state.legal_actions
+    ):
+        fields.append(
+            AcceptedCriticalField(
+                "numbers.call_amount",
+                _call_amount_source(
+                    annotation,
+                    number_predictions,
+                    annotation_source=annotation_source,
+                ),
+                state.to_call,
+            )
+        )
+    return tuple(fields)
+
+
+def _card_source(
+    card_predictions: tuple[PokerLegendsCardConsensusPrediction, ...],
+    table_source: str,
+) -> str:
+    if card_predictions:
+        return "image_card_consensus"
+    if table_source == "poker_legends_llm":
+        return "vlm_annotation"
+    return "unknown"
+
+
+def _pot_source(
+    annotation: Mapping[str, object] | None,
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    *,
+    annotation_source: str,
+) -> str:
+    if _pot_from_annotation(annotation) is not None:
+        return annotation_source
+    if _number_prediction_value(number_predictions, "texts", "pot") is not None:
+        return "image_ocr"
+    return "rule_or_default"
+
+
+def _hero_stack_source(
+    annotation: Mapping[str, object] | None,
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    *,
+    annotation_source: str,
+) -> str:
+    if (
+        _annotation_hero_stack(annotation) is not None
+        or _hero_stack_from_texts(annotation) is not None
+    ):
+        return annotation_source
+    if _number_prediction_value(number_predictions, "texts", "hero_stack") is not None:
+        return "image_ocr"
+    return "unknown"
+
+
+def _button_source(
+    annotation: Mapping[str, object] | None,
+    button_predictions: tuple[PokerLegendsButtonPrediction, ...],
+    *,
+    annotation_source: str,
+) -> str:
+    if annotation is not None and _truth_action_buttons(annotation):
+        return annotation_source
+    if button_predictions:
+        return "image_button_recognizer"
+    return "unknown"
+
+
+def _call_amount_source(
+    annotation: Mapping[str, object] | None,
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    *,
+    annotation_source: str,
+) -> str:
+    if annotation is not None and _truth_call_amount(annotation) is not None:
+        return annotation_source
+    if _number_prediction_value(number_predictions, "buttons", "primary_left") is not None:
+        return "image_ocr"
+    return _button_source(annotation, (), annotation_source=annotation_source)
 
 
 def _read_json_object(path: str | Path) -> dict[str, object]:

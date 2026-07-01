@@ -3,7 +3,12 @@ from typing import cast
 
 from holdem_bot import CapturedFrame, ScreenKind
 from holdem_bot.adapters import PokerLegendsTableRecognizer
-from holdem_bot.recognize import RecognitionResult
+from holdem_bot.recognize import (
+    TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
+    RecognitionMode,
+    RecognitionResult,
+    evaluate_accepted_critical_fields,
+)
 from holdem_bot.vision import PokerLegendsCardConsensusPrediction, PokerLegendsNumberPrediction
 from holdem_bot.vision.poker_legends_buttons import PokerLegendsButtonPrediction
 from holdem_common import Action, ActionType, Street
@@ -46,6 +51,12 @@ def test_poker_legends_table_recognizer_builds_prototype_state(tmp_path: Path) -
     )
 
     assert result.screen.kind is ScreenKind.ACTIONABLE_TABLE
+    assert result.recognition_mode is RecognitionMode.TRUTH_ASSISTED_REPLAY
+    assert result.metadata["recognition_mode"] == "truth_assisted_replay"
+    assert result.frame_evidence is not None
+    assert result.frame_evidence.frame_id == "frame_001"
+    assert result.frame_evidence.image_hash is not None
+    assert result.metadata["frame_evidence"] == result.frame_evidence.to_dict()
     assert result.state is not None
     assert result.state.metadata["source"] == "poker_legends_prototype"
     assert result.state.street is Street.FLOP
@@ -61,6 +72,71 @@ def test_poker_legends_table_recognizer_builds_prototype_state(tmp_path: Path) -
     assert isinstance(table, dict)
     assert table["pot"] == 150
     assert result.confidence == 0.90
+    accepted_sources = {
+        field.field_path: field.source for field in result.accepted_critical_fields
+    }
+    assert accepted_sources["cards.hero"] == "image_card_consensus"
+    assert accepted_sources["numbers.pot"] == "reviewed_truth"
+    assert result.metadata["accepted_critical_fields"] == [
+        field.to_dict() for field in result.accepted_critical_fields
+    ]
+
+
+def test_poker_legends_table_recognizer_blocks_truth_assist_in_image_only_mode(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    card_recognizer = FakeCardRecognizer(())
+    button_recognizer = FakeButtonRecognizer(())
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=card_recognizer,
+        button_recognizer=button_recognizer,
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "recognition_mode": RecognitionMode.IMAGE_ONLY_REPLAY.value,
+                "poker_legends_annotation": actionable_truth(),
+                "poker_legends_layout_annotation": {
+                    "image": str(image),
+                    "regions": {"cards": [], "board": [], "buttons": []},
+                },
+            },
+        )
+    )
+
+    assert result.recognition_mode is RecognitionMode.IMAGE_ONLY_REPLAY
+    assert result.state is None
+    assert result.metadata["state_block_reason"] == TRUTH_ASSISTED_SOURCE_BLOCK_REASON
+    assert result.source_policy_violations
+    assert result.source_policy_violations[0].field_path == "poker_legends_annotation"
+    assert result.metadata["source_policy_violations"] == [
+        violation.to_dict() for violation in result.source_policy_violations
+    ]
+    assert card_recognizer.calls == 0
+    assert button_recognizer.calls == 0
+
+
+def test_minimal_critical_field_evaluator_reports_wrong_accepted_fields(
+    tmp_path: Path,
+) -> None:
+    result = _recognize_actionable(tmp_path, actionable_truth())
+
+    evaluation = evaluate_accepted_critical_fields(
+        result,
+        expected_values={"numbers.pot": 999, "cards.hero": ("As", "Kh")},
+    )
+
+    assert evaluation.authorization_events == 1
+    assert evaluation.unsafe_authorization_events == 1
+    assert [case.field_path for case in evaluation.accepted_critical_wrong_cases] == [
+        "numbers.pot"
+    ]
 
 
 def _recognize_actionable(tmp_path: Path, annotation: dict[str, object]) -> RecognitionResult:

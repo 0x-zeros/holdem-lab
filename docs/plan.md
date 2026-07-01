@@ -477,6 +477,10 @@
   方向没走偏。关键纪律是“不长期手调启发式”，尽早切到 CFR 并以 exploitability / 参照对手量化强度。
 
 **Poker Legends host dry-run 后续暂停项**
+- 感知重构完整设计已单独文档化：`docs/poker-legends-perception-redesign.md`。后续实现先按
+  observation-first + contract-first 路线切分：先做 recognition mode / source policy / evidence refs，
+  再做 `VisualObservation` / `GameStateAssemblyResult` / safety contract / 分层 evaluator，之后接
+  temporal tracker；不要继续把整屏 VLM JSON 当主感知链路。
 - 保持 ScreenState v0 作为最外层安全闸门；继续用 reviewed truth overlay（session_001 v1 /
   session_002 v5 / session_002 auto review v2）评估，不让可疑帧进入 `ai.decide()`。
 - 继续在更多样本上验证右下买入提示、左侧活动栏、中心弹窗等 blocked overlay 信号；安全口径仍是

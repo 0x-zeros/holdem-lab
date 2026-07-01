@@ -443,6 +443,10 @@ class PokerLegendsLlmRecognizer:
             confidence=result.confidence,
             metadata=metadata,
             screen=result.screen,
+            recognition_mode=result.recognition_mode,
+            frame_evidence=result.frame_evidence,
+            accepted_critical_fields=result.accepted_critical_fields,
+            source_policy_violations=result.source_policy_violations,
         )
 
     def _note_outcome(self, annotation: Mapping[str, object]) -> None:
