@@ -11,6 +11,7 @@ from holdem_bot.recognize import (
     RecognitionResult,
     ValidityScope,
     evaluate_accepted_critical_fields,
+    summarize_recognition_safety,
 )
 from holdem_bot.vision import PokerLegendsCardConsensusPrediction, PokerLegendsNumberPrediction
 from holdem_bot.vision.poker_legends_buttons import PokerLegendsButtonPrediction
@@ -161,7 +162,46 @@ def test_minimal_critical_field_evaluator_reports_wrong_accepted_fields(
     ]
 
 
-def _recognize_actionable(tmp_path: Path, annotation: dict[str, object]) -> RecognitionResult:
+def test_recognition_safety_summary_groups_modes_and_authorizations(
+    tmp_path: Path,
+) -> None:
+    valid = _recognize_actionable(tmp_path, actionable_truth())
+    blocked = _recognize_actionable(
+        tmp_path,
+        actionable_truth(),
+        recognition_mode=RecognitionMode.IMAGE_ONLY_REPLAY,
+    )
+
+    summary = summarize_recognition_safety(
+        (valid, blocked),
+        expected_values_by_frame={"frame_001": {"numbers.pot": 999}},
+    )
+
+    assert summary.total_frames == 2
+    assert summary.mode_counts == {
+        "truth_assisted_replay": 1,
+        "image_only_replay": 1,
+    }
+    assert summary.assembly_status_counts == {
+        "single_frame_valid": 1,
+        "invalid": 1,
+    }
+    assert summary.authorization_events == 1
+    assert summary.truth_assisted_authorization_events == 1
+    assert summary.source_policy_violation_count == 1
+    assert summary.accepted_critical_wrong_count == 1
+    assert summary.unsafe_authorization_events == 1
+    assert summary.blocking_issue_counts == {
+        "TRUTH_ASSISTED_FIELD_IN_IMAGE_ONLY_MODE": 1,
+    }
+
+
+def _recognize_actionable(
+    tmp_path: Path,
+    annotation: dict[str, object],
+    *,
+    recognition_mode: RecognitionMode | None = None,
+) -> RecognitionResult:
     image = tmp_path / "frame.png"
     image.write_bytes(b"not-read-by-fakes")
     recognizer = PokerLegendsTableRecognizer(
@@ -188,6 +228,11 @@ def _recognize_actionable(tmp_path: Path, annotation: dict[str, object]) -> Reco
             payload=image,
             source="poker_legends_fixture",
             metadata={
+                **(
+                    {"recognition_mode": recognition_mode.value}
+                    if recognition_mode is not None
+                    else {}
+                ),
                 "poker_legends_annotation": annotation,
                 "poker_legends_layout_annotation": {
                     "image": str(image),

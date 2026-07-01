@@ -1410,7 +1410,15 @@ def _assembly_result_from_outcome(
                 _issue_from_source_policy_violation(violation)
                 for violation in source_policy_violations
             ),
-            *(() if block_reason is None else (_issue_from_block_reason(block_reason),)),
+            *(
+                ()
+                if block_reason is None
+                or (
+                    source_policy_violations
+                    and block_reason == TRUTH_ASSISTED_SOURCE_BLOCK_REASON
+                )
+                else (_issue_from_block_reason(block_reason),)
+            ),
         ]
     )
     status = _assembly_status(

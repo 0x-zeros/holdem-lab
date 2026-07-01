@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -434,6 +434,38 @@ class AcceptedCriticalFieldEvaluation:
 
 
 @dataclass(frozen=True, slots=True)
+class RecognitionSafetySummary:
+    total_frames: int
+    mode_counts: Mapping[str, int]
+    screen_kind_counts: Mapping[str, int]
+    assembly_status_counts: Mapping[str, int]
+    contract_counts: Mapping[str, int]
+    blocking_issue_counts: Mapping[str, int]
+    authorization_events: int
+    unsafe_authorization_events: int
+    stale_authorization_events: int
+    truth_assisted_authorization_events: int
+    source_policy_violation_count: int
+    accepted_critical_wrong_count: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "total_frames": self.total_frames,
+            "mode_counts": dict(self.mode_counts),
+            "screen_kind_counts": dict(self.screen_kind_counts),
+            "assembly_status_counts": dict(self.assembly_status_counts),
+            "contract_counts": dict(self.contract_counts),
+            "blocking_issue_counts": dict(self.blocking_issue_counts),
+            "authorization_events": self.authorization_events,
+            "unsafe_authorization_events": self.unsafe_authorization_events,
+            "stale_authorization_events": self.stale_authorization_events,
+            "truth_assisted_authorization_events": self.truth_assisted_authorization_events,
+            "source_policy_violation_count": self.source_policy_violation_count,
+            "accepted_critical_wrong_count": self.accepted_critical_wrong_count,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class Freshness:
     source_frame_id: str
     current_frame_revalidated: bool
@@ -656,6 +688,76 @@ def evaluate_accepted_critical_fields(
     )
 
 
+def summarize_recognition_safety(
+    results: Iterable[RecognitionResult],
+    *,
+    expected_values_by_frame: Mapping[str, Mapping[str, object]] | None = None,
+) -> RecognitionSafetySummary:
+    expected_by_frame = expected_values_by_frame or {}
+    total = 0
+    mode_counts: dict[str, int] = {}
+    screen_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    contract_counts: dict[str, int] = {}
+    issue_counts: dict[str, int] = {}
+    authorization_events = 0
+    unsafe_authorization_events = 0
+    stale_authorization_events = 0
+    truth_assisted_authorization_events = 0
+    source_policy_violation_count = 0
+    accepted_critical_wrong_count = 0
+
+    for result in results:
+        total += 1
+        _increment(mode_counts, result.recognition_mode.value)
+        _increment(screen_counts, result.screen.kind.value)
+        _increment(contract_counts, result.safety_contract.value)
+
+        assembly = result.assembly_result
+        if assembly is not None:
+            _increment(status_counts, assembly.status.value)
+            for issue in assembly.issues:
+                if issue.blocking:
+                    _increment(issue_counts, issue.reason_code)
+            if (
+                result.state is not None
+                and not assembly.freshness.current_frame_revalidated
+            ):
+                stale_authorization_events += 1
+        else:
+            _increment(status_counts, "missing_assembly_result")
+
+        frame_id = result.frame_evidence.frame_id if result.frame_evidence is not None else ""
+        evaluation = evaluate_accepted_critical_fields(
+            result,
+            expected_values=expected_by_frame.get(frame_id, {}),
+        )
+        authorization_events += evaluation.authorization_events
+        unsafe_authorization_events += evaluation.unsafe_authorization_events
+        source_policy_violation_count += len(evaluation.source_policy_violations)
+        accepted_critical_wrong_count += len(evaluation.accepted_critical_wrong_cases)
+        if (
+            result.state is not None
+            and result.recognition_mode is RecognitionMode.TRUTH_ASSISTED_REPLAY
+        ):
+            truth_assisted_authorization_events += 1
+
+    return RecognitionSafetySummary(
+        total_frames=total,
+        mode_counts=mode_counts,
+        screen_kind_counts=screen_counts,
+        assembly_status_counts=status_counts,
+        contract_counts=contract_counts,
+        blocking_issue_counts=issue_counts,
+        authorization_events=authorization_events,
+        unsafe_authorization_events=unsafe_authorization_events,
+        stale_authorization_events=stale_authorization_events,
+        truth_assisted_authorization_events=truth_assisted_authorization_events,
+        source_policy_violation_count=source_policy_violation_count,
+        accepted_critical_wrong_count=accepted_critical_wrong_count,
+    )
+
+
 def _looks_live_source(source: str, metadata: Mapping[str, object]) -> bool:
     lowered = source.lower()
     if "live" in lowered:
@@ -703,6 +805,10 @@ def _optional_float(value: object) -> float | None:
     if isinstance(value, int | float):
         return float(value)
     return None
+
+
+def _increment(counts: dict[str, int], key: str) -> None:
+    counts[key] = counts.get(key, 0) + 1
 
 
 def _screen_state_to_dict(screen: ScreenState) -> dict[str, object]:

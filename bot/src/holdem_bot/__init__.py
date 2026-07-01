@@ -22,6 +22,7 @@ from holdem_bot.recognize import (
     NumericObservation,
     RecognitionMode,
     RecognitionResult,
+    RecognitionSafetySummary,
     Recognizer,
     RoiEvidence,
     SeatObservation,
@@ -29,6 +30,7 @@ from holdem_bot.recognize import (
     ValidityScope,
     VisualObservation,
     evaluate_accepted_critical_fields,
+    summarize_recognition_safety,
 )
 from holdem_bot.screen_state import SafetyDecision, ScreenKind, ScreenState, evaluate_safety
 
@@ -57,6 +59,7 @@ __all__ = [
     "NumericObservation",
     "RecognitionMode",
     "RecognitionResult",
+    "RecognitionSafetySummary",
     "Recognizer",
     "RoiEvidence",
     "SeatObservation",
@@ -68,4 +71,5 @@ __all__ = [
     "VisualObservation",
     "evaluate_accepted_critical_fields",
     "evaluate_safety",
+    "summarize_recognition_safety",
 ]
