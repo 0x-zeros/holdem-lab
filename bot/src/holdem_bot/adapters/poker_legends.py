@@ -1312,19 +1312,27 @@ def _has_button_label_action_mismatch(buttons: tuple[RecognizedButton, ...]) -> 
 
 
 def _button_label_action_mismatch(button: RecognizedButton) -> bool:
-    normalized = button.label.strip().lower()
+    action_type = _action_type_from_button_label(button.label)
+    return action_type is not None and button.action_type != action_type
+
+
+def _action_type_from_button_label(label: str) -> str | None:
+    normalized = " ".join(label.lower().replace("-", " ").split())
     if not normalized or _is_preselect_or_shortcut_label(normalized):
-        return False
-    action_type = button.action_type
+        return None
     if "check" in normalized:
-        return action_type != "check"
+        return "check"
     if "call" in normalized:
-        return action_type != "call"
+        return "call"
     if "fold" in normalized:
-        return action_type != "fold"
+        return "fold"
     if "raise" in normalized:
-        return action_type != "raise"
-    return False
+        return "raise"
+    if "bet" in normalized:
+        return "bet"
+    if "all in" in normalized:
+        return "all_in"
+    return None
 
 
 def _button_observation(
@@ -2052,20 +2060,26 @@ def _recognized_buttons_from_predictions(
     button_predictions: tuple[PokerLegendsButtonPrediction, ...],
     number_predictions: tuple[PokerLegendsNumberPrediction, ...],
 ) -> tuple[RecognizedButton, ...]:
-    buttons = tuple(
-        RecognizedButton(
-            label=_truth_button_label(annotation, prediction.slot)
+    buttons: list[RecognizedButton] = []
+    for prediction in button_predictions:
+        if not prediction.visible or prediction.action_type is None:
+            continue
+        label = (
+            _truth_button_label(annotation, prediction.slot)
             or _number_prediction_raw(number_predictions, "buttons", prediction.slot)
-            or (prediction.action_type or ""),
-            action_type=prediction.action_type,
-            command=prediction.slot,
-            confidence=prediction.confidence,
+            or prediction.action_type
         )
-        for prediction in button_predictions
-        if prediction.visible and prediction.action_type is not None
-    )
+        action_type = _action_type_from_button_label(label) or prediction.action_type
+        buttons.append(
+            RecognizedButton(
+                label=label,
+                action_type=action_type,
+                command=prediction.slot,
+                confidence=prediction.confidence,
+            )
+        )
     if buttons:
-        return buttons
+        return tuple(buttons)
     return _truth_action_buttons(annotation)
 
 

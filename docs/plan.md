@@ -562,6 +562,13 @@
   `action_panel_flag_counts` 与 `blocking_action_panel_flag_counts`，把 state 行的诊断 flags 和真正阻塞原因
   分开统计。当前 57 帧中 blocking flags 为 `missing_passive_action` 10、
   `missing_current_action_row` 6、`button_label_action_mismatch` 4、`preselect_shortcut_label` 2。
+- 阶段 4 Poker Legends reviewed-label action derivation v1：truth-assisted replay 中，若当前按钮槽位有明确
+  reviewed label（如 `Call $100` / `Check` / `Raise`）且不是 `Call Any` / `Check/Fold` 等预选语义，
+  `RecognizedButton.action_type` 由 label 派生而不是继续信任槽位默认值；image-only/live 仍不会因此绕过
+  source policy。当前 57 帧复跑：`state` 41、`missing_legal_actions` 11、`missing_call_amount` 1、
+  `not_enough_players` 2、`preselect_ambiguous` 1、`hero_not_current` 1；`button_label_action_mismatch`
+  从 action-panel flags 中清零，旧 `session_002__keyframe_000200` 更准确地暴露为 label 缺金额的
+  `missing_call_amount`。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
