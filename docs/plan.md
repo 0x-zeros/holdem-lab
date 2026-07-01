@@ -505,7 +505,7 @@
   rank/suit part 与 classifier consensus；该路径已接入 Poker Legends `RecognizedTable` /
   prototype `GameState`。seat/action fallback v1 已把 57 个 actionable truth 帧中的 47 个转成
   prototype state；剩余 10 帧继续 fail-closed。下一步只针对残余 blocker 做小步治理：
-  `missing_legal_actions` 3、`not_enough_players` 3、`missing_pot` 2、`missing_call_amount` 1、
+  `missing_legal_actions` 3、`not_enough_players` 3、`missing_pot` 2、`preselect_ambiguous` 1、
   `hero_not_current` 1。
 - **6-max 位置/盲注保真度（已修，AI 质量缺口）**：原型 `GameState` 旧逻辑把 `button_seat` 硬编码成 hero、
   盲注写死 config——等于让启发式**永远以为自己在按钮位**，在真实 6-max 会**乱开一堆烂牌**。已：① `RecognizedSeat`
@@ -530,6 +530,12 @@
   `Call Any` / `Check/Fold` / `Fold to ...` label 显式拦为 `preselect_ambiguous`
   (`PRESELECT_AMBIGUOUS` issue)，继续 fail-closed，不再把问题误归因成 OCR 缺金额。局部复现：
   该帧 `state=False`、`screen=actionable_table`、block=`preselect_ambiguous`。
+- 阶段 4 Poker Legends table recognizer evaluator v1：新增
+  `uv run holdem-bot-evaluate-poker-legends-table-recognizer --dataset-manifest ... --card-part-manifest ...`
+  作为正式复跑入口，输出 `table_recognizer_summary.json` / `table_recognizer_report.md`，默认只扫描
+  truth 中 `screen.kind=actionable_table` 的帧。用当前 `multi_source_templates_v2` 复跑 57 帧：
+  `state` 47、`missing_legal_actions` 3、`not_enough_players` 3、`missing_pot` 2、
+  `preselect_ambiguous` 1、`hero_not_current` 1；不再依赖临时脚本解释 blocker。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
