@@ -73,6 +73,8 @@ def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:
     assert parse_poker_legends_chip_amount("$990+10") == 1000
     assert parse_poker_legends_chip_amount(",\n\n$\n\n3\n\n00\n\n.") == 300
     assert parse_poker_legends_chip_numbers("2\n\n,\n\n$\n\n5\n\n00") == (500,)
+    assert parse_poker_legends_chip_amount("1,052+50\n\nM") == 1102
+    assert parse_poker_legends_chip_amount("$1.25K") == 1250
 
 
 def write_number_fixture(image_path: Path, annotation_path: Path) -> None:

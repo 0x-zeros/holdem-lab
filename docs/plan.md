@@ -657,6 +657,10 @@
   raw hero_stack 19 match / 22 mismatch、raw pot 22 / 12、raw right_top_stack 4 / 19；accepted hero_stack
   16 / 17、accepted pot 22 / 12、accepted right_top_stack 2 / 7。因此下一步应修 parser/ROI/规则校验，
   不能直接通过降低阈值来解锁 image-only GameState。
+- 阶段 4 Poker Legends number parser hardening v3：数字 parser 不再把跨空白的孤立 `K/M` 粘成单位后缀，
+  避免 `1,052+50\n\nM` 被误归一成 50,001,052；正常紧邻后缀如 `$1.25K` 仍解析为 1250。当前
+  119 帧 image-only 复跑 raw right_top_stack 从 4 match / 19 mismatch 改善到 7 / 16；accepted 数字分布不变，
+  仍不放宽阈值、不启用 image-only GameState。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

@@ -297,7 +297,7 @@ def _normalize_numeric_text(text: str) -> str:
     normalized = _normalize_text(text).translate(str.maketrans("OoI|", "0011"))
     normalized = re.sub(r"\$\s+", "$", normalized)
     normalized = re.sub(r"(?<=[\d$.,+])\s+(?=\d)", "", normalized)
-    normalized = re.sub(r"(?<=\d)\s+(?=[.,+KkMm])", "", normalized)
+    normalized = re.sub(r"(?<=\d)\s+(?=[.,+])", "", normalized)
     normalized = re.sub(r"(?<=[.,+])\s+(?=\d)", "", normalized)
     return normalized
 
