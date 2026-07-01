@@ -342,24 +342,24 @@ class FakeRecognizer:
                 recognized_table={
                     "street": "flop",
                     "pot": 150,
-                    "board": [
+                    "board": (
                         {"card": "2C", "visible": True},
                         {"card": "7D", "visible": True},
                         {"card": "TS", "visible": True},
-                    ],
-                    "buttons": [{"command": "primary_left", "action_type": "check"}],
-                    "seats": [
+                    ),
+                    "buttons": ({"command": "primary_left", "action_type": "check"},),
+                    "seats": (
                         {
                             "seat": 0,
                             "stack": 1000,
                             "active": True,
-                            "hole_cards": [
+                            "hole_cards": (
                                 {"card": "AS", "visible": True},
                                 {"card": "KH", "visible": True},
-                            ],
+                            ),
                         },
                         {"seat": 1, "stack": 1000, "active": True},
-                    ],
+                    ),
                 },
             )
         if frame_id == "frame_003":

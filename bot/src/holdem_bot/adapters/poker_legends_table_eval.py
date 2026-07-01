@@ -954,7 +954,7 @@ def _frame_list_lines(value: object) -> list[str]:
 
 
 def _row_mappings(value: object) -> list[Mapping[str, object]]:
-    if not isinstance(value, list):
+    if not isinstance(value, list | tuple):
         return []
     return [item for item in value if isinstance(item, Mapping)]
 
