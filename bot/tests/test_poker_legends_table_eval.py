@@ -230,6 +230,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "- Review queue frames: 1" in report
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
     assert "## Table Readiness Flag Counts" in report
+    assert "## Number Readiness Flag Counts" in report
     assert "## Review Tag Counts" in report
     assert "## Screen Truth Confusion" in report
     assert "- actionable_table: actionable_table=2" in report
@@ -313,7 +314,12 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
         "missing_table_metadata": 1,
         "screen_not_actionable": 1,
     }
-    assert image_only_summary["table_readiness_flag_counts"] == {}
+    assert image_only_summary["table_readiness_flag_counts"] == {
+        "readiness_not_enough_players": 1
+    }
+    assert image_only_summary["number_readiness_flag_counts"] == {
+        "readiness_low_confidence_opponent_stack": 1
+    }
     assert image_only_summary["review_queue_by_tag"] == {
         "missing_table_metadata": ["frame_001"],
         "screen_missed_actionable": ["frame_003"],
@@ -358,9 +364,17 @@ class FakeRecognizer:
                                 {"card": "KH", "visible": True},
                             ),
                         },
-                        {"seat": 1, "stack": 1000, "active": True},
                     ),
                 },
+                number_predictions=(
+                    {
+                        "confidence": 0.65,
+                        "group": "texts",
+                        "name": "right_top_stack",
+                        "normalized_number": 1000,
+                    },
+                ),
+                accepted_number_predictions=(),
             )
         if frame_id == "frame_003":
             return _blocked_result(frame_id)
@@ -419,6 +433,8 @@ def _blocked_result(
     reason_code: str = "POT_REQUIRED_BY_POLICY",
     screen: ScreenState | None = None,
     recognized_table: dict[str, object] | None = None,
+    number_predictions: tuple[dict[str, object], ...] = (),
+    accepted_number_predictions: tuple[dict[str, object], ...] = (),
 ) -> RecognitionResult:
     evidence = FrameEvidence(session_id=None, frame_id=frame_id)
     screen = screen or ScreenState.actionable_table(hero_turn=True)
@@ -483,6 +499,8 @@ def _blocked_result(
                 "seats": [{"seat": 0, "stack": 1000, "committed": 0, "current": True}],
             },
             "assembly_result": assembly.to_dict(),
+            "number_predictions": list(number_predictions),
+            "accepted_number_predictions": list(accepted_number_predictions),
         },
         screen=screen,
         recognition_mode=mode,

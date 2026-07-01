@@ -642,6 +642,11 @@
   `readiness_not_enough_players` 30、`readiness_missing_hero_seat` 8、`readiness_missing_passive_action` 8；
   `readiness_missing_hero_hole_cards` 误报已修正（metadata 内存里是 tuple，evaluator 现在按 list/tuple 都能读）。
   authorization 仍为 0。
+- 阶段 4 Poker Legends table evaluator number readiness v1：image-only row 现在同时导出原始
+  `number_predictions` 与 `accepted_number_predictions`，并把部分 table readiness blocker 拆成数字证据缺口，
+  仍不放宽数字接受阈值、不启用 image-only GameState 组装。当前 119 帧 image-only 复跑：
+  `readiness_low_confidence_opponent_stack` 19、`readiness_missing_opponent_stack_ocr` 8、
+  `readiness_low_confidence_hero_stack` 8；authorization events 0、unsafe authorization 0。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

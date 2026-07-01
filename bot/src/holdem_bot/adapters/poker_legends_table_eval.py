@@ -58,6 +58,7 @@ def evaluate_poker_legends_table_recognizer(
     contract_counts: dict[str, int] = {}
     assembly_status_counts: dict[str, int] = {}
     table_readiness_flag_counts: dict[str, int] = {}
+    number_readiness_flag_counts: dict[str, int] = {}
     false_actionable_examples: list[str] = []
     screen_false_actionable_examples: list[str] = []
     screen_missed_actionable_examples: list[str] = []
@@ -185,6 +186,8 @@ def evaluate_poker_legends_table_recognizer(
             issue_counts[issue_code] = issue_counts.get(issue_code, 0) + 1
         for flag in _string_list(row.get("table_readiness_flags")):
             table_readiness_flag_counts[flag] = table_readiness_flag_counts.get(flag, 0) + 1
+        for flag in _string_list(row.get("number_readiness_flags")):
+            number_readiness_flag_counts[flag] = number_readiness_flag_counts.get(flag, 0) + 1
         for flag in _action_panel_flags(row.get("action_panels")):
             action_panel_flag_counts[flag] = action_panel_flag_counts.get(flag, 0) + 1
             if outcome != "state":
@@ -213,6 +216,7 @@ def evaluate_poker_legends_table_recognizer(
         "contract_counts": dict(sorted(contract_counts.items())),
         "assembly_status_counts": dict(sorted(assembly_status_counts.items())),
         "table_readiness_flag_counts": dict(sorted(table_readiness_flag_counts.items())),
+        "number_readiness_flag_counts": dict(sorted(number_readiness_flag_counts.items())),
         "authorization_events": authorization_events,
         "unsafe_authorization_events": unsafe_authorization_events,
         "stale_authorization_events": stale_authorization_events,
@@ -337,6 +341,13 @@ def _row_from_result(
         and result.screen.kind is ScreenKind.ACTIONABLE_TABLE
         else []
     )
+    number_predictions = result.metadata.get("number_predictions", [])
+    accepted_number_predictions = result.metadata.get("accepted_number_predictions", [])
+    number_readiness_flags = _number_readiness_flags(
+        table_readiness_flags,
+        number_predictions=number_predictions,
+        accepted_number_predictions=accepted_number_predictions,
+    )
     return {
         "frame_id": frame_id,
         "image": str(image_path),
@@ -361,6 +372,7 @@ def _row_from_result(
         if assembly is not None
         else [],
         "table_readiness_flags": table_readiness_flags,
+        "number_readiness_flags": number_readiness_flags,
         "confidence": result.confidence,
         "state": _state_summary(result.state),
         "recognized_table": _jsonable(table_dict),
@@ -369,7 +381,8 @@ def _row_from_result(
         ]
         if result.visual_observation is not None
         else [],
-        "accepted_number_predictions": result.metadata.get("accepted_number_predictions", []),
+        "number_predictions": number_predictions,
+        "accepted_number_predictions": accepted_number_predictions,
         "accepted_critical_fields": [
             field.to_dict() for field in result.accepted_critical_fields
         ],
@@ -492,6 +505,80 @@ def _table_readiness_flags(table: Mapping[str, object]) -> list[str]:
     ):
         flags.append("readiness_missing_passive_action")
     return flags
+
+
+def _number_readiness_flags(
+    table_readiness_flags: list[str],
+    *,
+    number_predictions: object,
+    accepted_number_predictions: object,
+) -> list[str]:
+    flags: list[str] = []
+    predictions = _row_mappings(number_predictions)
+    accepted = _row_mappings(accepted_number_predictions)
+    if "readiness_not_enough_players" in table_readiness_flags and not _has_number_prediction(
+        accepted,
+        group="texts",
+        name="right_top_stack",
+    ):
+        right_top = _best_number_prediction(
+            predictions,
+            group="texts",
+            name="right_top_stack",
+        )
+        if _prediction_has_value(right_top):
+            flags.append("readiness_low_confidence_opponent_stack")
+        else:
+            flags.append("readiness_missing_opponent_stack_ocr")
+    if "readiness_missing_hero_seat" in table_readiness_flags and not _has_number_prediction(
+        accepted,
+        group="texts",
+        name="hero_stack",
+    ):
+        hero_stack = _best_number_prediction(
+            predictions,
+            group="texts",
+            name="hero_stack",
+        )
+        if _prediction_has_value(hero_stack):
+            flags.append("readiness_low_confidence_hero_stack")
+        else:
+            flags.append("readiness_missing_hero_stack_ocr")
+    return flags
+
+
+def _has_number_prediction(
+    predictions: Sequence[Mapping[str, object]],
+    *,
+    group: str,
+    name: str,
+) -> bool:
+    return any(
+        prediction.get("group") == group
+        and prediction.get("name") == name
+        and _optional_int(prediction.get("normalized_number")) is not None
+        for prediction in predictions
+    )
+
+
+def _best_number_prediction(
+    predictions: Sequence[Mapping[str, object]],
+    *,
+    group: str,
+    name: str,
+) -> Mapping[str, object] | None:
+    matches = [
+        prediction
+        for prediction in predictions
+        if prediction.get("group") == group and prediction.get("name") == name
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda prediction: _optional_float(prediction.get("confidence")) or 0.0)
+
+
+def _prediction_has_value(prediction: Mapping[str, object] | None) -> bool:
+    return prediction is not None and _optional_int(prediction.get("normalized_number")) is not None
 
 
 def _seat_by_index(
@@ -797,6 +884,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         *_count_lines(summary.get("table_readiness_flag_counts")),
         "",
+        "## Number Readiness Flag Counts",
+        "",
+        *_count_lines(summary.get("number_readiness_flag_counts")),
+        "",
         "## Screen Kind Counts",
         "",
         *_count_lines(summary.get("screen_kind_counts")),
@@ -976,6 +1067,14 @@ def _optional_int(value: object) -> int | None:
         return value
     if isinstance(value, float) and value.is_integer():
         return int(value)
+    return None
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
     return None
 
 
