@@ -44,6 +44,7 @@ def evaluate_poker_legends_table_recognizer(
     issue_counts: dict[str, int] = {}
     action_panel_flag_counts: dict[str, int] = {}
     blocking_action_panel_flag_counts: dict[str, int] = {}
+    review_tag_counts: dict[str, int] = {}
     screen_kind_counts: dict[str, int] = {}
     false_actionable_examples: list[str] = []
     authorization_events = 0
@@ -106,6 +107,9 @@ def evaluate_poker_legends_table_recognizer(
                 blocking_action_panel_flag_counts[flag] = (
                     blocking_action_panel_flag_counts.get(flag, 0) + 1
                 )
+        if outcome != "state":
+            for tag in _string_list(row.get("review_tags")):
+                review_tag_counts[tag] = review_tag_counts.get(tag, 0) + 1
 
     summary: dict[str, object] = {
         "schema_version": 1,
@@ -122,6 +126,7 @@ def evaluate_poker_legends_table_recognizer(
         "blocking_action_panel_flag_counts": dict(
             sorted(blocking_action_panel_flag_counts.items())
         ),
+        "review_tag_counts": dict(sorted(review_tag_counts.items())),
         "examples": dict(sorted(examples.items())),
         "rows": rows,
     }
@@ -183,13 +188,15 @@ def _row_from_result(
     outcome = "state" if result.state is not None else str(block_reason or "no_state")
     table = result.metadata.get("recognized_table")
     table_dict = table if isinstance(table, Mapping) else {}
+    truth_summary = _truth_summary(truth)
     assembly = result.assembly_result
     return {
         "frame_id": frame_id,
         "image": str(image_path),
         "result": outcome,
         "truth_screen_kind": truth_screen_kind,
-        "truth": _truth_summary(truth),
+        "truth": truth_summary,
+        "review_tags": _review_tags(outcome, truth_summary, table_dict),
         "screen_kind": result.screen.kind.value,
         "assembly_status": assembly.status.value if assembly is not None else None,
         "validity_scope": assembly.validity_scope.value if assembly is not None else None,
@@ -275,11 +282,82 @@ def _truth_summary(truth: Mapping[str, object]) -> dict[str, object]:
     }
 
 
+def _review_tags(
+    outcome: str,
+    truth: Mapping[str, object],
+    table: Mapping[str, object],
+) -> list[str]:
+    if outcome == "state":
+        return []
+    if outcome == "screen_not_actionable":
+        return ["negative_screen_state"]
+    if outcome == "hero_not_current":
+        return ["hero_turn_not_confirmed"]
+    if outcome == "preselect_ambiguous":
+        return ["primary_preselect_shortcut"]
+    if outcome == "not_enough_players":
+        if len(_visible_truth_seats(truth)) < 2:
+            return ["truth_missing_opponent_seat"]
+        return ["seat_assembly_gap"]
+    if outcome == "missing_current_action_row":
+        if _visible_direct_truth_action_buttons(truth):
+            return ["button_recognizer_missed_truth_action_row"]
+        return ["truth_missing_current_action_row"]
+    if outcome == "missing_passive_action":
+        if _has_truth_action_type(truth, {"check", "call", "bet"}):
+            return ["passive_action_assembly_gap"]
+        if _has_recognized_action_type(table, {"check", "call", "bet"}):
+            return ["passive_action_contract_gap"]
+        return ["truth_missing_passive_action"]
+    return [outcome]
+
+
+def _visible_truth_seats(truth: Mapping[str, object]) -> list[Mapping[str, object]]:
+    return [seat for seat in _row_mappings(truth.get("seats")) if bool(seat.get("visible", True))]
+
+
+def _visible_direct_truth_action_buttons(truth: Mapping[str, object]) -> list[Mapping[str, object]]:
+    direct_names = {
+        "primary_left",
+        "primary_middle",
+        "primary_right",
+        "check",
+        "call",
+        "raise",
+        "fold",
+    }
+    buttons: list[Mapping[str, object]] = []
+    for button in _row_mappings(truth.get("buttons")):
+        if not bool(button.get("visible", True)):
+            continue
+        name = str(button.get("name") or "")
+        if name in direct_names or name.endswith("_button"):
+            buttons.append(button)
+    return buttons
+
+
+def _has_truth_action_type(truth: Mapping[str, object], action_types: set[str]) -> bool:
+    for button in _visible_direct_truth_action_buttons(truth):
+        action_type = button.get("action_type")
+        if isinstance(action_type, str) and action_type in action_types:
+            return True
+    return False
+
+
+def _has_recognized_action_type(table: Mapping[str, object], action_types: set[str]) -> bool:
+    for button in _row_mappings(table.get("buttons")):
+        action_type = button.get("action_type")
+        if isinstance(action_type, str) and action_type in action_types:
+            return True
+    return False
+
+
 def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     counts = summary.get("result_counts")
     issue_counts = summary.get("issue_counts")
     action_panel_flag_counts = summary.get("action_panel_flag_counts")
     blocking_action_panel_flag_counts = summary.get("blocking_action_panel_flag_counts")
+    review_tag_counts = summary.get("review_tag_counts")
     examples = summary.get("examples")
     rows = _row_mappings(summary.get("rows"))
     blockers = [row for row in rows if row.get("result") != "state"]
@@ -314,6 +392,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         *_count_lines(blocking_action_panel_flag_counts),
         "",
+        "## Review Tag Counts",
+        "",
+        *_count_lines(review_tag_counts),
+        "",
         "## Examples",
         "",
     ]
@@ -333,10 +415,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     )
     if blockers:
         lines.append(
-            "| Frame | Result | Issues | Action Panels | Truth Buttons | Buttons | "
+            "| Frame | Result | Review Tags | Issues | Action Panels | Truth Buttons | Buttons | "
             "Truth Seats | Seats | Truth Texts | Accepted Numbers |"
         )
-        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
         for row in blockers:
             table = row.get("recognized_table")
             table_dict = table if isinstance(table, Mapping) else {}
@@ -346,6 +428,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
                 "| "
                 f"`{row.get('frame_id')}` | "
                 f"`{row.get('result')}` | "
+                f"{_inline_codes(row.get('review_tags'))} | "
                 f"{_inline_codes(row.get('issue_codes'))} | "
                 f"{_action_panel_summary(row.get('action_panels'))} | "
                 f"{_truth_button_summary(truth_dict.get('buttons'))} | "

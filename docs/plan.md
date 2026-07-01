@@ -600,6 +600,11 @@
   buttons/seats/texts 摘要，blocker report 增加 Truth Buttons / Truth Seats / Truth Texts 与 recognized
   Buttons / Seats 对照列。当前全量 119 帧复跑结果计数不变，但剩余 blocker 可以直接判断是 truth 缺 seat、
   当前动作行缺失，还是 recognizer 未接受按钮/数字，不再依赖临时脚本追查。
+- 阶段 4 Poker Legends table evaluator review tags v1：evaluator 为每个 non-state row 生成 `review_tags`，
+  并汇总 `review_tag_counts`，把剩余 blocker 变成可执行清单。当前全量 119 帧复跑：
+  `negative_screen_state` 62、`truth_missing_passive_action` 6、`truth_missing_current_action_row` 3、
+  `truth_missing_opponent_seat` 2、`primary_preselect_shortcut` 1、`hero_turn_not_confirmed` 1；false actionable
+  仍为 0。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

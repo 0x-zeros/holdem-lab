@@ -129,6 +129,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["issue_counts"] == {"POT_REQUIRED_BY_POLICY": 1}
     assert summary["action_panel_flag_counts"] == {"missing_current_action_row": 1}
     assert summary["blocking_action_panel_flag_counts"] == {"missing_current_action_row": 1}
+    assert summary["review_tag_counts"] == {"missing_pot": 1}
     assert summary["examples"] == {"missing_pot": ["frame_003"], "state": ["frame_001"]}
     rows = summary["rows"]
     assert isinstance(rows, list)
@@ -136,6 +137,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert rows[0]["state"]["street"] == "flop"
     assert rows[1]["frame_id"] == "frame_003"
     assert rows[1]["issue_codes"] == ["POT_REQUIRED_BY_POLICY"]
+    assert rows[1]["review_tags"] == ["missing_pot"]
     assert rows[1]["truth"]["buttons"] == [
         {
             "action_type": "check",
@@ -151,11 +153,16 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "- Authorization events: 1" in report
     assert "- False actionable count: 0" in report
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
+    assert "## Review Tag Counts" in report
+    assert "- missing_pot: 1" in report
     assert "- missing_current_action_row: 1" in report
     assert "## Blocking Action Panel Flag Counts" in report
     assert "Truth Buttons" in report
     assert "`primary_left:visible=True:check:Check`" in report
-    assert "| `frame_003` | `missing_pot` | `POT_REQUIRED_BY_POLICY` |" in report
+    assert (
+        "| `frame_003` | `missing_pot` | `missing_pot` | `POT_REQUIRED_BY_POLICY` |"
+        in report
+    )
 
     all_out = tmp_path / "all-out"
     all_summary = poker_legends_table_eval.evaluate_poker_legends_table_recognizer(
