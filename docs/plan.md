@@ -569,6 +569,10 @@
   `not_enough_players` 2、`preselect_ambiguous` 1、`hero_not_current` 1；`button_label_action_mismatch`
   从 action-panel flags 中清零，旧 `session_002__keyframe_000200` 更准确地暴露为 label 缺金额的
   `missing_call_amount`。
+- 阶段 4 Poker Legends committed-call derivation v1：当 call 按钮 label/按钮 OCR 都没有金额时，只在 active
+  seats 的 committed 数值完整且 `max_committed - hero_committed > 0` 时把 call amount 标为
+  `rule_inferred_committed`；否则继续 fail-closed。当前 57 帧复跑：`state` 42、`missing_legal_actions` 11、
+  `not_enough_players` 2、`preselect_ambiguous` 1、`hero_not_current` 1，`missing_call_amount` 清零。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

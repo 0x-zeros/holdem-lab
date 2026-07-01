@@ -939,7 +939,12 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 label = _truth_button_label(annotation, button.command)
                 if label is not None and _is_preselect_or_shortcut_label(label):
                     return (), 0, "preselect_ambiguous"
-                amount = _button_amount(annotation, button.command, number_predictions)
+                amount = _button_amount(
+                    annotation,
+                    button.command,
+                    number_predictions,
+                    hero_committed=hero_committed,
+                )
                 if amount is None:
                     return (), 0, "missing_call_amount"
                 to_call = amount
@@ -1736,6 +1741,7 @@ def _accepted_critical_fields_for_state(
                     annotation,
                     number_predictions,
                     annotation_source=annotation_source,
+                    hero_committed=hero.committed,
                 ),
                 state.to_call,
             )
@@ -1803,11 +1809,14 @@ def _call_amount_source(
     number_predictions: tuple[PokerLegendsNumberPrediction, ...],
     *,
     annotation_source: str,
+    hero_committed: int,
 ) -> str:
     if annotation is not None and _truth_call_amount(annotation) is not None:
         return annotation_source
-    if _number_prediction_value(number_predictions, "buttons", "primary_left") is not None:
+    if _has_button_number_prediction(number_predictions):
         return "image_ocr"
+    if _call_amount_from_trusted_committed(annotation, hero_committed=hero_committed) is not None:
+        return "rule_inferred_committed"
     return _button_source(annotation, (), annotation_source=annotation_source)
 
 
@@ -2331,6 +2340,8 @@ def _button_amount(
     annotation: Mapping[str, object],
     slot: str,
     number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    *,
+    hero_committed: int,
 ) -> int | None:
     label = _truth_button_label(annotation, slot)
     if label is not None:
@@ -2342,7 +2353,10 @@ def _button_amount(
     amount = _truth_call_amount(annotation)
     if amount is not None:
         return amount
-    return _number_prediction_value(number_predictions, "buttons", slot)
+    amount = _number_prediction_value(number_predictions, "buttons", slot)
+    if amount is not None:
+        return amount
+    return _call_amount_from_trusted_committed(annotation, hero_committed=hero_committed)
 
 
 def _button_amount_from_label(label: str) -> int | None:
@@ -2453,6 +2467,15 @@ def _number_prediction_value(
     return prediction.normalized_number
 
 
+def _has_button_number_prediction(
+    predictions: tuple[PokerLegendsNumberPrediction, ...],
+) -> bool:
+    return any(
+        prediction.group == "buttons" and prediction.normalized_number is not None
+        for prediction in predictions
+    )
+
+
 def _number_prediction_raw(
     predictions: tuple[PokerLegendsNumberPrediction, ...],
     group: str,
@@ -2485,6 +2508,25 @@ def _first_number(*values: int | None) -> int | None:
         if value is not None:
             return value
     return None
+
+
+def _call_amount_from_trusted_committed(
+    annotation: Mapping[str, object] | None,
+    *,
+    hero_committed: int,
+) -> int | None:
+    committed_values: list[int] = []
+    for seat in _mapping_sequence(None if annotation is None else annotation.get("seats")):
+        if _optional_bool(seat.get("active")) is False:
+            continue
+        committed = _optional_int(seat.get("committed"))
+        if committed is None or committed < 0:
+            return None
+        committed_values.append(committed)
+    if len(committed_values) < 2:
+        return None
+    amount = max(committed_values) - hero_committed
+    return amount if amount > 0 else None
 
 
 def _mapping_sequence(value: object) -> list[Mapping[str, object]]:
