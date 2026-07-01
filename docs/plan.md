@@ -621,6 +621,11 @@
   `accepted_critical_wrong_count`，每个 row 同步导出 `accepted_critical_fields` 与 mismatch/source-policy
   examples。当前全量 119 帧复跑：`truth_assisted_replay` 119，authorization events 44，其中
   truth-assisted authorization 44、unsafe authorization 0、stale authorization 0、accepted critical wrong 0。
+- 阶段 4 Poker Legends table evaluator image-only replay v1：新增 `--image-only-replay`，同一 reviewed manifest
+  可只把 image + layout annotation 传入 recognizer，truth 只作为 evaluator expected data，不进入主链路。当前全量
+  119 帧 image-only 复跑：`image_only_replay` 119，authorization events 0、truth-assisted authorization 0、
+  unsafe authorization 0、accepted critical wrong 0；其中 41 帧到达 table recognizer 后因
+  `missing_table_metadata` fail-closed，78 帧被 screen gate 归为 `screen_not_actionable`。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

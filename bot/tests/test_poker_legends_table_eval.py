@@ -211,6 +211,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "# Poker Legends Table Recognizer Report" in report
     assert "- state: 1" in report
     assert "- Authorization events: 1" in report
+    assert "- Image-only replay: False" in report
     assert "- Unsafe authorization events: 0" in report
     assert "- Truth-assisted authorization events: 1" in report
     assert "- Accepted critical wrong count: 0" in report
@@ -265,10 +266,37 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert all_summary["review_queue_tag_counts"] == {"missing_pot": 1}
     assert all_summary["review_queue_by_tag"] == {"missing_pot": ["frame_003"]}
 
+    image_only_out = tmp_path / "image-only-out"
+    image_only_summary = poker_legends_table_eval.evaluate_poker_legends_table_recognizer(
+        dataset_manifest_path=manifest,
+        card_part_manifest="unused-card-parts.json",
+        card_classifier_manifest="unused-card-classifier.json",
+        button_manifest="unused-buttons.json",
+        output_dir=image_only_out,
+        image_only_replay=True,
+    )
+
+    assert image_only_summary["frames"] == 2
+    assert image_only_summary["image_only_replay"] is True
+    assert image_only_summary["recognition_mode_counts"] == {"image_only_replay": 2}
+    assert image_only_summary["authorization_events"] == 0
+    assert image_only_summary["truth_assisted_authorization_events"] == 0
+    assert image_only_summary["unsafe_authorization_events"] == 0
+    assert image_only_summary["result_counts"] == {"missing_table_metadata": 2}
+
 
 class FakeRecognizer:
     def recognize(self, frame: CapturedFrame) -> RecognitionResult:
+        mode = RecognitionMode(str(frame.metadata.get("recognition_mode", "truth_assisted_replay")))
         frame_id = Path(str(frame.payload)).stem
+        if mode is RecognitionMode.IMAGE_ONLY_REPLAY:
+            assert "poker_legends_annotation_path" not in frame.metadata
+            return _blocked_result(
+                frame_id,
+                mode=mode,
+                block_reason="missing_table_metadata",
+                reason_code="MISSING_TABLE_METADATA",
+            )
         if frame_id == "frame_003":
             return _blocked_result(frame_id)
         state = _state(frame_id)
@@ -318,12 +346,18 @@ class FakeRecognizer:
         )
 
 
-def _blocked_result(frame_id: str) -> RecognitionResult:
+def _blocked_result(
+    frame_id: str,
+    *,
+    mode: RecognitionMode = RecognitionMode.TRUTH_ASSISTED_REPLAY,
+    block_reason: str = "missing_pot",
+    reason_code: str = "POT_REQUIRED_BY_POLICY",
+) -> RecognitionResult:
     evidence = FrameEvidence(session_id=None, frame_id=frame_id)
     screen = ScreenState.actionable_table(hero_turn=True)
     visual = VisualObservation(
         frame=evidence,
-        recognition_mode=RecognitionMode.TRUTH_ASSISTED_REPLAY,
+        recognition_mode=mode,
         screen=screen,
         layout=LayoutObservation(
             profile_id=None,
@@ -345,13 +379,13 @@ def _blocked_result(frame_id: str) -> RecognitionResult:
     )
     issue = AssemblyIssue(
         issue_type="missing",
-        reason_code="POT_REQUIRED_BY_POLICY",
+        reason_code=reason_code,
         field_path="numbers.pot",
         rule_name="single_frame_contract",
         severity="hard",
         blocking=True,
         required_by_contract=(ContractLevel.POLICY_DECISION,),
-        message="missing_pot",
+        message=block_reason,
     )
     assembly = GameStateAssemblyResult(
         status=AssemblyStatus.NO_STATE,
@@ -374,7 +408,7 @@ def _blocked_result(frame_id: str) -> RecognitionResult:
         state=None,
         confidence=1.0,
         metadata={
-            "state_block_reason": "missing_pot",
+            "state_block_reason": block_reason,
             "recognized_table": {
                 "street": "turn",
                 "pot": None,
@@ -384,7 +418,7 @@ def _blocked_result(frame_id: str) -> RecognitionResult:
             "assembly_result": assembly.to_dict(),
         },
         screen=screen,
-        recognition_mode=RecognitionMode.TRUTH_ASSISTED_REPLAY,
+        recognition_mode=mode,
         safety_contract=ContractLevel.OBSERVE_ONLY,
         frame_evidence=evidence,
         visual_observation=visual,

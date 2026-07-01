@@ -33,6 +33,7 @@ def evaluate_poker_legends_table_recognizer(
     card_template_manifest: str | Path | None = None,
     controlled_seat: int = 0,
     actionable_only: bool = True,
+    image_only_replay: bool = False,
     limit: int | None = None,
 ) -> dict[str, object]:
     recognizer = PokerLegendsTableRecognizer.from_manifests(
@@ -88,14 +89,15 @@ def evaluate_poker_legends_table_recognizer(
             CapturedFrame(
                 payload=image_path,
                 source="poker_legends_table_eval",
-                metadata={
-                    "poker_legends_image_path": str(image_path),
-                    "poker_legends_layout_annotation_path": str(annotation_path),
-                    "poker_legends_annotation_path": str(truth_path),
-                    "coordinate_space": "image",
-                },
+                metadata=_frame_metadata(
+                    image_path=image_path,
+                    layout_annotation_path=annotation_path,
+                    truth_path=truth_path,
+                    image_only_replay=image_only_replay,
+                ),
             )
         )
+
         critical_eval = evaluate_accepted_critical_fields(
             result,
             expected_values=_expected_critical_values(
@@ -177,6 +179,7 @@ def evaluate_poker_legends_table_recognizer(
         "schema_version": 1,
         "frames": len(rows),
         "actionable_only": actionable_only,
+        "image_only_replay": image_only_replay,
         "result_counts": dict(sorted(result_counts.items())),
         "issue_counts": dict(sorted(issue_counts.items())),
         "screen_kind_counts": dict(sorted(screen_kind_counts.items())),
@@ -223,6 +226,25 @@ def evaluate_poker_legends_table_recognizer(
     return summary
 
 
+def _frame_metadata(
+    *,
+    image_path: Path,
+    layout_annotation_path: Path,
+    truth_path: Path,
+    image_only_replay: bool,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "poker_legends_image_path": str(image_path),
+        "poker_legends_layout_annotation_path": str(layout_annotation_path),
+        "coordinate_space": "image",
+    }
+    if image_only_replay:
+        metadata["recognition_mode"] = RecognitionMode.IMAGE_ONLY_REPLAY.value
+    else:
+        metadata["poker_legends_annotation_path"] = str(truth_path)
+    return metadata
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Evaluate Poker Legends table recognizer assembly over a dataset manifest."
@@ -239,6 +261,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also scan truth frames whose screen.kind is not actionable_table.",
     )
+    parser.add_argument(
+        "--image-only-replay",
+        action="store_true",
+        help="Replay images without passing reviewed truth into the recognizer.",
+    )
     parser.add_argument("--limit", type=int)
     return parser
 
@@ -254,6 +281,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         output_dir=args.out,
         controlled_seat=args.seat,
         actionable_only=not args.include_non_actionable,
+        image_only_replay=args.image_only_replay,
         limit=args.limit,
     )
     print(json.dumps({k: v for k, v in summary.items() if k != "rows"}, indent=2, sort_keys=True))
@@ -631,6 +659,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         f"- Frames scanned: {summary.get('frames', 0)}",
         f"- Actionable only: {summary.get('actionable_only', True)}",
+        f"- Image-only replay: {summary.get('image_only_replay', False)}",
         f"- Authorization events: {summary.get('authorization_events', 0)}",
         f"- Unsafe authorization events: {summary.get('unsafe_authorization_events', 0)}",
         f"- Stale authorization events: {summary.get('stale_authorization_events', 0)}",
