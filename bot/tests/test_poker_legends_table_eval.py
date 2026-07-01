@@ -451,9 +451,37 @@ def test_number_readiness_flags_distinguish_unverified_stack_overlay() -> None:
         ],
         accepted_number_predictions=[],
     )
+    low_confidence_overlay_flags = poker_legends_table_eval._number_readiness_flags(
+        ["readiness_not_enough_players"],
+        number_predictions=[
+            {
+                "group": "texts",
+                "name": "right_top_stack",
+                "normalized_number": 1210,
+                "base_number": 1200,
+                "overlay_number": 10,
+                "total_number": 1210,
+                "confidence": 0.65,
+            }
+        ],
+        accepted_number_predictions=[],
+        number_prediction_rejections=[
+            {
+                "group": "texts",
+                "name": "right_top_stack",
+                "normalized_number": 1210,
+                "base_number": 1200,
+                "overlay_number": 10,
+                "total_number": 1210,
+                "confidence": 0.65,
+                "rejection_reason": "low_confidence",
+            }
+        ],
+    )
 
     assert opponent_flags == ["readiness_unverified_opponent_stack_overlay"]
     assert hero_flags == ["readiness_unverified_hero_stack_overlay"]
+    assert low_confidence_overlay_flags == ["readiness_low_confidence_opponent_stack"]
 
 
 class FakeRecognizer:

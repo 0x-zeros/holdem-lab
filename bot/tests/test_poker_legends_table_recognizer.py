@@ -583,6 +583,68 @@ def test_poker_legends_table_recognizer_uses_number_ocr_fallbacks(
     assert Action(ActionType.CALL, amount=25) in result.state.legal_actions
 
 
+def test_poker_legends_table_recognizer_accepts_validated_hero_stack_overlay_ocr(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    annotation = actionable_truth()
+    for seat in cast(list[dict[str, object]], annotation["seats"]):
+        if seat.get("name") == "hero":
+            seat.pop("stack")
+            seat["committed"] = 10
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer((button_prediction("primary_left", "check", 0.90),)),
+        number_recognizer=FakeNumberRecognizer(
+            (
+                PokerLegendsNumberPrediction(
+                    name="hero_stack",
+                    group="texts",
+                    visible=True,
+                    raw="$990+10",
+                    numbers=(990, 10),
+                    first_number=990,
+                    sum_number=1000,
+                    normalized_number=1000,
+                    confidence=0.90,
+                    base_number=990,
+                    overlay_number=10,
+                    total_number=1000,
+                ),
+            ),
+            expected_text_names=("hero_stack",),
+            expected_button_names=(),
+        ),
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": annotation,
+                "poker_legends_layout_annotation": {"image": str(image), "regions": {}},
+            },
+        )
+    )
+
+    assert result.state is not None
+    assert result.state.player(0).stack == 1000
+    assert result.state.player(0).committed == 10
+    assert result.metadata["accepted_number_predictions"][0]["name"] == "hero_stack"
+    assert result.metadata["number_prediction_rejections"] == []
+
+
 def test_poker_legends_table_recognizer_synthesizes_missing_hero_seat(
     tmp_path: Path,
 ) -> None:

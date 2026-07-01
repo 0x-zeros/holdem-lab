@@ -705,6 +705,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             if _number_prediction_rejection_reason(
                 prediction,
                 min_confidence=self.min_number_confidence,
+                annotation=context.annotation,
             )
             is None
         )
@@ -753,6 +754,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                     rejection_reason := _number_prediction_rejection_reason(
                         prediction,
                         min_confidence=self.min_number_confidence,
+                        annotation=context.annotation,
                     )
                 )
                 is not None
@@ -2504,17 +2506,21 @@ def _number_prediction_rejection_reason(
     prediction: PokerLegendsNumberPrediction,
     *,
     min_confidence: float,
+    annotation: Mapping[str, object] | None,
 ) -> str | None:
     if prediction.normalized_number is None:
         return "missing_value"
     if prediction.confidence < min_confidence:
         return "low_confidence"
-    if _is_unverified_stack_overlay_prediction(prediction):
+    if _is_stack_overlay_prediction(prediction) and not _is_validated_stack_overlay_prediction(
+        prediction,
+        annotation=annotation,
+    ):
         return "unverified_stack_overlay"
     return None
 
 
-def _is_unverified_stack_overlay_prediction(
+def _is_stack_overlay_prediction(
     prediction: PokerLegendsNumberPrediction,
 ) -> bool:
     return (
@@ -2525,6 +2531,43 @@ def _is_unverified_stack_overlay_prediction(
         )
         and prediction.overlay_number is not None
     )
+
+
+def _is_validated_stack_overlay_prediction(
+    prediction: PokerLegendsNumberPrediction,
+    *,
+    annotation: Mapping[str, object] | None,
+) -> bool:
+    if prediction.group != "texts" or prediction.name != "hero_stack":
+        return False
+    if annotation is None:
+        return False
+    base = prediction.base_number
+    overlay = prediction.overlay_number
+    total = prediction.total_number
+    normalized = prediction.normalized_number
+    if base is None or overlay is None or total is None or normalized is None:
+        return False
+    if overlay <= 0 or base < 0 or total != base + overlay or normalized != total:
+        return False
+    hero = _hero_seat_from_annotation(annotation)
+    if hero is None:
+        return False
+    committed = _optional_int(hero.get("committed"))
+    if committed != overlay:
+        return False
+    stack = _optional_int(hero.get("stack"))
+    return stack is None or stack == total
+
+
+def _hero_seat_from_annotation(
+    annotation: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    for seat in _mapping_sequence(None if annotation is None else annotation.get("seats")):
+        name = str(seat.get("name") or "").lower()
+        if name == "hero" or name.endswith(".hero"):
+            return seat
+    return None
 
 
 def _truth_active_seat_count(annotation: Mapping[str, object] | None) -> int:

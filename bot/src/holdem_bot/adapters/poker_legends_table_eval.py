@@ -405,6 +405,7 @@ def _row_from_result(
         table_readiness_flags,
         number_predictions=number_predictions,
         accepted_number_predictions=accepted_number_predictions,
+        number_prediction_rejections=number_prediction_rejections,
     )
     number_truth_evaluations = _number_truth_evaluations(
         number_predictions=number_predictions,
@@ -583,10 +584,12 @@ def _number_readiness_flags(
     *,
     number_predictions: object,
     accepted_number_predictions: object,
+    number_prediction_rejections: object = (),
 ) -> list[str]:
     flags: list[str] = []
     predictions = _row_mappings(number_predictions)
     accepted = _row_mappings(accepted_number_predictions)
+    rejections = _row_mappings(number_prediction_rejections)
     if "readiness_not_enough_players" in table_readiness_flags and not _has_number_prediction(
         accepted,
         group="texts",
@@ -597,7 +600,14 @@ def _number_readiness_flags(
             group="texts",
             name="right_top_stack",
         )
-        if _prediction_has_unverified_stack_overlay(right_top):
+        rejection_reason = _number_rejection_reason(
+            rejections,
+            group="texts",
+            name="right_top_stack",
+        )
+        if rejection_reason == "unverified_stack_overlay" or (
+            rejection_reason is None and _prediction_has_unverified_stack_overlay(right_top)
+        ):
             flags.append("readiness_unverified_opponent_stack_overlay")
         elif _prediction_has_value(right_top):
             flags.append("readiness_low_confidence_opponent_stack")
@@ -613,7 +623,14 @@ def _number_readiness_flags(
             group="texts",
             name="hero_stack",
         )
-        if _prediction_has_unverified_stack_overlay(hero_stack):
+        rejection_reason = _number_rejection_reason(
+            rejections,
+            group="texts",
+            name="hero_stack",
+        )
+        if rejection_reason == "unverified_stack_overlay" or (
+            rejection_reason is None and _prediction_has_unverified_stack_overlay(hero_stack)
+        ):
             flags.append("readiness_unverified_hero_stack_overlay")
         elif _prediction_has_value(hero_stack):
             flags.append("readiness_low_confidence_hero_stack")
@@ -654,6 +671,19 @@ def _best_number_prediction(
 
 def _prediction_has_value(prediction: Mapping[str, object] | None) -> bool:
     return prediction is not None and _optional_int(prediction.get("normalized_number")) is not None
+
+
+def _number_rejection_reason(
+    rejections: Sequence[Mapping[str, object]],
+    *,
+    group: str,
+    name: str,
+) -> str | None:
+    prediction = _best_number_prediction(rejections, group=group, name=name)
+    if prediction is None:
+        return None
+    reason = prediction.get("rejection_reason")
+    return reason if isinstance(reason, str) and reason else None
 
 
 def _prediction_has_unverified_stack_overlay(prediction: Mapping[str, object] | None) -> bool:
