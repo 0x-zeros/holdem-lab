@@ -44,6 +44,10 @@ def evaluate_poker_legends_table_recognizer(
     issue_counts: dict[str, int] = {}
     action_panel_flag_counts: dict[str, int] = {}
     blocking_action_panel_flag_counts: dict[str, int] = {}
+    screen_kind_counts: dict[str, int] = {}
+    false_actionable_examples: list[str] = []
+    authorization_events = 0
+    non_actionable_frames = 0
     examples: dict[str, list[str]] = {}
 
     frames = _manifest_frames(manifest)
@@ -55,8 +59,10 @@ def evaluate_poker_legends_table_recognizer(
         if truth_path is None:
             continue
         truth = _read_json_object(truth_path)
-        if actionable_only and _screen_kind(truth) != ScreenKind.ACTIONABLE_TABLE.value:
+        truth_screen_kind = _screen_kind(truth) or "unknown"
+        if actionable_only and truth_screen_kind != ScreenKind.ACTIONABLE_TABLE.value:
             continue
+        screen_kind_counts[truth_screen_kind] = screen_kind_counts.get(truth_screen_kind, 0) + 1
         image_path = _resolve_path(frame.get("image"), base=manifest_path.parent)
         annotation_path = annotation_dir / f"{frame_id}.json"
         if image_path is None or not annotation_path.exists():
@@ -73,9 +79,20 @@ def evaluate_poker_legends_table_recognizer(
                 },
             )
         )
-        row = _row_from_result(frame_id, image_path=image_path, result=result)
+        row = _row_from_result(
+            frame_id,
+            image_path=image_path,
+            result=result,
+            truth_screen_kind=truth_screen_kind,
+        )
         rows.append(row)
         outcome = str(row["result"])
+        if result.state is not None:
+            authorization_events += 1
+            if truth_screen_kind != ScreenKind.ACTIONABLE_TABLE.value:
+                false_actionable_examples.append(frame_id)
+        if truth_screen_kind != ScreenKind.ACTIONABLE_TABLE.value:
+            non_actionable_frames += 1
         result_counts[outcome] = result_counts.get(outcome, 0) + 1
         examples.setdefault(outcome, [])
         if len(examples[outcome]) < 8:
@@ -95,6 +112,11 @@ def evaluate_poker_legends_table_recognizer(
         "actionable_only": actionable_only,
         "result_counts": dict(sorted(result_counts.items())),
         "issue_counts": dict(sorted(issue_counts.items())),
+        "screen_kind_counts": dict(sorted(screen_kind_counts.items())),
+        "authorization_events": authorization_events,
+        "non_actionable_frames": non_actionable_frames,
+        "false_actionable_count": len(false_actionable_examples),
+        "false_actionable_examples": false_actionable_examples[:8],
         "action_panel_flag_counts": dict(sorted(action_panel_flag_counts.items())),
         "blocking_action_panel_flag_counts": dict(
             sorted(blocking_action_panel_flag_counts.items())
@@ -153,6 +175,7 @@ def _row_from_result(
     *,
     image_path: Path,
     result: RecognitionResult,
+    truth_screen_kind: str,
 ) -> dict[str, object]:
     block_reason = result.metadata.get("state_block_reason")
     outcome = "state" if result.state is not None else str(block_reason or "no_state")
@@ -163,6 +186,7 @@ def _row_from_result(
         "frame_id": frame_id,
         "image": str(image_path),
         "result": outcome,
+        "truth_screen_kind": truth_screen_kind,
         "screen_kind": result.screen.kind.value,
         "assembly_status": assembly.status.value if assembly is not None else None,
         "validity_scope": assembly.validity_scope.value if assembly is not None else None,
@@ -228,6 +252,13 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         f"- Frames scanned: {summary.get('frames', 0)}",
         f"- Actionable only: {summary.get('actionable_only', True)}",
+        f"- Authorization events: {summary.get('authorization_events', 0)}",
+        f"- Non-actionable frames: {summary.get('non_actionable_frames', 0)}",
+        f"- False actionable count: {summary.get('false_actionable_count', 0)}",
+        "",
+        "## Screen Kind Counts",
+        "",
+        *_count_lines(summary.get("screen_kind_counts")),
         "",
         "## Result Counts",
         "",

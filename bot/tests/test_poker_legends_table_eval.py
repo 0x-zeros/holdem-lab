@@ -86,6 +86,11 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     )
 
     assert summary["frames"] == 2
+    assert summary["screen_kind_counts"] == {"actionable_table": 2}
+    assert summary["authorization_events"] == 1
+    assert summary["non_actionable_frames"] == 0
+    assert summary["false_actionable_count"] == 0
+    assert summary["false_actionable_examples"] == []
     assert summary["result_counts"] == {"missing_pot": 1, "state": 1}
     assert summary["issue_counts"] == {"POT_REQUIRED_BY_POLICY": 1}
     assert summary["action_panel_flag_counts"] == {"missing_current_action_row": 1}
@@ -101,10 +106,32 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     report = (out / "table_recognizer_report.md").read_text(encoding="utf-8")
     assert "# Poker Legends Table Recognizer Report" in report
     assert "- state: 1" in report
+    assert "- Authorization events: 1" in report
+    assert "- False actionable count: 0" in report
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
     assert "- missing_current_action_row: 1" in report
     assert "## Blocking Action Panel Flag Counts" in report
     assert "| `frame_003` | `missing_pot` | `POT_REQUIRED_BY_POLICY` |" in report
+
+    all_out = tmp_path / "all-out"
+    all_summary = poker_legends_table_eval.evaluate_poker_legends_table_recognizer(
+        dataset_manifest_path=manifest,
+        card_part_manifest="unused-card-parts.json",
+        card_classifier_manifest="unused-card-classifier.json",
+        button_manifest="unused-buttons.json",
+        output_dir=all_out,
+        actionable_only=False,
+    )
+
+    assert all_summary["frames"] == 3
+    assert all_summary["screen_kind_counts"] == {
+        "actionable_table": 2,
+        "table_observe": 1,
+    }
+    assert all_summary["authorization_events"] == 2
+    assert all_summary["non_actionable_frames"] == 1
+    assert all_summary["false_actionable_count"] == 1
+    assert all_summary["false_actionable_examples"] == ["frame_002"]
 
 
 class FakeRecognizer:

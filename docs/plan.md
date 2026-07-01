@@ -591,6 +591,11 @@
   `missing_passive_action`（只有 fold/all-in/raise，缺 check/call/bet）和后续可用的 `missing_call_action`。
   当前 57 帧 coverage 不变（`state` 44），blocker 为 `missing_passive_action` 6、
   `missing_current_action_row` 3、`not_enough_players` 2、`preselect_ambiguous` 1、`hero_not_current` 1。
+- 阶段 4 Poker Legends table evaluator safety counts v1：table recognizer evaluator 新增
+  `screen_kind_counts`、`authorization_events`、`non_actionable_frames`、`false_actionable_count` 与
+  `false_actionable_examples`，让 `--include-non-actionable` 可直接衡量 hard negatives。当前 manifest
+  全量 119 帧复跑：`actionable_table` 57、`table_observe` 45、`blocked_overlay` 17；authorization events 44，
+  non-actionable frames 62，false actionable 0。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
