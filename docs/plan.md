@@ -573,6 +573,10 @@
   seats 的 committed 数值完整且 `max_committed - hero_committed > 0` 时把 call amount 标为
   `rule_inferred_committed`；否则继续 fail-closed。当前 57 帧复跑：`state` 42、`missing_legal_actions` 11、
   `not_enough_players` 2、`preselect_ambiguous` 1、`hero_not_current` 1，`missing_call_amount` 清零。
+- 阶段 4 Poker Legends hidden-button filter v1：truth-assisted replay 中，reviewed truth 明确标记不可见的
+  中/右 primary 按钮不再因为静态槽位存在而进入 `RecognizedTable`；左键仍保留模板识别路径以兼容已覆盖的
+  shifted-label 场景。当前 57 帧 coverage 不变（`state` 42），但 `session_002__keyframe_000041/000089/000228/000229`
+  的 false `primary_middle:raise` 已从 blocker 表消失，只剩 reviewed 可见的 fold/all-in 按钮。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

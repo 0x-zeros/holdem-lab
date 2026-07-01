@@ -2073,6 +2073,9 @@ def _recognized_buttons_from_predictions(
     for prediction in button_predictions:
         if not prediction.visible or prediction.action_type is None:
             continue
+        truth_visible = _truth_button_visible(annotation, prediction.slot)
+        if truth_visible is False and prediction.slot != "primary_left":
+            continue
         label = (
             _truth_button_label(annotation, prediction.slot)
             or _number_prediction_raw(number_predictions, "buttons", prediction.slot)
@@ -2286,6 +2289,13 @@ def _truth_button_label(annotation: Mapping[str, object] | None, slot: str) -> s
     if isinstance(label, str) and label.strip() and bool(button.get("visible", True)):
         return label
     return None
+
+
+def _truth_button_visible(annotation: Mapping[str, object] | None, slot: str) -> bool | None:
+    button = _truth_button(annotation, slot)
+    if button is None:
+        return None
+    return bool(button.get("visible", True))
 
 
 def _truth_action_buttons(annotation: Mapping[str, object] | None) -> tuple[RecognizedButton, ...]:
