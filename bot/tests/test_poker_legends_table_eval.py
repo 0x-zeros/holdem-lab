@@ -420,6 +420,42 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "| `frame_001` | `readiness_low_confidence_opponent_stack` |" in image_only_report
 
 
+def test_number_readiness_flags_distinguish_unverified_stack_overlay() -> None:
+    opponent_flags = poker_legends_table_eval._number_readiness_flags(
+        ["readiness_not_enough_players"],
+        number_predictions=[
+            {
+                "group": "texts",
+                "name": "right_top_stack",
+                "normalized_number": 1210,
+                "base_number": 1200,
+                "overlay_number": 10,
+                "total_number": 1210,
+                "confidence": 0.90,
+            }
+        ],
+        accepted_number_predictions=[],
+    )
+    hero_flags = poker_legends_table_eval._number_readiness_flags(
+        ["readiness_missing_hero_seat"],
+        number_predictions=[
+            {
+                "group": "texts",
+                "name": "hero_stack",
+                "normalized_number": 1000,
+                "base_number": 290,
+                "overlay_number": 710,
+                "total_number": 1000,
+                "confidence": 0.90,
+            }
+        ],
+        accepted_number_predictions=[],
+    )
+
+    assert opponent_flags == ["readiness_unverified_opponent_stack_overlay"]
+    assert hero_flags == ["readiness_unverified_hero_stack_overlay"]
+
+
 class FakeRecognizer:
     def recognize(self, frame: CapturedFrame) -> RecognitionResult:
         mode = RecognitionMode(str(frame.metadata.get("recognition_mode", "truth_assisted_replay")))

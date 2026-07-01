@@ -400,6 +400,7 @@ def _row_from_result(
     )
     number_predictions = result.metadata.get("number_predictions", [])
     accepted_number_predictions = result.metadata.get("accepted_number_predictions", [])
+    number_prediction_rejections = result.metadata.get("number_prediction_rejections", [])
     number_readiness_flags = _number_readiness_flags(
         table_readiness_flags,
         number_predictions=number_predictions,
@@ -450,6 +451,7 @@ def _row_from_result(
         else [],
         "number_predictions": number_predictions,
         "accepted_number_predictions": accepted_number_predictions,
+        "number_prediction_rejections": number_prediction_rejections,
         "number_truth_evaluations": number_truth_evaluations,
         "number_component_truth_evaluations": number_component_truth_evaluations,
         "accepted_critical_fields": [
@@ -595,7 +597,9 @@ def _number_readiness_flags(
             group="texts",
             name="right_top_stack",
         )
-        if _prediction_has_value(right_top):
+        if _prediction_has_unverified_stack_overlay(right_top):
+            flags.append("readiness_unverified_opponent_stack_overlay")
+        elif _prediction_has_value(right_top):
             flags.append("readiness_low_confidence_opponent_stack")
         else:
             flags.append("readiness_missing_opponent_stack_ocr")
@@ -609,7 +613,9 @@ def _number_readiness_flags(
             group="texts",
             name="hero_stack",
         )
-        if _prediction_has_value(hero_stack):
+        if _prediction_has_unverified_stack_overlay(hero_stack):
+            flags.append("readiness_unverified_hero_stack_overlay")
+        elif _prediction_has_value(hero_stack):
             flags.append("readiness_low_confidence_hero_stack")
         else:
             flags.append("readiness_missing_hero_stack_ocr")
@@ -648,6 +654,12 @@ def _best_number_prediction(
 
 def _prediction_has_value(prediction: Mapping[str, object] | None) -> bool:
     return prediction is not None and _optional_int(prediction.get("normalized_number")) is not None
+
+
+def _prediction_has_unverified_stack_overlay(prediction: Mapping[str, object] | None) -> bool:
+    if prediction is None:
+        return False
+    return _optional_int(prediction.get("overlay_number")) is not None
 
 
 def _seat_by_index(

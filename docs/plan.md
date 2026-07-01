@@ -462,9 +462,11 @@
   为避免把“stack 展示 + 已下注/叠加标记”误当可用 stack，image-only accepted critical path 暂时拒绝
   stack 类字段中带 `overlay_number` 的 OCR，后续必须由 committed/pot/action-row 规则验证后才能重新放行。
   最新 image-only replay（119 帧含 non-actionable，输出
-  `/tmp/poker-legends-table-eval-image-only-number-components`）：authorization 0、unsafe 0、stale 0、
+  `/tmp/poker-legends-table-eval-image-only-number-rejection-reasons`）：authorization 0、unsafe 0、stale 0、
   accepted-critical-wrong 0；accepted 数字从上一版的 hero_stack 9 / right_top_stack 2 收紧到
   hero_stack 2 / right_top_stack 1（pot 8），其中右上 stack 仍有 1 个 mismatch，继续 fail-closed。
+  number readiness 已从笼统 low-confidence 拆出 rejection reason：低置信仅 hero 1 / opponent 2，主要 blocker
+  是未验证的 stack overlay（hero 38 / opponent 30）。
   truth-assisted 对照（`/tmp/poker-legends-table-eval-truth-assisted-number-components`）：authorization 39、
   unsafe/stale/accepted-critical-wrong 均为 0。结论：字段语义路线正确，但下一步不能单纯提 coverage，
   应先做 stack overlay 与 committed/current-bet/pot 的规则验证。

@@ -702,10 +702,11 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         accepted_number_predictions = tuple(
             prediction
             for prediction in number_predictions
-            if _is_accepted_number_prediction(
+            if _number_prediction_rejection_reason(
                 prediction,
                 min_confidence=self.min_number_confidence,
             )
+            is None
         )
         table = _recognized_table_from_predictions(
             source=frame.source,
@@ -741,6 +742,20 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             ]
             metadata["accepted_number_predictions"] = [
                 prediction.to_dict() for prediction in accepted_number_predictions
+            ]
+            metadata["number_prediction_rejections"] = [
+                {
+                    **prediction.to_dict(),
+                    "rejection_reason": rejection_reason,
+                }
+                for prediction in number_predictions
+                if (
+                    rejection_reason := _number_prediction_rejection_reason(
+                        prediction,
+                        min_confidence=self.min_number_confidence,
+                    )
+                )
+                is not None
             ]
         if block_reason is not None:
             metadata["state_block_reason"] = block_reason
@@ -2485,16 +2500,18 @@ def _number_roi_names_for_fallbacks(
     return tuple(dict.fromkeys(text_names)), tuple(dict.fromkeys(button_names))
 
 
-def _is_accepted_number_prediction(
+def _number_prediction_rejection_reason(
     prediction: PokerLegendsNumberPrediction,
     *,
     min_confidence: float,
-) -> bool:
-    if prediction.normalized_number is None or prediction.confidence < min_confidence:
-        return False
+) -> str | None:
+    if prediction.normalized_number is None:
+        return "missing_value"
+    if prediction.confidence < min_confidence:
+        return "low_confidence"
     if _is_unverified_stack_overlay_prediction(prediction):
-        return False
-    return True
+        return "unverified_stack_overlay"
+    return None
 
 
 def _is_unverified_stack_overlay_prediction(

@@ -808,6 +808,11 @@ def test_poker_legends_table_recognizer_rejects_unverified_overlay_stack_ocr(
     assert result.state is None
     assert result.metadata["state_block_reason"] == "not_enough_players"
     assert result.metadata["accepted_number_predictions"] == []
+    assert result.metadata["number_prediction_rejections"][0]["name"] == "right_top_stack"
+    assert (
+        result.metadata["number_prediction_rejections"][0]["rejection_reason"]
+        == "unverified_stack_overlay"
+    )
 
 
 def test_poker_legends_table_recognizer_uses_direct_truth_buttons_when_image_buttons_missing(
