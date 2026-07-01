@@ -307,17 +307,53 @@ def _confidence(raw: str, numbers: tuple[int, ...]) -> float:
         return 0.25 if _normalize_text(raw) else 0.0
     compact = _amount_source(_normalize_numeric_text(raw))
     compact = re.sub(r"[^0-9KkMm+.,]", "", compact).strip(".,+")
+    confidence = 0.70
     if re.fullmatch(r"\d+(?:[KkMm])?", compact):
-        return 0.90
-    if re.fullmatch(r"\d+[.,]\d{1,2}[KkMm]", compact):
-        return 0.86
-    if re.fullmatch(r"\d+[.,]\d+", compact):
-        return 0.70
-    if "+" in compact and all(part.isdigit() for part in compact.split("+")):
-        return 0.82
-    if len(numbers) >= 2:
-        return 0.65
-    return 0.70
+        confidence = 0.90
+    elif re.fullmatch(r"\d{1,3}(?:,\d{3})+", compact):
+        confidence = 0.90
+    elif re.fullmatch(r"\d+[.,]\d{1,2}[KkMm]", compact):
+        confidence = 0.86
+    elif re.fullmatch(r"\d+[.,]\d+", compact):
+        confidence = 0.70
+    elif "+" in compact and all(part.isdigit() for part in compact.split("+")):
+        confidence = 0.82
+    elif len(numbers) >= 2:
+        confidence = 0.65
+    if _looks_fragmented_numeric_ocr(raw):
+        return min(confidence, 0.65)
+    return confidence
+
+
+def _looks_fragmented_numeric_ocr(raw: str) -> bool:
+    normalized = _normalize_text(raw).translate(str.maketrans("OoI|", "0011"))
+    if "$" in normalized and re.search(r"[0-9KkMm]", normalized.rsplit("$", maxsplit=1)[0]):
+        return True
+    source = _amount_source(normalized)
+    if re.match(r"^[KkMm]\D*\d", source):
+        return True
+    if "$" not in normalized and re.fullmatch(r"\d+,", source):
+        return True
+    if re.search(r"(?<=\d)\s+[KkMm]\b", source):
+        return True
+    if "+" in source:
+        if source.count("+") >= 2:
+            return True
+        compact_source = re.sub(r"\s+", "", source)
+        plus_parts = compact_source.split("+")
+        if (
+            "$" not in normalized
+            and "," not in compact_source
+            and len(plus_parts) == 2
+            and plus_parts[0].isdigit()
+            and plus_parts[1].isdigit()
+            and (len(plus_parts[0]) >= 4 or int(plus_parts[0]) < 100)
+            and len(plus_parts[1]) <= 3
+        ):
+            return True
+        return bool(re.search(r"\+\s*\d+(?:\s+\d+)+", source))
+    digit_runs = re.findall(r"\d+", source)
+    return len(digit_runs) >= 2 and all(len(run) <= 2 for run in digit_runs)
 
 
 def _amount_source(normalized_text: str) -> str:

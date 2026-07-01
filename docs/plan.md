@@ -661,6 +661,13 @@
   避免 `1,052+50\n\nM` 被误归一成 50,001,052；正常紧邻后缀如 `$1.25K` 仍解析为 1250。当前
   119 帧 image-only 复跑 raw right_top_stack 从 4 match / 19 mismatch 改善到 7 / 16；accepted 数字分布不变，
   仍不放宽阈值、不启用 image-only GameState。
+- 阶段 4 Poker Legends number confidence hardening v1：数字 OCR confidence 现在会把明显碎片化的结果降到
+  0.65，包括多行孤立数字、跨空白孤立 K/M、`+110 4`、多 `+`、`$` 前混入数字/字母、无货币符号的异常
+  加号组合等。当前 119 帧 image-only 复跑 accepted exact-match 明显收紧：pot 7 match / 0 mismatch、
+  hero_stack 8 / 1、right_top_stack 1 / 1；accepted 覆盖同步降到 pot 8、hero_stack 9、right_top_stack 2。
+  image-only authorization events 仍为 0；truth-assisted 复跑因不再信任碎片 pot OCR 从 44 个 state 收紧到
+  39 个 state，unsafe/stale 仍为 0。剩余 `$1054`、`$334+10` 类错例需要字段语义/ROI 校验，不能由通用 parser
+  猜。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

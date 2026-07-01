@@ -9,6 +9,7 @@ from holdem_bot.vision import (
     build_poker_legends_number_ocr_report,
     parse_poker_legends_chip_amount,
     parse_poker_legends_chip_numbers,
+    poker_legends_numbers,
 )
 
 
@@ -75,6 +76,19 @@ def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:
     assert parse_poker_legends_chip_numbers("2\n\n,\n\n$\n\n5\n\n00") == (500,)
     assert parse_poker_legends_chip_amount("1,052+50\n\nM") == 1102
     assert parse_poker_legends_chip_amount("$1.25K") == 1250
+
+
+def test_poker_legends_number_confidence_marks_fragmented_ocr_low() -> None:
+    assert poker_legends_numbers._confidence("$1,250", (1250,)) == 0.90
+    assert poker_legends_numbers._confidence("$990+10", (990, 10)) == 0.82
+    assert poker_legends_numbers._confidence("4\n\n6\n\n0", (460,)) == 0.65
+    assert poker_legends_numbers._confidence("$890+110 4", (890, 1104)) == 0.65
+    assert poker_legends_numbers._confidence("$840+1 +160", (840, 1, 160)) == 0.65
+    assert poker_legends_numbers._confidence("M7\n\n999052\n\n5", (79990525,)) == 0.65
+    assert poker_legends_numbers._confidence("1$890+10", (890, 10)) == 0.65
+    assert poker_legends_numbers._confidence("930,", (930,)) == 0.65
+    assert poker_legends_numbers._confidence("6845+ 50", (6845, 50)) == 0.65
+    assert poker_legends_numbers._confidence("99+995", (99, 995)) == 0.65
 
 
 def write_number_fixture(image_path: Path, annotation_path: Path) -> None:
