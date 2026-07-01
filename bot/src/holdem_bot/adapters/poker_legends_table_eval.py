@@ -199,6 +199,7 @@ def evaluate_poker_legends_table_recognizer(
                 review_tag_counts[tag] = review_tag_counts.get(tag, 0) + 1
 
     review_queue = _review_queue_rows(rows)
+    number_readiness_rows = _number_readiness_rows(rows)
     summary: dict[str, object] = {
         "schema_version": 1,
         "frames": len(rows),
@@ -231,6 +232,7 @@ def evaluate_poker_legends_table_recognizer(
         "review_queue_frames": len(review_queue),
         "review_queue_tag_counts": _review_queue_tag_counts(review_queue),
         "review_queue_by_tag": _review_queue_by_tag(review_queue),
+        "number_readiness_rows_count": len(number_readiness_rows),
         "number_readiness_by_flag": _rows_by_string_field(
             rows,
             field_name="number_readiness_flags",
@@ -259,6 +261,10 @@ def evaluate_poker_legends_table_recognizer(
     )
     (output / "table_recognizer_number_readiness_by_flag.json").write_text(
         json.dumps(summary["number_readiness_by_flag"], indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_number_readiness_rows.json").write_text(
+        json.dumps(number_readiness_rows, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     _write_report(output / "table_recognizer_report.md", summary)
@@ -787,6 +793,31 @@ def _review_queue_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]
     return queue
 
 
+def _number_readiness_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    readiness_rows: list[dict[str, object]] = []
+    for row in rows:
+        flags = _string_list(row.get("number_readiness_flags"))
+        if not flags:
+            continue
+        readiness_rows.append(
+            {
+                "frame_id": row.get("frame_id"),
+                "result": row.get("result"),
+                "truth_screen_kind": row.get("truth_screen_kind"),
+                "screen_kind": row.get("screen_kind"),
+                "truth_path": row.get("truth_path"),
+                "layout_annotation_path": row.get("layout_annotation_path"),
+                "table_readiness_flags": _string_list(row.get("table_readiness_flags")),
+                "number_readiness_flags": flags,
+                "number_predictions": _row_mappings(row.get("number_predictions")),
+                "accepted_number_predictions": _row_mappings(
+                    row.get("accepted_number_predictions")
+                ),
+            }
+        )
+    return readiness_rows
+
+
 def _review_queue_tag_counts(rows: list[dict[str, object]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in rows:
@@ -883,6 +914,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Source policy violation count: {summary.get('source_policy_violation_count', 0)}",
         f"- Accepted critical wrong count: {summary.get('accepted_critical_wrong_count', 0)}",
         f"- Review queue frames: {summary.get('review_queue_frames', 0)}",
+        f"- Number readiness rows: {summary.get('number_readiness_rows_count', 0)}",
         "",
         "## Recognition Mode Counts",
         "",
@@ -907,6 +939,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Number Readiness By Flag",
         "",
         *_frame_list_lines(summary.get("number_readiness_by_flag")),
+        "",
+        "## Number Readiness Details",
+        "",
+        *_number_readiness_detail_lines(rows),
         "",
         "## Screen Kind Counts",
         "",
@@ -1064,6 +1100,26 @@ def _frame_list_lines(value: object) -> list[str]:
     return lines
 
 
+def _number_readiness_detail_lines(rows: Sequence[Mapping[str, object]]) -> list[str]:
+    readiness_rows = _number_readiness_rows(rows)
+    if not readiness_rows:
+        return ["- none"]
+    lines = [
+        "| Frame | Number Flags | Table Flags | Raw Numbers | Accepted Numbers |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for row in readiness_rows:
+        lines.append(
+            "| "
+            f"`{row.get('frame_id')}` | "
+            f"{_inline_codes(row.get('number_readiness_flags'))} | "
+            f"{_inline_codes(row.get('table_readiness_flags'))} | "
+            f"{_number_detail_summary(row.get('number_predictions'))} | "
+            f"{_number_detail_summary(row.get('accepted_number_predictions'))} |"
+        )
+    return lines
+
+
 def _row_mappings(value: object) -> list[Mapping[str, object]]:
     if not isinstance(value, list | tuple):
         return []
@@ -1188,6 +1244,29 @@ def _number_summary(value: object) -> str:
         f"`{number.get('group')}:{number.get('name')}={number.get('normalized_number')}`"
         for number in numbers
     )
+
+
+def _number_detail_summary(value: object) -> str:
+    numbers = _row_mappings(value)
+    if not numbers:
+        return "`none`"
+    return "<br>".join(
+        "`{group}:{name}={number} conf={confidence} raw={raw}`".format(
+            group=number.get("group"),
+            name=number.get("name"),
+            number=number.get("normalized_number"),
+            confidence=number.get("confidence"),
+            raw=_compact_text(number.get("raw")),
+        )
+        for number in numbers
+    )
+
+
+def _compact_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    compacted = " ".join(value.split())
+    return compacted[:48] + "..." if len(compacted) > 51 else compacted
 
 
 def _truth_text_summary(value: object) -> str:

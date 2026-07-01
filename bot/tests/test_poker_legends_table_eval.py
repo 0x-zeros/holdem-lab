@@ -232,6 +232,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "## Table Readiness Flag Counts" in report
     assert "## Number Readiness Flag Counts" in report
     assert "## Number Readiness By Flag" in report
+    assert "## Number Readiness Details" in report
     assert "## Review Tag Counts" in report
     assert "## Screen Truth Confusion" in report
     assert "- actionable_table: actionable_table=2" in report
@@ -321,6 +322,7 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert image_only_summary["number_readiness_flag_counts"] == {
         "readiness_low_confidence_opponent_stack": 1
     }
+    assert image_only_summary["number_readiness_rows_count"] == 1
     assert image_only_summary["number_readiness_by_flag"] == {
         "readiness_low_confidence_opponent_stack": ["frame_001"]
     }
@@ -336,6 +338,36 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert number_readiness_by_flag == {
         "readiness_low_confidence_opponent_stack": ["frame_001"]
     }
+    number_readiness_rows = json.loads(
+        (image_only_out / "table_recognizer_number_readiness_rows.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert number_readiness_rows == [
+        {
+            "accepted_number_predictions": [],
+            "frame_id": "frame_001",
+            "layout_annotation_path": str(annotations / "frame_001.json"),
+            "number_predictions": [
+                {
+                    "confidence": 0.65,
+                    "group": "texts",
+                    "name": "right_top_stack",
+                    "normalized_number": 1000,
+                }
+            ],
+            "number_readiness_flags": ["readiness_low_confidence_opponent_stack"],
+            "result": "missing_table_metadata",
+            "screen_kind": "actionable_table",
+            "table_readiness_flags": ["readiness_not_enough_players"],
+            "truth_path": str(truth / "frame_001.json"),
+            "truth_screen_kind": "actionable_table",
+        }
+    ]
+    image_only_report = (image_only_out / "table_recognizer_report.md").read_text(
+        encoding="utf-8"
+    )
+    assert "| `frame_001` | `readiness_low_confidence_opponent_stack` |" in image_only_report
 
 
 class FakeRecognizer:
