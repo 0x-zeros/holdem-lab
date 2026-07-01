@@ -68,6 +68,8 @@ def test_poker_legends_number_ocr_report_compares_truth(tmp_path: Path) -> None:
 
 def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:
     assert parse_poker_legends_chip_amount("$1.2\n\n3K") == 1230
+    assert parse_poker_legends_chip_amount("$31.0") == 310
+    assert parse_poker_legends_chip_amount("$1,250") == 1250
     assert parse_poker_legends_chip_amount("$990+10") == 1000
     assert parse_poker_legends_chip_amount(",\n\n$\n\n3\n\n00\n\n.") == 300
     assert parse_poker_legends_chip_numbers("2\n\n,\n\n$\n\n5\n\n00") == (500,)

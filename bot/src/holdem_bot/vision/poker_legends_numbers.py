@@ -273,10 +273,14 @@ def _numbers_from_text(text: str) -> list[int]:
     normalized = _amount_source(normalized)
     values: list[int] = []
     for match in re.finditer(r"(\d+(?:[.,]\d+)?)([KkMm]?)", normalized):
-        value = float(match.group(1).replace(",", "."))
+        token = match.group(1)
         suffix = match.group(2).lower()
-        multiplier = 1_000_000 if suffix == "m" else 1_000 if suffix == "k" else 1
-        values.append(int(round(value * multiplier)))
+        if suffix:
+            value = float(token.replace(",", "."))
+            multiplier = 1_000_000 if suffix == "m" else 1_000
+            values.append(int(round(value * multiplier)))
+        else:
+            values.append(int(re.sub(r"[.,]", "", token)))
     return values
 
 
@@ -307,10 +311,10 @@ def _confidence(raw: str, numbers: tuple[int, ...]) -> float:
         return 0.90
     if re.fullmatch(r"\d+[.,]\d{1,2}[KkMm]", compact):
         return 0.86
+    if re.fullmatch(r"\d+[.,]\d+", compact):
+        return 0.70
     if "+" in compact and all(part.isdigit() for part in compact.split("+")):
         return 0.82
-    if re.fullmatch(r"\d+[.,]\d+", compact):
-        return 0.55
     if len(numbers) >= 2:
         return 0.65
     return 0.70

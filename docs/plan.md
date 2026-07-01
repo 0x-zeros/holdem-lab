@@ -520,7 +520,7 @@
   raise shortcut，不把弹窗 confirm/cancel 映射为扑克动作。
 - 继续校准筹码/底池专用数字 OCR：只在 ScreenState 为可行动牌桌或观察牌桌时读 pot/stack/commit，
   低置信数字只记录不使用；overlay 后面的数字字段继续标为 ignored。
-- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：对剩余 9 个 fail-closed actionable
+- 继续收紧 Poker Legends `RecognizedTable` → `GameState` 原型：对当前 fail-closed actionable
   帧逐一归类；能用 reviewed truth 明确修正的继续收敛，无法确认的保留停手。只有当 screen、牌面、
   按钮、筹码都超过阈值时才允许把 `state` 交给安全闸门，否则继续停在 `no_game_state` /
   `low_confidence`。
@@ -554,6 +554,10 @@
   seat。当前 57 帧复跑：`state` 39、`missing_legal_actions` 13、`not_enough_players` 2、
   `missing_pot` 1、`preselect_ambiguous` 1、`hero_not_current` 1；覆盖下降来自旧 valid prototype 中 9 帧按钮行
   不完整/错位，按安全设计视为 discovered previous false valid，而不是追覆盖。
+- 阶段 4 Poker Legends number parser hardening v2：数字 parser 对无 K/M 后缀的 `31.0` / `1,250`
+  这类 OCR 插点/千分位按整数筹码处理（去标点），但保留 `1.23K` 的小数倍率语义。`card_review_v1__session_001__keyframe_000112`
+  的 pot 从低置信 `31` 修成可接受的 `310`；当前 57 帧复跑：`state` 40、`missing_legal_actions` 13、
+  `not_enough_players` 2、`preselect_ambiguous` 1、`hero_not_current` 1，`missing_pot` 清零。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
