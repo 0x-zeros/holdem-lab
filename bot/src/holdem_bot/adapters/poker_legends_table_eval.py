@@ -83,6 +83,7 @@ def evaluate_poker_legends_table_recognizer(
             frame_id,
             image_path=image_path,
             result=result,
+            truth=truth,
             truth_screen_kind=truth_screen_kind,
         )
         rows.append(row)
@@ -175,6 +176,7 @@ def _row_from_result(
     *,
     image_path: Path,
     result: RecognitionResult,
+    truth: Mapping[str, object],
     truth_screen_kind: str,
 ) -> dict[str, object]:
     block_reason = result.metadata.get("state_block_reason")
@@ -187,6 +189,7 @@ def _row_from_result(
         "image": str(image_path),
         "result": outcome,
         "truth_screen_kind": truth_screen_kind,
+        "truth": _truth_summary(truth),
         "screen_kind": result.screen.kind.value,
         "assembly_status": assembly.status.value if assembly is not None else None,
         "validity_scope": assembly.validity_scope.value if assembly is not None else None,
@@ -233,6 +236,41 @@ def _state_summary(state: GameState | None) -> dict[str, object] | None:
                 "max_amount": action.max_amount,
             }
             for action in state.legal_actions
+        ],
+    }
+
+
+def _truth_summary(truth: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "buttons": [
+            {
+                "name": str(button.get("name") or ""),
+                "visible": bool(button.get("visible", True)),
+                "action_type": button.get("action_type"),
+                "label": button.get("label"),
+            }
+            for button in _row_mappings(truth.get("buttons"))
+        ],
+        "seats": [
+            {
+                "name": str(seat.get("name") or ""),
+                "visible": bool(seat.get("visible", True)),
+                "stack": seat.get("stack"),
+                "committed": seat.get("committed"),
+                "active": seat.get("active"),
+                "current": seat.get("current"),
+            }
+            for seat in _row_mappings(truth.get("seats"))
+        ],
+        "texts": [
+            {
+                "name": str(text.get("name") or ""),
+                "visible": bool(text.get("visible", True)),
+                "value": text.get("value"),
+                "normalized_number": text.get("normalized_number"),
+            }
+            for text in _row_mappings(truth.get("texts"))
+            if bool(text.get("visible", True))
         ],
     }
 
@@ -295,23 +333,26 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     )
     if blockers:
         lines.append(
-            "| Frame | Result | Issues | Action Panels | Street | Pot | Buttons | Seats | "
-            "Accepted Numbers |"
+            "| Frame | Result | Issues | Action Panels | Truth Buttons | Buttons | "
+            "Truth Seats | Seats | Truth Texts | Accepted Numbers |"
         )
-        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
         for row in blockers:
             table = row.get("recognized_table")
             table_dict = table if isinstance(table, Mapping) else {}
+            truth = row.get("truth")
+            truth_dict = truth if isinstance(truth, Mapping) else {}
             lines.append(
                 "| "
                 f"`{row.get('frame_id')}` | "
                 f"`{row.get('result')}` | "
                 f"{_inline_codes(row.get('issue_codes'))} | "
                 f"{_action_panel_summary(row.get('action_panels'))} | "
-                f"`{table_dict.get('street')}` | "
-                f"`{table_dict.get('pot')}` | "
+                f"{_truth_button_summary(truth_dict.get('buttons'))} | "
                 f"{_button_summary(table_dict.get('buttons'))} | "
+                f"{_truth_seat_summary(truth_dict.get('seats'))} | "
                 f"{_seat_summary(table_dict.get('seats'))} | "
+                f"{_truth_text_summary(truth_dict.get('texts'))} | "
                 f"{_number_summary(row.get('accepted_number_predictions'))} |"
             )
     else:
@@ -355,6 +396,21 @@ def _button_summary(value: object) -> str:
     )
 
 
+def _truth_button_summary(value: object) -> str:
+    buttons = _row_mappings(value)
+    if not buttons:
+        return "`none`"
+    return "<br>".join(
+        "`{name}:visible={visible}:{action_type}:{label}`".format(
+            name=button.get("name"),
+            visible=button.get("visible"),
+            action_type=button.get("action_type"),
+            label=button.get("label"),
+        )
+        for button in buttons
+    )
+
+
 def _action_panel_summary(value: object) -> str:
     panels = _row_mappings(value)
     if not panels:
@@ -389,6 +445,22 @@ def _seat_summary(value: object) -> str:
     )
 
 
+def _truth_seat_summary(value: object) -> str:
+    seats = _row_mappings(value)
+    if not seats:
+        return "`none`"
+    return "<br>".join(
+        "`{name}:visible={visible} stack={stack} committed={committed} current={current}`".format(
+            name=seat.get("name"),
+            visible=seat.get("visible"),
+            stack=seat.get("stack"),
+            committed=seat.get("committed"),
+            current=seat.get("current"),
+        )
+        for seat in seats
+    )
+
+
 def _number_summary(value: object) -> str:
     numbers = _row_mappings(value)
     if not numbers:
@@ -396,6 +468,20 @@ def _number_summary(value: object) -> str:
     return "<br>".join(
         f"`{number.get('group')}:{number.get('name')}={number.get('normalized_number')}`"
         for number in numbers
+    )
+
+
+def _truth_text_summary(value: object) -> str:
+    texts = _row_mappings(value)
+    if not texts:
+        return "`none`"
+    return "<br>".join(
+        "`{name}={number}:{value}`".format(
+            name=text.get("name"),
+            number=text.get("normalized_number"),
+            value=text.get("value"),
+        )
+        for text in texts
     )
 
 

@@ -44,8 +44,42 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
             json.dumps({"image": str(image), "regions": {}}),
             encoding="utf-8",
         )
+        truth_payload: dict[str, object] = {
+            "frame_id": frame_id,
+            "screen": {"kind": screen_kind},
+        }
+        if frame_id == "frame_003":
+            truth_payload.update(
+                {
+                    "buttons": [
+                        {
+                            "name": "primary_left",
+                            "visible": True,
+                            "action_type": "check",
+                            "label": "Check",
+                        }
+                    ],
+                    "seats": [
+                        {
+                            "name": "hero",
+                            "visible": True,
+                            "stack": 1000,
+                            "committed": 0,
+                            "current": True,
+                        }
+                    ],
+                    "texts": [
+                        {
+                            "name": "pot",
+                            "visible": True,
+                            "value": "$150",
+                            "normalized_number": 150,
+                        }
+                    ],
+                }
+            )
         (truth / f"{frame_id}.json").write_text(
-            json.dumps({"frame_id": frame_id, "screen": {"kind": screen_kind}}),
+            json.dumps(truth_payload),
             encoding="utf-8",
         )
     manifest = tmp_path / "manifest.json"
@@ -102,6 +136,14 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert rows[0]["state"]["street"] == "flop"
     assert rows[1]["frame_id"] == "frame_003"
     assert rows[1]["issue_codes"] == ["POT_REQUIRED_BY_POLICY"]
+    assert rows[1]["truth"]["buttons"] == [
+        {
+            "action_type": "check",
+            "label": "Check",
+            "name": "primary_left",
+            "visible": True,
+        }
+    ]
     assert (out / "table_recognizer_summary.json").exists()
     report = (out / "table_recognizer_report.md").read_text(encoding="utf-8")
     assert "# Poker Legends Table Recognizer Report" in report
@@ -111,6 +153,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
     assert "- missing_current_action_row: 1" in report
     assert "## Blocking Action Panel Flag Counts" in report
+    assert "Truth Buttons" in report
+    assert "`primary_left:visible=True:check:Check`" in report
     assert "| `frame_003` | `missing_pot` | `POT_REQUIRED_BY_POLICY` |" in report
 
     all_out = tmp_path / "all-out"
