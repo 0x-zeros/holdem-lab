@@ -125,6 +125,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["non_actionable_frames"] == 0
     assert summary["false_actionable_count"] == 0
     assert summary["false_actionable_examples"] == []
+    assert summary["review_queue_frames"] == 1
+    assert summary["review_queue_tag_counts"] == {"missing_pot": 1}
     assert summary["result_counts"] == {"missing_pot": 1, "state": 1}
     assert summary["issue_counts"] == {"POT_REQUIRED_BY_POLICY": 1}
     assert summary["action_panel_flag_counts"] == {"missing_current_action_row": 1}
@@ -147,11 +149,16 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
         }
     ]
     assert (out / "table_recognizer_summary.json").exists()
+    review_queue = json.loads(
+        (out / "table_recognizer_review_queue.json").read_text(encoding="utf-8")
+    )
+    assert [row["frame_id"] for row in review_queue] == ["frame_003"]
     report = (out / "table_recognizer_report.md").read_text(encoding="utf-8")
     assert "# Poker Legends Table Recognizer Report" in report
     assert "- state: 1" in report
     assert "- Authorization events: 1" in report
     assert "- False actionable count: 0" in report
+    assert "- Review queue frames: 1" in report
     assert "- POT_REQUIRED_BY_POLICY: 1" in report
     assert "## Review Tag Counts" in report
     assert "- missing_pot: 1" in report
@@ -183,6 +190,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert all_summary["non_actionable_frames"] == 1
     assert all_summary["false_actionable_count"] == 1
     assert all_summary["false_actionable_examples"] == ["frame_002"]
+    assert all_summary["review_queue_frames"] == 1
+    assert all_summary["review_queue_tag_counts"] == {"missing_pot": 1}
 
 
 class FakeRecognizer:

@@ -605,6 +605,11 @@
   `negative_screen_state` 62、`truth_missing_passive_action` 6、`truth_missing_current_action_row` 3、
   `truth_missing_opponent_seat` 2、`primary_preselect_shortcut` 1、`hero_turn_not_confirmed` 1；false actionable
   仍为 0。
+- 阶段 4 Poker Legends table evaluator review queue v1：evaluator 额外输出
+  `table_recognizer_review_queue.json`，只包含需要补标注/ROI/审核的非 state 行，排除普通
+  `negative_screen_state` hard negatives。当前全量 119 帧复跑 review queue 为 13 行：
+  `truth_missing_passive_action` 6、`truth_missing_current_action_row` 3、`truth_missing_opponent_seat` 2、
+  `primary_preselect_shortcut` 1、`hero_turn_not_confirmed` 1。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段

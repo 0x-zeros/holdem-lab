@@ -111,6 +111,7 @@ def evaluate_poker_legends_table_recognizer(
             for tag in _string_list(row.get("review_tags")):
                 review_tag_counts[tag] = review_tag_counts.get(tag, 0) + 1
 
+    review_queue = _review_queue_rows(rows)
     summary: dict[str, object] = {
         "schema_version": 1,
         "frames": len(rows),
@@ -122,6 +123,8 @@ def evaluate_poker_legends_table_recognizer(
         "non_actionable_frames": non_actionable_frames,
         "false_actionable_count": len(false_actionable_examples),
         "false_actionable_examples": false_actionable_examples[:8],
+        "review_queue_frames": len(review_queue),
+        "review_queue_tag_counts": _review_queue_tag_counts(review_queue),
         "action_panel_flag_counts": dict(sorted(action_panel_flag_counts.items())),
         "blocking_action_panel_flag_counts": dict(
             sorted(blocking_action_panel_flag_counts.items())
@@ -134,6 +137,10 @@ def evaluate_poker_legends_table_recognizer(
     output.mkdir(parents=True, exist_ok=True)
     (output / "table_recognizer_summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_review_queue.json").write_text(
+        json.dumps(review_queue, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     _write_report(output / "table_recognizer_report.md", summary)
@@ -312,6 +319,26 @@ def _review_tags(
     return [outcome]
 
 
+def _review_queue_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    queue: list[dict[str, object]] = []
+    for row in rows:
+        if row.get("result") == "state":
+            continue
+        tags = _string_list(row.get("review_tags"))
+        if "negative_screen_state" in tags:
+            continue
+        queue.append(row)
+    return queue
+
+
+def _review_queue_tag_counts(rows: list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        for tag in _string_list(row.get("review_tags")):
+            counts[tag] = counts.get(tag, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def _visible_truth_seats(truth: Mapping[str, object]) -> list[Mapping[str, object]]:
     return [seat for seat in _row_mappings(truth.get("seats")) if bool(seat.get("visible", True))]
 
@@ -371,6 +398,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Authorization events: {summary.get('authorization_events', 0)}",
         f"- Non-actionable frames: {summary.get('non_actionable_frames', 0)}",
         f"- False actionable count: {summary.get('false_actionable_count', 0)}",
+        f"- Review queue frames: {summary.get('review_queue_frames', 0)}",
         "",
         "## Screen Kind Counts",
         "",
@@ -395,6 +423,10 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Review Tag Counts",
         "",
         *_count_lines(review_tag_counts),
+        "",
+        "## Review Queue Tag Counts",
+        "",
+        *_count_lines(summary.get("review_queue_tag_counts")),
         "",
         "## Examples",
         "",
