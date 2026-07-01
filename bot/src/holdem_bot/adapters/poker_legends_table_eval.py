@@ -218,6 +218,22 @@ def evaluate_poker_legends_table_recognizer(
         "assembly_status_counts": dict(sorted(assembly_status_counts.items())),
         "table_readiness_flag_counts": dict(sorted(table_readiness_flag_counts.items())),
         "number_readiness_flag_counts": dict(sorted(number_readiness_flag_counts.items())),
+        "number_prediction_slot_counts": _number_prediction_slot_counts(
+            rows,
+            field_name="number_predictions",
+        ),
+        "accepted_number_prediction_slot_counts": _number_prediction_slot_counts(
+            rows,
+            field_name="accepted_number_predictions",
+        ),
+        "number_prediction_confidence_counts": _number_prediction_confidence_counts(
+            rows,
+            field_name="number_predictions",
+        ),
+        "accepted_number_prediction_confidence_counts": _number_prediction_confidence_counts(
+            rows,
+            field_name="accepted_number_predictions",
+        ),
         "authorization_events": authorization_events,
         "unsafe_authorization_events": unsafe_authorization_events,
         "stale_authorization_events": stale_authorization_events,
@@ -845,6 +861,47 @@ def _rows_by_string_field(
     return {value: grouped[value] for value in sorted(grouped)}
 
 
+def _number_prediction_slot_counts(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    field_name: str,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        for prediction in _row_mappings(row.get(field_name)):
+            key = _number_prediction_slot_key(prediction)
+            if key is None:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _number_prediction_confidence_counts(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    field_name: str,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        for prediction in _row_mappings(row.get(field_name)):
+            slot_key = _number_prediction_slot_key(prediction)
+            if slot_key is None:
+                continue
+            confidence = _optional_float(prediction.get("confidence"))
+            label = "none" if confidence is None else f"{confidence:.2f}"
+            key = f"{slot_key}:conf={label}"
+            counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _number_prediction_slot_key(prediction: Mapping[str, object]) -> str | None:
+    group = _optional_str(prediction.get("group"))
+    name = _optional_str(prediction.get("name"))
+    if group is None or name is None:
+        return None
+    return f"{group}:{name}"
+
+
 def _visible_truth_seats(truth: Mapping[str, object]) -> list[Mapping[str, object]]:
     return [seat for seat in _row_mappings(truth.get("seats")) if bool(seat.get("visible", True))]
 
@@ -939,6 +996,22 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Number Readiness By Flag",
         "",
         *_frame_list_lines(summary.get("number_readiness_by_flag")),
+        "",
+        "## Number Prediction Slot Counts",
+        "",
+        *_count_lines(summary.get("number_prediction_slot_counts")),
+        "",
+        "## Accepted Number Prediction Slot Counts",
+        "",
+        *_count_lines(summary.get("accepted_number_prediction_slot_counts")),
+        "",
+        "## Number Prediction Confidence Counts",
+        "",
+        *_count_lines(summary.get("number_prediction_confidence_counts")),
+        "",
+        "## Accepted Number Prediction Confidence Counts",
+        "",
+        *_count_lines(summary.get("accepted_number_prediction_confidence_counts")),
         "",
         "## Number Readiness Details",
         "",

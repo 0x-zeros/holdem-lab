@@ -154,6 +154,10 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["contract_counts"] == {"observe_only": 1, "policy_decision": 1}
     assert summary["assembly_status_counts"] == {"no_state": 1, "single_frame_valid": 1}
     assert summary["table_readiness_flag_counts"] == {}
+    assert summary["number_prediction_slot_counts"] == {}
+    assert summary["accepted_number_prediction_slot_counts"] == {}
+    assert summary["number_prediction_confidence_counts"] == {}
+    assert summary["accepted_number_prediction_confidence_counts"] == {}
     assert summary["authorization_events"] == 1
     assert summary["unsafe_authorization_events"] == 0
     assert summary["stale_authorization_events"] == 0
@@ -232,6 +236,10 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "## Table Readiness Flag Counts" in report
     assert "## Number Readiness Flag Counts" in report
     assert "## Number Readiness By Flag" in report
+    assert "## Number Prediction Slot Counts" in report
+    assert "## Accepted Number Prediction Slot Counts" in report
+    assert "## Number Prediction Confidence Counts" in report
+    assert "## Accepted Number Prediction Confidence Counts" in report
     assert "## Number Readiness Details" in report
     assert "## Review Tag Counts" in report
     assert "## Screen Truth Confusion" in report
@@ -322,6 +330,14 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert image_only_summary["number_readiness_flag_counts"] == {
         "readiness_low_confidence_opponent_stack": 1
     }
+    assert image_only_summary["number_prediction_slot_counts"] == {
+        "texts:right_top_stack": 1
+    }
+    assert image_only_summary["accepted_number_prediction_slot_counts"] == {}
+    assert image_only_summary["number_prediction_confidence_counts"] == {
+        "texts:right_top_stack:conf=0.65": 1
+    }
+    assert image_only_summary["accepted_number_prediction_confidence_counts"] == {}
     assert image_only_summary["number_readiness_rows_count"] == 1
     assert image_only_summary["number_readiness_by_flag"] == {
         "readiness_low_confidence_opponent_stack": ["frame_001"]

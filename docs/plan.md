@@ -648,7 +648,9 @@
   `table_recognizer_number_readiness_rows.json` 供按 frame 复核，仍不放宽数字接受阈值、不启用
   image-only GameState 组装。当前 119 帧 image-only 复跑，number readiness row 30：
   `readiness_low_confidence_opponent_stack` 19、`readiness_missing_opponent_stack_ocr` 8、
-  `readiness_low_confidence_hero_stack` 8；authorization events 0、unsafe authorization 0。
+  `readiness_low_confidence_hero_stack` 8；数字覆盖分布显示 41 个 image-only actionable-table row 均有
+  raw `pot`/`hero_stack`/`right_top_stack`/`primary_left` 预测，accepted 分别为 pot 41、hero_stack 33、
+  right_top_stack 14、primary_left 38；authorization events 0、unsafe authorization 0。
 - 三大块已闭合：离线 `RecognizedTable -> GameState` 稳定性、macOS 捕获/自动化 dry-run 安全链路、
   共用 AI heuristic v1。下一步可以做 macOS host dry-run 实测，但仍不做真实点击。
 - **host dry-run 操作指南见 `docs/bot-host-dryrun.md`**（已验证的精确命令 + manifest/layout 路径 + 输出字段
