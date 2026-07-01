@@ -17,6 +17,11 @@ Usage::
     scripts/dev/py -m holdem_bot.eval.local_vlm \
         --frames-dir artifacts/poker-legends-videos/card_review_selection_v2/frames --limit 10 \
         --backends gemini,qwen/qwen3-vl-30b,cv --out docs/local-vlm-eval.md
+
+    scripts/dev/py -m holdem_bot.eval.local_vlm \\
+        --frames-dir <auto_review_selection_v2/frames> \\
+        --reference-dir <truth_overlay_v2/truth_overlays> \\
+        --backends qwen/qwen3-vl-8b,qwen/qwen3-vl-30b,cv --timeout 60
 """
 
 from __future__ import annotations
@@ -295,7 +300,25 @@ class FrameResult:
     fields: dict[str, dict[str, tuple[bool, Any, Any]]] = field(default_factory=dict)
 
 
-def run(frames: list[str], backends: list[str], base_url: str, max_edge: int) -> list[FrameResult]:
+def _load_reference(frame_path: str, reference_dir: str) -> dict[str, Any] | None:
+    path = Path(reference_dir) / f"{Path(frame_path).stem}.json"
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"reference is not a JSON object: {path}")
+    return _canon(data)
+
+
+def run(
+    frames: list[str],
+    backends: list[str],
+    base_url: str,
+    max_edge: int,
+    *,
+    reference_dir: str = "",
+    timeout: float = 300.0,
+) -> list[FrameResult]:
     results: list[FrameResult] = []
     for frame_path in frames:
         image = cv2.imread(frame_path)
@@ -306,18 +329,20 @@ def run(frames: list[str], backends: list[str], base_url: str, max_edge: int) ->
         sent = _downscale_image(cast(Any, image), max_edge)
         cv_truth = _button_centers_px(read_cv(image), w, h)  # objective box ground truth
         fr = FrameResult(frame=frame_path)
-        gemini_ann: dict[str, Any] | None = None
-        print(f"\n# {Path(frame_path).name}  {w}x{h}  CV buttons={sorted(cv_truth)}")
+        reference_ann = _load_reference(frame_path, reference_dir) if reference_dir else None
+        print(f"\n# {Path(frame_path).name}  {w}x{h}  CV buttons={sorted(cv_truth)}", flush=True)
         for be in backends:
             if be == "cv":
                 read = read_cv(image)
             elif be == "gemini" or be.startswith("gemini:"):
                 read = read_gemini(sent, be.split(":", 1)[1] if ":" in be else DEFAULT_GEMINI_MODEL)
             else:
-                read = read_openai_compat(sent, be, base_url=base_url)
+                read = read_openai_compat(sent, be, base_url=base_url, timeout=timeout)
             fr.reads[be] = read
-            if be in ("gemini", DEFAULT_GEMINI_MODEL) or be.startswith("gemini:"):
-                gemini_ann = read.annotation
+            if reference_ann is None and (
+                be in ("gemini", DEFAULT_GEMINI_MODEL) or be.startswith("gemini:")
+            ):
+                reference_ann = read.annotation
             centers = _button_centers_px(read, w, h)
             fr.box_err[be] = {
                 c: (
@@ -333,40 +358,52 @@ def run(frames: list[str], backends: list[str], base_url: str, max_edge: int) ->
             missed_n = sum(1 for e in fr.box_err[be].values() if e is None)
             print(
                 f"  {be:24} ok={read.ok!s:5} {read.latency:5.1f}s finish={read.finish:7} "
-                f"box_err_mean={box_str:>7} missed={missed_n} {read.note}"
+                f"box_err_mean={box_str:>7} missed={missed_n} {read.note}",
+                flush=True,
             )
-        # field agreement vs gemini reference
-        if gemini_ann is not None:
-            fr.hero_turn = bool(FIELD_FUNCS["actionable"](gemini_ann))
-            print(f"  -> hero_turn (gemini is_actionable) = {fr.hero_turn}")
+        # field agreement vs reviewed truth if provided, else Gemini reference
+        if reference_ann is not None:
+            fr.hero_turn = bool(FIELD_FUNCS["actionable"](reference_ann))
+            source = "reference" if reference_dir else "gemini"
+            print(f"  -> hero_turn ({source} is_actionable) = {fr.hero_turn}", flush=True)
             for be, read in fr.reads.items():
-                if read.annotation is not None and not be.startswith("gemini") and be != "cv":
-                    fr.fields[be] = compare_fields(read.annotation, gemini_ann)
+                if read.annotation is not None and be != "cv" and (
+                    reference_dir or not be.startswith("gemini")
+                ):
+                    fr.fields[be] = compare_fields(read.annotation, reference_ann)
                     miss = {
                         k: f"{pv!r}!={rv!r}"
                         for k, (good, pv, rv) in fr.fields[be].items()
                         if not good
                     }
                     if miss:
-                        print(f"    {be} vs gemini mismatch: {miss}")
+                        print(f"    {be} vs {source} mismatch: {miss}", flush=True)
         results.append(fr)
     return results
 
 
-def _md_report(results: list[FrameResult], backends: list[str], stamp: str) -> str:
+def _md_report(
+    results: list[FrameResult],
+    backends: list[str],
+    stamp: str,
+    *,
+    reference_label: str,
+) -> str:
     ht = [r for r in results if r.hero_turn]  # genuine hero decision frames
+    action_source = f"{reference_label} `is_actionable=true`"
     lines = [
         "# 本地多模态 vs Gemini vs CV — Poker Legends 识别评测",
         "",
         f"_生成于 {stamp}；共 {len(results)} 帧，其中 {len(ht)} 帧为真·hero 决策帧"
-        "(Gemini `is_actionable=true`)。box 误差与字段一致率**仅在这些决策帧上**统计"
-        "(box 真值=CV 检测中心；字段基线=Gemini)。延迟/解析率统计全部帧。_",
+        f"({action_source})。box 误差与字段一致率**仅在这些决策帧上**统计"
+        f"(box 真值=CV 检测中心；字段基线={reference_label})。延迟/解析率统计全部帧。_",
         "",
     ]
     lines += [
         "## 汇总(仅 hero 决策帧)",
         "",
-        "| 后端 | 解析成功 | box 平均误差 | 漏检按钮 | 字段一致率(vs Gemini) | 平均延迟 |",
+        "| 后端 | 解析成功 | box 平均误差 | 漏检按钮 | "
+        f"字段一致率(vs {reference_label}) | 平均延迟 |",
         "|---|---|---|---|---|---|",
     ]
     for be in backends:
@@ -382,13 +419,13 @@ def _md_report(results: list[FrameResult], backends: list[str], stamp: str) -> s
         lines.append(f"| `{be}` | {parse} | {box_mean} | {missed} | {fa} | {lat} |")
     lines += [
         "",
-        "## 逐字段一致率(vs Gemini，仅 hero 决策帧)",
+        f"## 逐字段一致率(vs {reference_label}，仅 hero 决策帧)",
         "",
         "| 后端 | " + " | ".join(FIELD_FUNCS) + " |",
         "|---|" + "---|" * len(FIELD_FUNCS),
     ]
     for be in backends:
-        if be.startswith("gemini") or be == "cv":
+        if be == "cv" or (reference_label == "Gemini" and be.startswith("gemini")):
             continue
         cells = []
         for key in FIELD_FUNCS:
@@ -406,6 +443,10 @@ def main() -> None:
     parser.add_argument("--backends", default="gemini,qwen/qwen3-vl-30b,cv")
     parser.add_argument("--base-url", default=DEFAULT_LMSTUDIO_URL)
     parser.add_argument("--max-edge", type=int, default=DEFAULT_MAX_EDGE)
+    parser.add_argument("--reference-dir", default="", help="directory of reviewed truth JSON refs")
+    parser.add_argument(
+        "--timeout", type=float, default=300.0, help="local backend request timeout"
+    )
     parser.add_argument("--out", default="")
     parser.add_argument("--stamp", default="(unstamped)", help="report timestamp string")
     args = parser.parse_args()
@@ -421,8 +462,16 @@ def main() -> None:
         parser.error("provide --frames or --frames-dir")
     backends = [b for b in args.backends.split(",") if b]
 
-    results = run(frames, backends, args.base_url, args.max_edge)
-    report = _md_report(results, backends, args.stamp)
+    results = run(
+        frames,
+        backends,
+        args.base_url,
+        args.max_edge,
+        reference_dir=args.reference_dir,
+        timeout=args.timeout,
+    )
+    reference_label = "reviewed truth" if args.reference_dir else "Gemini"
+    report = _md_report(results, backends, args.stamp, reference_label=reference_label)
     print("\n" + report)
     if args.out:
         Path(args.out).write_text(report, encoding="utf-8")

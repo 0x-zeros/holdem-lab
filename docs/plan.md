@@ -3,7 +3,7 @@
 > 项目规范化路线图（canonical roadmap），从初期规划固化进仓库，供容器内任意 agent
 > （Claude / Codex）读取。规则类约束见 `AGENTS.md`。
 
-## 当前进度（截至 2026-06-27 阶段 2/3 local game + AI evaluation v2）
+## 当前进度（截至 2026-07-01 阶段 2/3 local game + AI evaluation v2）
 
 **已完成**
 - Dev container（tier ① 无头核心）已 build 并在容器内验证通过：`ubuntu:24.04` + Ubuntu apt
@@ -437,6 +437,15 @@
   `test_perception_overlay.py` 6 例 + `test_poker_legends_watch.py` 3 例）。**离线发现**：`watch-once 000080` 是**真牌桌**
   （hero 5h8s、Call/Raise/Fold 可见）却仍 `no_game_state` + `state_block_reason: missing_table_metadata`——selection 集
   标注是 `roi_applied_values_pending`（只放 ROI 未填值），即真牌桌也得布局带 table-metadata 块才能拼出 `GameState`。
+- 阶段 4 本地 VLM 评测（LM Studio）：新增/扩展 `holdem-bot-evaluate-local-vlm`
+  （`bot/src/holdem_bot/eval/local_vlm.py`），可用 LM Studio/OpenAI-compatible 后端跑同一运行时 prompt，并与
+  Gemini/CV/ reviewed truth 对齐评估；新增 `--reference-dir` 直接用 reviewed truth overlay 作字段基准（不把
+  Gemini 当真值），新增 `--timeout` 防止本地模型啰嗦卡死，并修复在 reviewed-truth 模式下 Gemini 也参与字段评分。
+  当前 `docs/local-vlm-eval.md` 结论：13 张完整 hero 决策帧上 Gemini `gemini-3.1-flash-lite` 解析 13/13、
+  box 约 11px、均延迟 7.8s；Qwen3-VL-30B 解析 12/13、box 约 69px、字段相对 Gemini 约 69%、均延迟 13.1s。
+  追加 reviewed-truth 小样本（session_002 3 张 actionable）：Gemini 字段一致率 62%、均 6.5s；Qwen3-VL-30B
+  38%、均 17.6s；Qwen3-VL-8B 19%、均 15.1s。结论：**Gemini 仍是整屏主读者；30B 是本地高准确率备选；
+  8B 只适合 smoke/fallback 或后续 ROI crop 小任务；点击坐标继续以 CV 精修为准**。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

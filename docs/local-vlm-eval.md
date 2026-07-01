@@ -32,6 +32,55 @@ _生成于 2026-06-29；共 13 帧，全部为真·hero 决策帧(Gemini `is_act
 | 稳定性 | **Gemini**(13/13) | 本地 12/13，1 帧啰嗦循环到 120s+ 截断 |
 | 长期成本 | **本地**(≈电费) | Gemini ≈ $1.5/千次；本地在自有 Mac 上跑边际≈0 |
 
+## 2026-06-29 追加：Qwen3-VL 8B vs 30B（reviewed truth 小样本）
+
+用户本机 LM Studio 已同时暴露 `qwen/qwen3-vl-8b` 与 `qwen/qwen3-vl-30b`。新增
+`--reference-dir` 后，可直接拿 reviewed truth overlay 当字段基准，不再依赖 Gemini。两组小样本只用于
+快速判断 8B 是否值得替代 30B；样本小且部分 truth 只标最小座位集，seat/stacks 指标偏严。
+
+| 样本 | 后端 | 解析成功 | box 平均误差 | 漏检按钮 | 字段一致率(vs reviewed truth) | 平均延迟 |
+|---|---|---:|---:|---:|---:|---:|
+| session_002 actionable 3 帧 | `qwen/qwen3-vl-8b` | 3/3 | 146px | 4 | 19% | 15.0s |
+| session_002 actionable 3 帧 | `qwen/qwen3-vl-30b` | 3/3 | 250px | 2 | 38% | 18.1s |
+| session_001 actionable 2 帧 | `qwen/qwen3-vl-8b` | 2/2 | 185px | 2 | 21% | 12.4s |
+| session_001 actionable 2 帧 | `qwen/qwen3-vl-30b` | 2/2 | 133px | 0 | 36% | 13.2s |
+
+同一 session_002 三帧把 Gemini 也加入 reviewed-truth 对比后：
+
+| 后端 | 解析成功 | 字段一致率(vs reviewed truth) | 平均延迟 | actionable | hero_cards | street |
+|---|---:|---:|---:|---:|---:|---:|
+| `gemini` | 3/3 | **62%** | **6.5s** | 100% | 100% | 100% |
+| `qwen/qwen3-vl-30b` | 3/3 | 38% | 17.6s | 100% | 33% | 0% |
+| `qwen/qwen3-vl-8b` | 3/3 | 19% | 15.1s | 33% | 33% | 0% |
+
+关键差异：
+
+- **Gemini 仍明显领先**：在 reviewed-truth 小样本里，整屏结构化字段、hero cards、street、actionable 与延迟
+  都优于两个本地 Qwen。
+- **8B 能解析，但不能替代 30B**：两组 reviewed-truth 小样本里字段一致率约 19–21%，明显低于 30B 的
+  36–38%。
+- **actionable 稳定性差异很大**：30B 在 5/5 帧都输出 actionable；8B 只有 1/5 帧匹配 truth。
+- **牌面花色 8B 更容易错**：例如 `JS` 被读成 `JH`、`8D` 被读成 `8H`；30B 在 session_001 的两帧
+  hero cards 为 2/2。
+- **box 仍不能直接点击**：8B/30B 都有百像素级偏差；点击继续以 CV `detect_action_buttons` 为准。
+- **延迟不是 8B 的决定性优势**：本次 8B 平均 12–15s，30B 13–18s；8B 更轻，但在当前 LM Studio/图像尺寸下
+  没快到可以抵消准确率差距。
+
+当前建议：**8B 作为低成本 smoke / fallback，30B 仍作为本地高准确率候选；线上点击与金额继续走 CV/规则兜底。**
+8B 更适合先看单个 ROI crop（牌面、按钮、数字），不适合作为整屏 `GameState` 主读者。
+
+复跑命令：
+
+```bash
+scripts/dev/py -m holdem_bot.eval.local_vlm \
+  --frames <comma-separated-actionable-frame-pngs> \
+  --reference-dir <truth_overlay_dir> \
+  --backends qwen/qwen3-vl-8b,qwen/qwen3-vl-30b,cv \
+  --timeout 60 \
+  --out artifacts/poker-legends-videos/qwen3vl_8b_vs_30b_truth_eval.md \
+  --stamp "$(date +%F)"
+```
+
 **落地（与现有 HUD 混合点击设计一致）：**
 
 | 用途 | 主用 | 兜底/校验 |

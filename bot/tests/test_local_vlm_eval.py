@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from holdem_bot.eval.local_vlm import (
     Read,
     _button_centers_px,
     _canon,
     _cards,
     _extract_json,
+    _load_reference,
     _norm_card,
     _pot,
     _seats,
@@ -80,3 +83,15 @@ def test_compare_fields_glyph_cards_match_canonical() -> None:
     out = compare_fields(local, ref)
     assert out["hero_cards"][0] is True
     assert out["actionable"][0] is True
+
+
+def test_load_reference_matches_frame_stem(tmp_path: Path) -> None:
+    reference_dir = tmp_path / "refs"
+    reference_dir.mkdir()
+    (reference_dir / "frame_001.json").write_text('{"Buttons": [], "table_state": {}}')
+
+    assert _load_reference("/frames/frame_001.png", str(reference_dir)) == {
+        "buttons": [],
+        "table_state": {},
+    }
+    assert _load_reference("/frames/missing.png", str(reference_dir)) is None
