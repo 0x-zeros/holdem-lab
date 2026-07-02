@@ -90,6 +90,7 @@ from holdem_bot.vision.poker_legends_multi_templates import (
 from holdem_bot.vision.poker_legends_numbers import (
     PokerLegendsNumberPrediction,
     PokerLegendsNumberRecognizer,
+    build_poker_legends_number_crop_dataset,
     build_poker_legends_number_ocr_report,
     parse_poker_legends_chip_amount,
     parse_poker_legends_chip_components,
@@ -229,6 +230,7 @@ __all__ = [
     "build_poker_legends_button_template_library",
     "build_and_evaluate_poker_legends_multi_templates",
     "build_poker_legends_recognition_comparison",
+    "build_poker_legends_number_crop_dataset",
     "build_poker_legends_number_ocr_report",
     "parse_poker_legends_chip_amount",
     "parse_poker_legends_chip_components",

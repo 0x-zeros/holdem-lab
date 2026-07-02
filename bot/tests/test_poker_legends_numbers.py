@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from holdem_bot.vision import (
     PokerLegendsNumberRecognizer,
+    build_poker_legends_number_crop_dataset,
     build_poker_legends_number_ocr_report,
     parse_poker_legends_chip_amount,
     parse_poker_legends_chip_components,
@@ -99,6 +100,77 @@ def test_poker_legends_number_ocr_report_compares_truth(tmp_path: Path) -> None:
     assert summary["correct"] == 3
     assert summary["accuracy"] == 1.0
     assert (tmp_path / "out" / "number_ocr_report.md").exists()
+
+
+def test_poker_legends_number_crop_dataset_exports_variants_and_labels(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "numbers.png"
+    annotation_path = tmp_path / "numbers.json"
+    truth_dir = tmp_path / "truth"
+    truth_dir.mkdir()
+    write_number_fixture(image_path, annotation_path)
+    (truth_dir / "numbers.json").write_text(
+        json.dumps(
+            {
+                "frame_id": "numbers",
+                "screen": {"kind": "actionable_table"},
+                "texts": [
+                    {
+                        "name": "hero_stack",
+                        "visible": True,
+                        "value": "$290+710",
+                        "normalized_number": 290,
+                    },
+                ],
+                "seats": [
+                    {
+                        "name": "hero",
+                        "visible": True,
+                        "stack": 290,
+                        "committed": 25,
+                    }
+                ],
+                "buttons": [
+                    {"name": "primary_left", "visible": True, "label": "Call $25"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_poker_legends_number_crop_dataset(
+        [annotation_path],
+        image_root=tmp_path,
+        truth_dir=truth_dir,
+        output_dir=tmp_path / "out",
+        text_names=("hero_stack", "hero_current_bet"),
+        button_names=("primary_left",),
+    )
+
+    assert summary["frames"] == 1
+    assert summary["crops"] == 5
+    assert summary["labeled_crops"] == 5
+    assert summary["field_counts"] == {
+        "buttons:primary_left": 1,
+        "texts:hero_current_bet": 1,
+        "texts:hero_stack": 3,
+    }
+    rows = cast(list[dict[str, Any]], summary["rows"])
+    hero_rows = [row for row in rows if row["name"] == "hero_stack"]
+    assert {row["crop_variant"] for row in hero_rows} == {
+        "default",
+        "hero_stack_no_pad",
+        "hero_stack_trim_right_16",
+    }
+    assert {row["truth_canonical_text"] for row in hero_rows} == {"$290+710"}
+    assert {tuple(row["truth_chip_numbers"]) for row in hero_rows} == {(290, 710)}
+    current_bet_row = next(row for row in rows if row["name"] == "hero_current_bet")
+    assert current_bet_row["truth_canonical_text"] == "$25"
+    assert current_bet_row["truth_chip_numbers"] == [25]
+    assert all((tmp_path / "out" / str(row["crop_path"])).exists() for row in rows)
+    assert (tmp_path / "out" / "number_crop_dataset_manifest.json").exists()
+    assert (tmp_path / "out" / "number_crop_dataset_report.md").exists()
 
 
 def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:

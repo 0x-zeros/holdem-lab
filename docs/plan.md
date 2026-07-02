@@ -507,6 +507,18 @@
   hero low-confidence 6、hero unverified overlay 25、opponent low-confidence 29、opponent missing OCR 8、
   opponent unverified overlay 3；下一步应继续做真正字符级 OCR/stack ROI 数据集，而不是扩大 opponent
   accepted path。
+- 阶段 4 Poker Legends number crop dataset v1（字符级 OCR 前置数据层）：新增离线
+  `build_poker_legends_number_crop_dataset` / `holdem-bot-build-poker-legends-number-crops`，从 layout
+  annotations + reviewed truth 导出数字 ROI crops、truth canonical text / tokens、chip number labels、
+  screen kind、blocking reason、ROI rect、pad 与 crop variant；不进入 live accepted path。为 stack 字段
+  固定导出多变体：`hero_stack` 的 default / no-pad / trim-right-16，`right_top_stack` 的 default /
+  no-pad / trim-left-16；同时修正 number OCR report/dataset 的 frame_id 解析，merged dataset 里优先用
+  annotation 文件 stem，避免 source-prefixed truth 对不齐。`hero_current_bet` crop label 可从 reviewed hero
+  seat `committed` 派生，`hero_stack` 可从 reviewed hero seat `stack` 派生。当前真实数据集输出
+  `/tmp/poker-legends-number-crop-dataset-v3`：119 帧、1071 crops、584 labeled crops；标签分布为
+  `hero_stack` 336、`right_top_stack` 144、`pot` 62、`hero_current_bet` 30、`primary_left` 12。下一步可以
+  基于该 manifest 做字符/CTC OCR baseline 或人工 review queue，不应直接把 unlabeled / opponent overlay
+  crop 放进授权链路。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

@@ -216,7 +216,7 @@ def build_poker_legends_number_ocr_report(
     mismatch = 0
     for annotation_path in sorted(annotations):
         annotation = _read_json_object(annotation_path)
-        frame_id = str(annotation.get("frame_id") or Path(str(annotation["image"])).stem)
+        frame_id = str(annotation.get("frame_id") or annotation_path.stem)
         truth = None if truth_dir is None else _optional_truth(Path(truth_dir) / f"{frame_id}.json")
         predictions = recognizer.recognize(image_base / str(annotation["image"]), annotation)
         (result_dir / f"{frame_id}.json").write_text(
@@ -279,6 +279,126 @@ def build_poker_legends_number_ocr_report(
     return summary
 
 
+def build_poker_legends_number_crop_dataset(
+    annotation_paths: Sequence[str | Path],
+    *,
+    image_root: str | Path,
+    output_dir: str | Path,
+    truth_dir: str | Path | None = None,
+    text_names: Sequence[str] = ("pot", "hero_stack", "hero_current_bet", "right_top_stack"),
+    button_names: Sequence[str] = ("primary_left",),
+) -> dict[str, object]:
+    annotations = [Path(path) for path in annotation_paths]
+    if not annotations:
+        raise ValueError("at least one annotation path is required")
+    image_base = Path(image_root)
+    output = Path(output_dir)
+    crop_root = output / "crops"
+    crop_root.mkdir(parents=True, exist_ok=True)
+    selected_text_names = set(text_names)
+    selected_button_names = set(button_names)
+    rows: list[dict[str, object]] = []
+    screen_kind_counts: dict[str, int] = {}
+    field_counts: dict[str, int] = {}
+    variant_counts: dict[str, int] = {}
+    labeled_crops = 0
+    for annotation_path in sorted(annotations):
+        annotation = _read_json_object(annotation_path)
+        frame_id = str(annotation.get("frame_id") or annotation_path.stem)
+        truth = None if truth_dir is None else _optional_truth(Path(truth_dir) / f"{frame_id}.json")
+        truth_screen = _truth_screen(truth)
+        screen_kind = truth_screen.get("kind")
+        if isinstance(screen_kind, str) and screen_kind:
+            screen_kind_counts[screen_kind] = screen_kind_counts.get(screen_kind, 0) + 1
+        image_path = _resolve_image_path(image_base, annotation["image"])
+        image = _load_rgb_image(image_path)
+        regions = _region_groups(annotation)
+        regions["texts"] = _with_canonical_text_regions(
+            regions.get("texts", ()),
+            selected_text_names=selected_text_names,
+            image_width=int(image.shape[1]),
+            image_height=int(image.shape[0]),
+        )
+        for group, region_names in (
+            ("texts", selected_text_names),
+            ("buttons", selected_button_names),
+        ):
+            for region in regions.get(group, ()):
+                name = str(region.get("name") or "")
+                if name not in region_names:
+                    continue
+                rect = _rect_from_region(region)
+                for spec in _dataset_crop_specs_for_region(rect, group=group, name=name):
+                    crop = _crop(image, spec.rect, pad=spec.pad)
+                    crop_path = _crop_dataset_path(
+                        crop_root,
+                        frame_id=frame_id,
+                        group=group,
+                        name=name,
+                        variant=spec.variant,
+                    )
+                    crop_path.parent.mkdir(parents=True, exist_ok=True)
+                    cv2.imwrite(str(crop_path), cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
+                    truth_label = _truth_number_label(truth, group=group, name=name)
+                    truth_number = _optional_int(truth_label.get("normalized_number"))
+                    canonical_text = _canonical_chip_text(truth_label.get("value"), truth_number)
+                    if truth_number is not None:
+                        labeled_crops += 1
+                    field_key = f"{group}:{name}"
+                    field_counts[field_key] = field_counts.get(field_key, 0) + 1
+                    variant_key = f"{field_key}:{spec.variant}"
+                    variant_counts[variant_key] = variant_counts.get(variant_key, 0) + 1
+                    rows.append(
+                        {
+                            "frame_id": frame_id,
+                            "image": str(image_path),
+                            "group": group,
+                            "name": name,
+                            "role": _number_crop_role(group, name),
+                            "crop_variant": spec.variant,
+                            "crop_path": str(crop_path.relative_to(output)),
+                            "roi_rect": [
+                                spec.rect.x,
+                                spec.rect.y,
+                                spec.rect.width,
+                                spec.rect.height,
+                            ],
+                            "pad": spec.pad,
+                            "screen_kind": screen_kind,
+                            "blocking_reason": truth_screen.get("blocking_reason"),
+                            "truth_visible": truth_label.get("visible"),
+                            "truth_value": truth_label.get("value"),
+                            "truth_normalized_number": truth_number,
+                            "truth_canonical_text": canonical_text,
+                            "truth_tokens": (
+                                list(canonical_text) if canonical_text is not None else []
+                            ),
+                            "truth_chip_numbers": list(
+                                parse_poker_legends_chip_numbers(canonical_text)
+                            )
+                            if canonical_text is not None
+                            else [],
+                        }
+                    )
+    summary: dict[str, object] = {
+        "schema_version": 1,
+        "frames": len(annotations),
+        "crops": len(rows),
+        "labeled_crops": labeled_crops,
+        "crop_root": str(crop_root.relative_to(output)),
+        "screen_kind_counts": dict(sorted(screen_kind_counts.items())),
+        "field_counts": dict(sorted(field_counts.items())),
+        "variant_counts": dict(sorted(variant_counts.items())),
+        "rows": rows,
+    }
+    (output / "number_crop_dataset_manifest.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _write_number_crop_dataset_report(output / "number_crop_dataset_report.md", summary)
+    return summary
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run Poker Legends numeric OCR on text/button ROIs."
@@ -294,6 +414,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_crop_dataset_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Build Poker Legends numeric ROI crop dataset for OCR training/review."
+    )
+    parser.add_argument(
+        "annotations",
+        nargs="+",
+        help="Poker Legends layout annotation JSON files.",
+    )
+    parser.add_argument("--image-root", required=True)
+    parser.add_argument("--truth-dir")
+    parser.add_argument("--out", required=True)
+    parser.add_argument(
+        "--text-name",
+        action="append",
+        dest="text_names",
+        help="Text ROI name to export. Repeat to override defaults.",
+    )
+    parser.add_argument(
+        "--button-name",
+        action="append",
+        dest="button_names",
+        help="Button ROI name to export. Repeat to override defaults.",
+    )
+    return parser
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
     summary = build_poker_legends_number_ocr_report(
@@ -303,6 +450,21 @@ def main(argv: Sequence[str] | None = None) -> None:
         output_dir=args.out,
     )
     print(json.dumps(_stdout_summary(summary), indent=2, sort_keys=True))
+
+
+def crop_dataset_main(argv: Sequence[str] | None = None) -> None:
+    args = build_crop_dataset_arg_parser().parse_args(argv)
+    summary = build_poker_legends_number_crop_dataset(
+        args.annotations,
+        image_root=args.image_root,
+        truth_dir=args.truth_dir,
+        output_dir=args.out,
+        text_names=tuple(
+            args.text_names or ("pot", "hero_stack", "hero_current_bet", "right_top_stack")
+        ),
+        button_names=tuple(args.button_names or ("primary_left",)),
+    )
+    print(json.dumps(_crop_dataset_stdout_summary(summary), indent=2, sort_keys=True))
 
 
 def _default_crop_spec(rect: ScreenRect, *, group: str) -> _CropSpec:
@@ -333,6 +495,38 @@ def _fallback_crop_specs_for_prediction(
     if not specs:
         specs.append(_CropSpec("hero_stack_no_pad", rect, 0))
     return tuple(specs)
+
+
+def _dataset_crop_specs_for_region(
+    rect: ScreenRect,
+    *,
+    group: str,
+    name: str,
+) -> tuple[_CropSpec, ...]:
+    default = _default_crop_spec(rect, group=group)
+    if group != "texts":
+        return (default,)
+    if name == "hero_stack":
+        return (
+            default,
+            _CropSpec("hero_stack_no_pad", rect, 0),
+            _CropSpec(
+                "hero_stack_trim_right_16",
+                ScreenRect(rect.x, rect.y, max(1, rect.width - 16), rect.height),
+                0,
+            ),
+        )
+    if name == "right_top_stack":
+        return (
+            default,
+            _CropSpec("right_top_stack_no_pad", rect, 0),
+            _CropSpec(
+                "right_top_stack_trim_left_16",
+                ScreenRect(rect.x + 16, rect.y, max(1, rect.width - 16), rect.height),
+                0,
+            ),
+        )
+    return (default,)
 
 
 def _select_field_prediction(
@@ -574,6 +768,106 @@ def _expected_number(
     return None
 
 
+def _truth_number_label(
+    truth: Mapping[str, object] | None,
+    *,
+    group: str,
+    name: str,
+) -> dict[str, object]:
+    if truth is None:
+        return {"visible": None, "value": None, "normalized_number": None}
+    if group == "texts":
+        for text in _mapping_sequence(truth.get("texts")):
+            if str(text.get("name") or "") == name:
+                value = text.get("value")
+                normalized_number = _optional_int(text.get("normalized_number"))
+                if normalized_number is None and isinstance(value, str):
+                    normalized_number = parse_poker_legends_chip_amount(value)
+                return {
+                    "visible": bool(text.get("visible", True)),
+                    "value": value,
+                    "normalized_number": normalized_number,
+                }
+        if name == "hero_stack":
+            stack = _truth_hero_seat_number(truth, "stack")
+            if stack is not None:
+                return {"visible": True, "value": f"${stack}", "normalized_number": stack}
+        if name == "hero_current_bet":
+            committed = _truth_hero_seat_number(truth, "committed")
+            if committed is not None and committed > 0:
+                return {
+                    "visible": True,
+                    "value": f"${committed}",
+                    "normalized_number": committed,
+                }
+    if group == "buttons":
+        for button in _mapping_sequence(truth.get("buttons")):
+            if str(button.get("name") or "") == name:
+                label = button.get("label")
+                return {
+                    "visible": bool(button.get("visible", True)),
+                    "value": label,
+                    "normalized_number": parse_poker_legends_chip_amount(label)
+                    if isinstance(label, str)
+                    else None,
+                }
+    return {"visible": None, "value": None, "normalized_number": None}
+
+
+def _truth_hero_seat_number(truth: Mapping[str, object], field_name: str) -> int | None:
+    for seat in _mapping_sequence(truth.get("seats")):
+        if not bool(seat.get("visible", True)):
+            continue
+        if str(seat.get("name") or "").lower() != "hero":
+            continue
+        return _optional_int(seat.get(field_name))
+    return None
+
+
+def _truth_screen(truth: Mapping[str, object] | None) -> Mapping[str, object]:
+    screen = None if truth is None else truth.get("screen")
+    return screen if isinstance(screen, Mapping) else {}
+
+
+def _canonical_chip_text(value: object, normalized_number: int | None) -> str | None:
+    if isinstance(value, str) and value.strip():
+        normalized = _normalize_numeric_text(value)
+        source = _amount_source(normalized)
+        if "$" in normalized:
+            source = f"${source}"
+        source = source.strip()
+        return source or None
+    if normalized_number is not None:
+        return str(normalized_number)
+    return None
+
+
+def _number_crop_role(group: str, name: str) -> str:
+    if group == "buttons":
+        return "call_amount" if name == "primary_left" else "button_amount"
+    if name == "pot":
+        return "pot"
+    if name == "hero_current_bet":
+        return "hero_current_bet"
+    if name == "hero_stack":
+        return "hero_stack"
+    if name.endswith("_stack") or name == "opponent_stack":
+        return "seat_stack"
+    return name
+
+
+def _crop_dataset_path(
+    crop_root: Path,
+    *,
+    frame_id: str,
+    group: str,
+    name: str,
+    variant: str,
+) -> Path:
+    field = f"{group}_{name}"
+    return crop_root / field / f"{frame_id}__{field}__{variant}.png"
+
+
 def _write_number_ocr_report(path: Path, summary: Mapping[str, object]) -> None:
     rows = _mapping_sequence(summary["rows"])
     lines = [
@@ -603,6 +897,28 @@ def _write_number_ocr_report(path: Path, summary: Mapping[str, object]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_number_crop_dataset_report(path: Path, summary: Mapping[str, object]) -> None:
+    lines = [
+        "# Poker Legends Number Crop Dataset",
+        "",
+        "## Summary",
+        f"- Frames: {summary['frames']}",
+        f"- Crops: {summary['crops']}",
+        f"- Labeled crops: {summary['labeled_crops']}",
+        f"- Crop root: `{summary['crop_root']}`",
+        "",
+        "## Screen Kind Counts",
+        *_count_lines(summary.get("screen_kind_counts")),
+        "",
+        "## Field Counts",
+        *_count_lines(summary.get("field_counts")),
+        "",
+        "## Variant Counts",
+        *_count_lines(summary.get("variant_counts")),
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
     return {
         "frames": summary["frames"],
@@ -611,6 +927,22 @@ def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
         "accuracy": summary["accuracy"],
         "report": "number_ocr_report.md",
     }
+
+
+def _crop_dataset_stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "frames": summary["frames"],
+        "crops": summary["crops"],
+        "labeled_crops": summary["labeled_crops"],
+        "manifest": "number_crop_dataset_manifest.json",
+        "report": "number_crop_dataset_report.md",
+    }
+
+
+def _count_lines(value: object) -> list[str]:
+    if not isinstance(value, Mapping) or not value:
+        return ["- none"]
+    return [f"- {key}: {count}" for key, count in sorted(value.items())]
 
 
 def _region_groups(annotation: Mapping[str, object]) -> dict[str, list[Mapping[str, object]]]:
@@ -659,6 +991,13 @@ def _load_rgb_image(path: str | Path) -> RgbImage:
     if image is None:
         raise FileNotFoundError(f"could not read image: {path}")
     return cast(RgbImage, cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+
+
+def _resolve_image_path(image_root: Path, image_value: object) -> Path:
+    image_path = Path(str(image_value))
+    if image_path.is_absolute():
+        return image_path
+    return image_root / image_path
 
 
 def _crop(image: RgbImage, rect: ScreenRect, *, pad: int) -> RgbImage:
