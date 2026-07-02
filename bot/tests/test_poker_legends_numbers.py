@@ -175,6 +175,27 @@ def test_poker_legends_number_crop_dataset_exports_variants_and_labels(
     assert (tmp_path / "out" / "number_crop_dataset_report.md").exists()
 
 
+def test_poker_legends_number_crop_dataset_defaults_skip_unstable_numeric_sources(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "numbers.png"
+    annotation_path = tmp_path / "numbers.json"
+    write_number_fixture(image_path, annotation_path)
+
+    summary = build_poker_legends_number_crop_dataset(
+        [annotation_path],
+        image_root=tmp_path,
+        output_dir=tmp_path / "out",
+    )
+
+    field_counts = cast(dict[str, int], summary["field_counts"])
+    assert "buttons:primary_left" not in field_counts
+    assert "texts:hero_current_bet" not in field_counts
+    assert field_counts["texts:hero_stack"] == 3
+    assert field_counts["texts:pot"] == 1
+    assert field_counts["texts:right_top_stack"] == 3
+
+
 def test_poker_legends_number_crop_ocr_evaluator_reports_variant_stats(
     tmp_path: Path,
 ) -> None:
@@ -272,6 +293,55 @@ def test_poker_legends_number_crop_dataset_does_not_label_ambiguous_hero_stack(
 
     assert summary["labeled_crops"] == 0
     rows = cast(list[dict[str, Any]], summary["rows"])
+    assert {row["truth_normalized_number"] for row in rows} == {None}
+
+
+def test_poker_legends_number_crop_dataset_requires_reviewed_stack_overlay_label(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "numbers.png"
+    annotation_path = tmp_path / "numbers.json"
+    truth_dir = tmp_path / "truth"
+    truth_dir.mkdir()
+    write_number_fixture(image_path, annotation_path)
+    (truth_dir / "numbers.json").write_text(
+        json.dumps(
+            {
+                "frame_id": "numbers",
+                "review": {"status": "candidate_unreviewed"},
+                "texts": [
+                    {
+                        "name": "hero_stack",
+                        "visible": True,
+                        "value": "1229",
+                        "normalized_number": 1229,
+                    },
+                ],
+                "seats": [
+                    {
+                        "name": "hero",
+                        "visible": True,
+                        "stack": 1229,
+                        "committed": 30,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_poker_legends_number_crop_dataset(
+        [annotation_path],
+        image_root=tmp_path,
+        truth_dir=truth_dir,
+        output_dir=tmp_path / "out",
+        text_names=("hero_stack",),
+        button_names=(),
+    )
+
+    assert summary["labeled_crops"] == 0
+    rows = cast(list[dict[str, Any]], summary["rows"])
+    assert {row["truth_value"] for row in rows} == {None}
     assert {row["truth_normalized_number"] for row in rows} == {None}
 
 

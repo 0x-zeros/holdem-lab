@@ -285,8 +285,8 @@ def build_poker_legends_number_crop_dataset(
     image_root: str | Path,
     output_dir: str | Path,
     truth_dir: str | Path | None = None,
-    text_names: Sequence[str] = ("pot", "hero_stack", "hero_current_bet", "right_top_stack"),
-    button_names: Sequence[str] = ("primary_left",),
+    text_names: Sequence[str] = ("pot", "hero_stack", "right_top_stack"),
+    button_names: Sequence[str] = (),
 ) -> dict[str, object]:
     annotations = [Path(path) for path in annotation_paths]
     if not annotations:
@@ -600,10 +600,8 @@ def crop_dataset_main(argv: Sequence[str] | None = None) -> None:
         image_root=args.image_root,
         truth_dir=args.truth_dir,
         output_dir=args.out,
-        text_names=tuple(
-            args.text_names or ("pot", "hero_stack", "hero_current_bet", "right_top_stack")
-        ),
-        button_names=tuple(args.button_names or ("primary_left",)),
+        text_names=tuple(args.text_names or ("pot", "hero_stack", "right_top_stack")),
+        button_names=tuple(args.button_names or ()),
     )
     print(json.dumps(_crop_dataset_stdout_summary(summary), indent=2, sort_keys=True))
 
@@ -970,6 +968,16 @@ def _truth_number_label(
             if str(text.get("name") or "") == name:
                 value = text.get("value")
                 normalized_number = _optional_int(text.get("normalized_number"))
+                if _truth_text_number_crop_label_is_ambiguous(
+                    truth,
+                    name=name,
+                    value=value,
+                ):
+                    return {
+                        "visible": bool(text.get("visible", True)),
+                        "value": None,
+                        "normalized_number": None,
+                    }
                 if _is_stack_field_name(name) and isinstance(value, str):
                     stack_components = parse_poker_legends_chip_components(value)
                     normalized_number = stack_components["base_number"]
@@ -1004,6 +1012,30 @@ def _truth_number_label(
                     else None,
                 }
     return {"visible": None, "value": None, "normalized_number": None}
+
+
+def _truth_text_number_crop_label_is_ambiguous(
+    truth: Mapping[str, object],
+    *,
+    name: str,
+    value: object,
+) -> bool:
+    if name != "hero_stack" or not isinstance(value, str):
+        return False
+    if _truth_review_status(truth) == "human_reviewed":
+        return False
+    if "+" in _normalize_numeric_text(value):
+        return False
+    committed = _truth_hero_seat_number(truth, "committed")
+    return committed is not None and committed > 0
+
+
+def _truth_review_status(truth: Mapping[str, object]) -> str | None:
+    review = truth.get("review")
+    if not isinstance(review, Mapping):
+        return None
+    status = review.get("status")
+    return status if isinstance(status, str) else None
 
 
 def _truth_hero_seat_number(truth: Mapping[str, object], field_name: str) -> int | None:
