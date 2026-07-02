@@ -477,6 +477,19 @@
   truth-assisted 对照（`/tmp/poker-legends-table-eval-truth-assisted-hero-current-bet-roi-v1`）：authorization 39、
   unsafe/stale/accepted-critical-wrong 均为 0。结论：字段语义路线正确，但下一步不能单纯提 coverage，
   image-only 要继续推进应先处理剩余低置信 stack OCR/ROI，opponent overlay 要等稳定 seat-to-ROI 映射。
+- 阶段 4 Poker Legends stack OCR hardening v3（只保留无错收益）：数字 confidence 现在把干净的
+  `base+overlay` token 扩展到千分位/后缀形式，`$1,005 +10`、`$1,146+80` 这类 stack OCR 不再因
+  `,` 被降到 0.65，而是按 clean split stack 给 0.82；`+110 4`、多 `+`、`$` 前混入数字/字母等碎片
+  仍保持低置信。当前 image-only replay（119 帧含 non-actionable，
+  `/tmp/poker-legends-table-eval-image-only-stack-clean-plus-final-v1`）：authorization 0、unsafe 0、stale 0、
+  screen false actionable 0、source-policy violation 0、accepted-critical-wrong 0；accepted hero_stack
+  6 -> 7 且 7/7 exact match（pot 8、hero_current_bet 15、right_top_stack 1，右上 stack 的 1 个 mismatch
+  仍不进入授权链路）。对比实验结论：放宽 `1$990+10` / `28 $990+10` 这类 noisy-prefix stack 会把
+  `session_002__keyframe_000131` 的 `$890` 错收为 `900`（相邻 current-bet/筹码区域污染），因此已放弃；
+  简单收紧全局 ROI/pad 也在抽样上出现 accepted mismatch，不作为安全修复。剩余 blocker 主要是
+  低置信/污染 stack ROI：hero low-confidence 29、hero unverified overlay 5、opponent low-confidence 29、
+  opponent missing OCR 8、opponent unverified overlay 3。下一步应做字段专用 ROI/字符级 OCR 或更稳定的
+  seat-to-ROI 映射，而不是降低阈值或信任 noisy-prefix。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

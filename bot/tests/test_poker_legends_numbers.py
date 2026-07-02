@@ -125,6 +125,8 @@ def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:
 def test_poker_legends_number_confidence_marks_fragmented_ocr_low() -> None:
     assert poker_legends_numbers._confidence("$1,250", (1250,)) == 0.90
     assert poker_legends_numbers._confidence("$990+10", (990, 10)) == 0.82
+    assert poker_legends_numbers._confidence("$1,005 +10", (1005, 10)) == 0.82
+    assert poker_legends_numbers._confidence("$1,146+80", (1146, 80)) == 0.82
     assert poker_legends_numbers._confidence("4\n\n6\n\n0", (460,)) == 0.65
     assert poker_legends_numbers._confidence("$890+110 4", (890, 1104)) == 0.65
     assert poker_legends_numbers._confidence("$840+1 +160", (840, 1, 160)) == 0.65

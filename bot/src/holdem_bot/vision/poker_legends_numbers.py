@@ -359,7 +359,7 @@ def _confidence(raw: str, numbers: tuple[int, ...]) -> float:
         confidence = 0.86
     elif re.fullmatch(r"\d+[.,]\d+", compact):
         confidence = 0.70
-    elif "+" in compact and all(part.isdigit() for part in compact.split("+")):
+    elif "+" in compact and all(_is_clean_chip_token(part) for part in compact.split("+")):
         confidence = 0.82
     elif len(numbers) >= 2:
         confidence = 0.65
@@ -397,6 +397,15 @@ def _looks_fragmented_numeric_ocr(raw: str) -> bool:
         return bool(re.search(r"\+\s*\d+(?:\s+\d+)+", source))
     digit_runs = re.findall(r"\d+", source)
     return len(digit_runs) >= 2 and all(len(run) <= 2 for run in digit_runs)
+
+
+def _is_clean_chip_token(token: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"(?:\d+|\d{1,3}(?:,\d{3})+|\d+[.,]\d{1,2}[KkMm]|\d+[KkMm])",
+            token,
+        )
+    )
 
 
 def _amount_source(normalized_text: str) -> str:
