@@ -33,6 +33,36 @@ def test_poker_legends_number_recognizer_parses_core_numeric_rois(tmp_path: Path
     assert predictions["primary_left"].normalized_number == 25
 
 
+def test_poker_legends_number_recognizer_adds_missing_canonical_text_roi(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "frame.png"
+    image = np.full((982, 1600, 3), 24, dtype=np.uint8)
+    cv2.putText(
+        image,
+        "$10",
+        (716, 552),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.0,
+        (245, 245, 245),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.imwrite(str(image_path), image)
+    annotation = {"image": image_path.name, "regions": {"texts": [], "buttons": []}}
+
+    predictions = PokerLegendsNumberRecognizer().recognize(
+        image_path,
+        annotation,
+        text_names=("hero_current_bet",),
+        button_names=(),
+    )
+
+    assert predictions[0].name == "hero_current_bet"
+    assert predictions[0].normalized_number == 10
+    assert predictions[0].confidence >= 0.70
+
+
 def test_poker_legends_number_ocr_report_compares_truth(tmp_path: Path) -> None:
     image_path = tmp_path / "numbers.png"
     annotation_path = tmp_path / "numbers.json"

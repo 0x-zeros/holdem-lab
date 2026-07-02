@@ -48,6 +48,7 @@ def test_apply_poker_legends_layout_scales_regions(tmp_path: Path) -> None:
     assert set(regions) == {"board", "buttons", "cards", "overlays", "seats", "texts"}
     assert regions["board"][0]["rect"] == {"height": 56, "width": 42, "x": 254, "y": 216}
     assert regions["cards"][0]["name"] == "hero_hole_0"
+    assert any(region["name"] == "hero_current_bet" for region in regions["texts"])
 
 
 def test_apply_poker_legends_layout_writes_overlay(tmp_path: Path) -> None:

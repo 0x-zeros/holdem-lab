@@ -71,7 +71,8 @@ def test_build_llm_annotation_package_writes_requests_and_crops(tmp_path: Path) 
     assert manifest.crop_groups == ("board", "cards", "buttons", "texts")
     frame = manifest.frames[0]
     assert (output_dir / frame.image).exists()
-    assert len(frame.crops) == 18
+    assert len(frame.crops) == 19
+    assert any(crop.id == "texts.hero_current_bet" for crop in frame.crops)
     assert all((output_dir / crop.image).exists() for crop in frame.crops)
     requests = (output_dir / "requests.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(requests) == 1

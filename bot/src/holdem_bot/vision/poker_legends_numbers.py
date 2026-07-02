@@ -15,6 +15,7 @@ import pytesseract  # type: ignore[import-untyped]
 from numpy.typing import NDArray
 
 from holdem_bot.vision.annotations import ScreenRect
+from holdem_bot.vision.poker_legends_layout import poker_legends_layout_regions
 
 ImageArray = NDArray[Any]
 RgbImage = ImageArray
@@ -88,10 +89,16 @@ class PokerLegendsNumberRecognizer:
         button_names: Sequence[str] = ("primary_left",),
     ) -> tuple[PokerLegendsNumberPrediction, ...]:
         image = _load_rgb_image(image_path)
-        regions = _region_groups(annotation)
-        predictions: list[PokerLegendsNumberPrediction] = []
         selected_text_names = set(text_names)
         selected_button_names = set(button_names)
+        regions = _region_groups(annotation)
+        regions["texts"] = _with_canonical_text_regions(
+            regions.get("texts", ()),
+            selected_text_names=selected_text_names,
+            image_width=int(image.shape[1]),
+            image_height=int(image.shape[0]),
+        )
+        predictions: list[PokerLegendsNumberPrediction] = []
         for region in regions.get("texts", ()):
             name = str(region.get("name") or "")
             if name in selected_text_names:
@@ -468,6 +475,24 @@ def _region_groups(annotation: Mapping[str, object]) -> dict[str, list[Mapping[s
         if isinstance(group, str):
             groups[group] = _mapping_sequence(regions)
     return groups
+
+
+def _with_canonical_text_regions(
+    regions: Sequence[Mapping[str, object]],
+    *,
+    selected_text_names: set[str],
+    image_width: int,
+    image_height: int,
+) -> list[Mapping[str, object]]:
+    merged = list(regions)
+    existing = {str(region.get("name") or "") for region in merged}
+    missing = selected_text_names - existing
+    if not missing:
+        return merged
+    for region in poker_legends_layout_regions(image_width, image_height).get("texts", ()):
+        if str(region.get("name") or "") in missing:
+            merged.append(region)
+    return merged
 
 
 def _rect_from_region(region: Mapping[str, object]) -> ScreenRect:

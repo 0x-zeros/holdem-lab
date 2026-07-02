@@ -463,17 +463,20 @@
   未经规则验证的 stack overlay；`stack overlay validator v1` 已接入 accepted-number gate：目前只放行
   hero `base+overlay`，且必须满足 `base+overlay == total == normalized_number`、reviewed hero seat 的
   `committed == overlay`、若 seat stack 已知则必须等于 total。opponent overlay 因缺少稳定 seat-to-ROI 映射仍
-  fail-closed。
+  fail-closed。`hero_current_bet` ROI v1 已加入 canonical layout（手牌上方当前投入区域），旧 layout JSON
+  缺该 region 时 number recognizer 会按图像尺寸补齐 canonical ROI；image-only validator 可用同帧
+  `hero_current_bet == overlay` 验证 hero stack overlay。
   最新 image-only replay（119 帧含 non-actionable，输出
-  `/tmp/poker-legends-table-eval-image-only-stack-overlay-validator-v1`）：authorization 0、unsafe 0、stale 0、
+  `/tmp/poker-legends-table-eval-image-only-hero-current-bet-roi-v1`）：authorization 0、unsafe 0、stale 0、
   accepted-critical-wrong 0；accepted 数字从上一版的 hero_stack 9 / right_top_stack 2 收紧到
-  hero_stack 2 / right_top_stack 1（pot 8），其中右上 stack 仍有 1 个 mismatch，继续 fail-closed。
+  hero_stack 6 / right_top_stack 1（pot 8，hero_current_bet 15），其中右上 stack 仍有 1 个 mismatch，
+  继续 fail-closed。
   number readiness 现在直接使用 recognizer 的 rejection reason：多数 overlay blocker 其实是低置信
-  （hero 32 / opponent 31），真正高置信但缺 committed 证据的是 hero 7 / opponent 1，另有 opponent OCR
+  （hero 32 / opponent 31），真正高置信但缺 committed/current-bet 证据的是 hero 3 / opponent 1，另有 opponent OCR
   missing 8。
-  truth-assisted 对照（`/tmp/poker-legends-table-eval-truth-assisted-stack-overlay-validator-v1`）：authorization 39、
+  truth-assisted 对照（`/tmp/poker-legends-table-eval-truth-assisted-hero-current-bet-roi-v1`）：authorization 39、
   unsafe/stale/accepted-critical-wrong 均为 0。结论：字段语义路线正确，但下一步不能单纯提 coverage，
-  image-only 要继续推进必须新增 committed/current-bet primitive 或稳定 seat-to-ROI 映射。
+  image-only 要继续推进应先处理剩余低置信 stack OCR/ROI，opponent overlay 要等稳定 seat-to-ROI 映射。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

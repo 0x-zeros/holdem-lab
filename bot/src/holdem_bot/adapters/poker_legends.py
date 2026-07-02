@@ -706,6 +706,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 prediction,
                 min_confidence=self.min_number_confidence,
                 annotation=context.annotation,
+                number_predictions=number_predictions,
             )
             is None
         )
@@ -755,6 +756,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                         prediction,
                         min_confidence=self.min_number_confidence,
                         annotation=context.annotation,
+                        number_predictions=number_predictions,
                     )
                 )
                 is not None
@@ -2479,6 +2481,8 @@ def _number_roi_names_for_fallbacks(
         text_names.append("pot")
     if _annotation_hero_stack(annotation) is None and _hero_stack_from_texts(annotation) is None:
         text_names.append("hero_stack")
+        if annotation is None:
+            text_names.append("hero_current_bet")
     if _truth_active_seat_count(annotation) < 2 and _opponent_stack_from_texts(annotation) is None:
         text_names.append("right_top_stack")
 
@@ -2507,6 +2511,7 @@ def _number_prediction_rejection_reason(
     *,
     min_confidence: float,
     annotation: Mapping[str, object] | None,
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
 ) -> str | None:
     if prediction.normalized_number is None:
         return "missing_value"
@@ -2515,6 +2520,8 @@ def _number_prediction_rejection_reason(
     if _is_stack_overlay_prediction(prediction) and not _is_validated_stack_overlay_prediction(
         prediction,
         annotation=annotation,
+        number_predictions=number_predictions,
+        min_confidence=min_confidence,
     ):
         return "unverified_stack_overlay"
     return None
@@ -2537,10 +2544,10 @@ def _is_validated_stack_overlay_prediction(
     prediction: PokerLegendsNumberPrediction,
     *,
     annotation: Mapping[str, object] | None,
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    min_confidence: float,
 ) -> bool:
     if prediction.group != "texts" or prediction.name != "hero_stack":
-        return False
-    if annotation is None:
         return False
     base = prediction.base_number
     overlay = prediction.overlay_number
@@ -2551,13 +2558,25 @@ def _is_validated_stack_overlay_prediction(
     if overlay <= 0 or base < 0 or total != base + overlay or normalized != total:
         return False
     hero = _hero_seat_from_annotation(annotation)
-    if hero is None:
-        return False
-    committed = _optional_int(hero.get("committed"))
-    if committed != overlay:
-        return False
-    stack = _optional_int(hero.get("stack"))
-    return stack is None or stack == total
+    if hero is not None:
+        committed = _optional_int(hero.get("committed"))
+        if committed == overlay:
+            stack = _optional_int(hero.get("stack"))
+            return stack is None or stack == total
+    return _validated_hero_current_bet(number_predictions, min_confidence=min_confidence) == overlay
+
+
+def _validated_hero_current_bet(
+    predictions: tuple[PokerLegendsNumberPrediction, ...],
+    *,
+    min_confidence: float,
+) -> int | None:
+    prediction = _number_prediction(predictions, "texts", "hero_current_bet")
+    if prediction is None:
+        return None
+    if prediction.confidence < min_confidence or prediction.overlay_number is not None:
+        return None
+    return prediction.normalized_number
 
 
 def _hero_seat_from_annotation(

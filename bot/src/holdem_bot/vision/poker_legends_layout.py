@@ -216,6 +216,7 @@ def _raw_regions() -> dict[str, list[dict[str, object]]]:
         "texts": [
             _text_region("pot", 660, 360, 180, 50).to_dict(),
             _text_region("street_prompt", 586, 472, 306, 48).to_dict(),
+            _text_region("hero_current_bet", 705, 515, 125, 50).to_dict(),
             _text_region("hero_stack", 660, 708, 210, 52).to_dict(),
             _text_region("hero_hand_rank", 760, 674, 180, 36).to_dict(),
             _text_region("top_action_banner", 1060, 108, 460, 74).to_dict(),

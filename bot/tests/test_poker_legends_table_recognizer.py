@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import cast
 
 from holdem_bot import CapturedFrame, ScreenKind
-from holdem_bot.adapters import PokerLegendsTableRecognizer
+from holdem_bot.adapters import PokerLegendsTableRecognizer, poker_legends
 from holdem_bot.recognize import (
     TRUTH_ASSISTED_SOURCE_BLOCK_REASON,
     AssemblyStatus,
@@ -643,6 +643,43 @@ def test_poker_legends_table_recognizer_accepts_validated_hero_stack_overlay_ocr
     assert result.state.player(0).committed == 10
     assert result.metadata["accepted_number_predictions"][0]["name"] == "hero_stack"
     assert result.metadata["number_prediction_rejections"] == []
+
+
+def test_poker_legends_table_recognizer_validates_hero_stack_overlay_with_current_bet_ocr() -> None:
+    hero_stack = PokerLegendsNumberPrediction(
+        name="hero_stack",
+        group="texts",
+        visible=True,
+        raw="$990+10",
+        numbers=(990, 10),
+        first_number=990,
+        sum_number=1000,
+        normalized_number=1000,
+        confidence=0.90,
+        base_number=990,
+        overlay_number=10,
+        total_number=1000,
+    )
+    hero_current_bet = number_prediction("texts", "hero_current_bet", 10, 0.90)
+
+    assert (
+        poker_legends._number_prediction_rejection_reason(
+            hero_stack,
+            min_confidence=0.70,
+            annotation=None,
+            number_predictions=(hero_stack, hero_current_bet),
+        )
+        is None
+    )
+    assert (
+        poker_legends._number_prediction_rejection_reason(
+            hero_stack,
+            min_confidence=0.70,
+            annotation=None,
+            number_predictions=(hero_stack,),
+        )
+        == "unverified_stack_overlay"
+    )
 
 
 def test_poker_legends_table_recognizer_synthesizes_missing_hero_seat(
