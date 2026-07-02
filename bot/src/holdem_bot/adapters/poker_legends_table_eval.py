@@ -52,6 +52,9 @@ def evaluate_poker_legends_table_recognizer(
     action_panel_flag_counts: dict[str, int] = {}
     blocking_action_panel_flag_counts: dict[str, int] = {}
     review_tag_counts: dict[str, int] = {}
+    negative_safety_tag_counts: dict[str, int] = {}
+    temporal_tracker_status_counts: dict[str, int] = {}
+    temporal_tracker_reason_counts: dict[str, int] = {}
     screen_kind_counts: dict[str, int] = {}
     screen_confusion_counts: dict[str, dict[str, int]] = {}
     recognition_mode_counts: dict[str, int] = {}
@@ -181,6 +184,8 @@ def evaluate_poker_legends_table_recognizer(
                 )
         if truth_screen_kind != ScreenKind.ACTIONABLE_TABLE.value:
             non_actionable_frames += 1
+            for tag in _string_list(row.get("negative_safety_tags")):
+                negative_safety_tag_counts[tag] = negative_safety_tag_counts.get(tag, 0) + 1
         result_counts[outcome] = result_counts.get(outcome, 0) + 1
         examples.setdefault(outcome, [])
         if len(examples[outcome]) < 8:
@@ -215,6 +220,17 @@ def evaluate_poker_legends_table_recognizer(
             if outcome != "state":
                 blocking_action_panel_flag_counts[flag] = (
                     blocking_action_panel_flag_counts.get(flag, 0) + 1
+                )
+        temporal_tracker = row.get("temporal_tracker")
+        if isinstance(temporal_tracker, Mapping):
+            tracker_status = _optional_str(temporal_tracker.get("status"))
+            if tracker_status is not None:
+                temporal_tracker_status_counts[tracker_status] = (
+                    temporal_tracker_status_counts.get(tracker_status, 0) + 1
+                )
+            for reason in _string_list(temporal_tracker.get("reasons")):
+                temporal_tracker_reason_counts[reason] = (
+                    temporal_tracker_reason_counts.get(reason, 0) + 1
                 )
         if outcome != "state":
             for tag in _string_list(row.get("review_tags")):
@@ -284,7 +300,14 @@ def evaluate_poker_legends_table_recognizer(
         "blocking_action_panel_flag_counts": dict(
             sorted(blocking_action_panel_flag_counts.items())
         ),
+        "temporal_tracker_status_counts": dict(sorted(temporal_tracker_status_counts.items())),
+        "temporal_tracker_reason_counts": dict(sorted(temporal_tracker_reason_counts.items())),
         "review_tag_counts": dict(sorted(review_tag_counts.items())),
+        "negative_safety_tag_counts": dict(sorted(negative_safety_tag_counts.items())),
+        "negative_safety_by_tag": _rows_by_string_field(
+            rows,
+            field_name="negative_safety_tags",
+        ),
         "examples": dict(sorted(examples.items())),
         "rows": rows,
     }
@@ -304,6 +327,10 @@ def evaluate_poker_legends_table_recognizer(
     )
     (output / "table_recognizer_number_readiness_by_flag.json").write_text(
         json.dumps(summary["number_readiness_by_flag"], indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_negative_safety_by_tag.json").write_text(
+        json.dumps(summary["negative_safety_by_tag"], indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (output / "table_recognizer_number_readiness_rows.json").write_text(
@@ -433,6 +460,12 @@ def _row_from_result(
             truth_screen_kind=truth_screen_kind,
             recognized_screen_kind=result.screen.kind.value,
         ),
+        "negative_safety_tags": _negative_safety_tags(
+            truth,
+            truth_summary,
+            truth_screen_kind=truth_screen_kind,
+            recognized_screen_kind=result.screen.kind.value,
+        ),
         "recognition_mode": result.recognition_mode.value,
         "safety_contract": result.safety_contract.value,
         "assembly_status": assembly.status.value if assembly is not None else None,
@@ -445,6 +478,7 @@ def _row_from_result(
         "confidence": result.confidence,
         "state": _state_summary(result.state),
         "recognized_table": _jsonable(table_dict),
+        "temporal_tracker": _jsonable(result.metadata.get("temporal_tracker", {})),
         "action_panels": [
             panel.to_dict() for panel in result.visual_observation.action_panels
         ]
@@ -878,6 +912,48 @@ def _review_tags(
     return [outcome]
 
 
+def _negative_safety_tags(
+    truth: Mapping[str, object],
+    truth_summary: Mapping[str, object],
+    *,
+    truth_screen_kind: str,
+    recognized_screen_kind: str,
+) -> list[str]:
+    if truth_screen_kind == ScreenKind.ACTIONABLE_TABLE.value:
+        return []
+    tags = [f"truth_screen:{truth_screen_kind}"]
+    screen = truth.get("screen")
+    if isinstance(screen, Mapping):
+        blocking_reason = _optional_str(screen.get("blocking_reason"))
+        if blocking_reason is not None:
+            tags.append(f"blocking_reason:{blocking_reason}")
+    for button in _row_mappings(truth_summary.get("buttons")):
+        label = _optional_str(button.get("label"))
+        action_type = _optional_str(button.get("action_type"))
+        name = _optional_str(button.get("name"))
+        if label is not None and _is_preselect_or_shortcut_label(label):
+            tags.append("truth_button:preselect_or_shortcut")
+        if action_type in {"confirm", "close", "menu", "dismiss"} or name in {
+            "play_now",
+            "close",
+            "ok",
+        }:
+            tags.append("truth_button:modal_or_menu")
+    if recognized_screen_kind == ScreenKind.ACTIONABLE_TABLE.value:
+        tags.append("recognized_screen:false_actionable")
+    return sorted(set(tags))
+
+
+def _is_preselect_or_shortcut_label(label: str) -> bool:
+    normalized = " ".join(label.lower().replace("/", " / ").split())
+    return (
+        "any" in normalized
+        or "check / fold" in normalized
+        or "check/fold" in normalized
+        or "fold to" in normalized
+    )
+
+
 def _review_queue_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     queue: list[dict[str, object]] = []
     for row in rows:
@@ -1003,7 +1079,11 @@ def _number_truth_evaluations(
                 continue
             predicted = _optional_int(prediction.get("normalized_number"))
             expected = expected_numbers[name]
-            status = "match" if predicted == expected else "mismatch"
+            status = (
+                "match"
+                if _number_prediction_matches_truth(prediction, expected)
+                else "mismatch"
+            )
             evaluations.append(
                 {
                     "prediction_set": prediction_set,
@@ -1016,6 +1096,24 @@ def _number_truth_evaluations(
                 }
             )
     return evaluations
+
+
+def _number_prediction_matches_truth(
+    prediction: Mapping[str, object],
+    expected: int,
+) -> bool:
+    predicted = _optional_int(prediction.get("normalized_number"))
+    if predicted == expected:
+        return True
+    name = _optional_str(prediction.get("name"))
+    overlay = _optional_int(prediction.get("overlay_number"))
+    total = _optional_int(prediction.get("total_number"))
+    return (
+        name is not None
+        and (name == "opponent_stack" or name.endswith("_stack"))
+        and overlay is not None
+        and total == expected
+    )
 
 
 def _number_component_truth_evaluations(
@@ -1138,6 +1236,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     action_panel_flag_counts = summary.get("action_panel_flag_counts")
     blocking_action_panel_flag_counts = summary.get("blocking_action_panel_flag_counts")
     review_tag_counts = summary.get("review_tag_counts")
+    negative_safety_tag_counts = summary.get("negative_safety_tag_counts")
     examples = summary.get("examples")
     rows = _row_mappings(summary.get("rows"))
     blockers = [row for row in rows if row.get("result") != "state"]
@@ -1243,9 +1342,25 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         *_count_lines(blocking_action_panel_flag_counts),
         "",
+        "## Temporal Tracker Status Counts",
+        "",
+        *_count_lines(summary.get("temporal_tracker_status_counts")),
+        "",
+        "## Temporal Tracker Reason Counts",
+        "",
+        *_count_lines(summary.get("temporal_tracker_reason_counts")),
+        "",
         "## Review Tag Counts",
         "",
         *_count_lines(review_tag_counts),
+        "",
+        "## Negative Safety Tag Counts",
+        "",
+        *_count_lines(negative_safety_tag_counts),
+        "",
+        "## Negative Safety By Tag",
+        "",
+        *_frame_list_lines(summary.get("negative_safety_by_tag")),
         "",
         "## Review Queue Tag Counts",
         "",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -62,6 +62,14 @@ from holdem_bot.vision.recognition import (
     RecognizedSeat,
     RecognizedTable,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _StackSeatCandidate:
+    seat: int
+    stack: int
+    confidence: float
+    ui_slot: str | None
 
 _ACTION_MAP = {
     "fold": ActionType.FOLD,
@@ -2014,6 +2022,7 @@ def _recognized_seats_from_annotation(
                 hole_cards=hero_hole_cards if seat_number == controlled_seat else (),
                 confidence=_to_float(item.get("confidence"), default=0.0),
                 position=_normalize_position(item.get("position")),
+                ui_slot="hero" if seat_number == controlled_seat else None,
             )
         )
     if _seat_by_number(tuple(seats), controlled_seat) is None and hero_hole_cards:
@@ -2031,27 +2040,95 @@ def _recognized_seats_from_annotation(
                     current=hero_current,
                     hole_cards=hero_hole_cards,
                     confidence=1.0,
+                    ui_slot="hero",
                 )
             )
     if len(seats) == 1:
-        opponent_stack = _first_number(
-            _opponent_stack_from_texts(annotation),
-            _number_prediction_value(number_predictions, "texts", "right_top_stack"),
-            _number_prediction_value(number_predictions, "texts", "opponent_stack"),
+        opponent = _opponent_stack_seat_candidate(
+            annotation,
+            number_predictions=number_predictions,
+            seats=seats,
+            controlled_seat=controlled_seat,
         )
-        if opponent_stack is not None:
+        if opponent is not None:
             seats.append(
                 RecognizedSeat(
-                    seat=_next_available_seat(seats, controlled_seat=controlled_seat),
-                    stack=opponent_stack,
+                    seat=opponent.seat,
+                    stack=opponent.stack,
                     committed=0,
                     active=True,
                     current=False,
                     hole_cards=(),
-                    confidence=0.75,
+                    confidence=opponent.confidence,
+                    ui_slot=opponent.ui_slot,
                 )
             )
     return tuple(sorted(seats, key=lambda seat: seat.seat))
+
+
+def _opponent_stack_seat_candidate(
+    annotation: Mapping[str, object] | None,
+    *,
+    number_predictions: tuple[PokerLegendsNumberPrediction, ...],
+    seats: list[RecognizedSeat],
+    controlled_seat: int,
+) -> _StackSeatCandidate | None:
+    for text_name in ("right_top_stack", "opponent_stack"):
+        truth_stack = _text_number_from_annotation(annotation, text_name)
+        if truth_stack is not None:
+            return _stack_seat_candidate(
+                text_name,
+                truth_stack,
+                seats=seats,
+                controlled_seat=controlled_seat,
+                confidence=1.0,
+            )
+    for text_name in ("right_top_stack", "opponent_stack"):
+        prediction = _number_prediction(number_predictions, "texts", text_name)
+        if prediction is not None and prediction.normalized_number is not None:
+            return _stack_seat_candidate(
+                text_name,
+                prediction.normalized_number,
+                seats=seats,
+                controlled_seat=controlled_seat,
+                confidence=min(prediction.confidence, 0.75),
+            )
+    return None
+
+
+def _stack_seat_candidate(
+    text_name: str,
+    stack: int,
+    *,
+    seats: list[RecognizedSeat],
+    controlled_seat: int,
+    confidence: float,
+) -> _StackSeatCandidate:
+    preferred_seat = _preferred_seat_for_stack_text(text_name)
+    seat = preferred_seat
+    used = {recognized.seat for recognized in seats}
+    if seat is None or seat in used or seat == controlled_seat:
+        seat = _next_available_seat(seats, controlled_seat=controlled_seat)
+    return _StackSeatCandidate(
+        seat=seat,
+        stack=stack,
+        confidence=confidence,
+        ui_slot=_ui_slot_for_stack_text(text_name),
+    )
+
+
+def _preferred_seat_for_stack_text(text_name: str) -> int | None:
+    if text_name == "right_top_stack":
+        return 1
+    return None
+
+
+def _ui_slot_for_stack_text(text_name: str) -> str | None:
+    if text_name == "right_top_stack":
+        return "right_top"
+    if text_name == "opponent_stack":
+        return "opponent"
+    return None
 
 
 def _seat_numbers(
@@ -2295,8 +2372,15 @@ def _pot_from_trusted_committed(annotation: Mapping[str, object] | None) -> int 
 
 
 def _hero_stack_from_texts(annotation: Mapping[str, object] | None) -> int | None:
+    return _text_number_from_annotation(annotation, "hero_stack")
+
+
+def _text_number_from_annotation(
+    annotation: Mapping[str, object] | None,
+    name: str,
+) -> int | None:
     for text in _mapping_sequence(None if annotation is None else annotation.get("texts")):
-        if str(text.get("name") or "") == "hero_stack" and bool(text.get("visible", True)):
+        if str(text.get("name") or "") == name and bool(text.get("visible", True)):
             value = _optional_int(text.get("normalized_number"))
             if value is not None:
                 return value
@@ -2555,14 +2639,14 @@ def _is_validated_stack_overlay_prediction(
     normalized = prediction.normalized_number
     if base is None or overlay is None or total is None or normalized is None:
         return False
-    if overlay <= 0 or base < 0 or total != base + overlay or normalized != total:
+    if overlay <= 0 or base < 0 or total != base + overlay or normalized != base:
         return False
     hero = _hero_seat_from_annotation(annotation)
     if hero is not None:
         committed = _optional_int(hero.get("committed"))
         if committed == overlay:
             stack = _optional_int(hero.get("stack"))
-            return stack is None or stack == total
+            return stack is None or stack == base
     return _validated_hero_current_bet(number_predictions, min_confidence=min_confidence) == overlay
 
 

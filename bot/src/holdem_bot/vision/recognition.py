@@ -37,6 +37,9 @@ class RecognizedSeat:
     #: Table position label if recognized (e.g. "button"/"sb"/"bb"/"hero"); None
     #: when unknown. Used to place the dealer button instead of assuming hero.
     position: str | None = None
+    #: Fixed UI slot that produced this seat, if known. This is layout evidence, not
+    #: poker position.
+    ui_slot: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

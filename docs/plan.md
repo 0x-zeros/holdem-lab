@@ -490,6 +490,23 @@
   低置信/污染 stack ROI：hero low-confidence 29、hero unverified overlay 5、opponent low-confidence 29、
   opponent missing OCR 8、opponent unverified overlay 3。下一步应做字段专用 ROI/字符级 OCR 或更稳定的
   seat-to-ROI 映射，而不是降低阈值或信任 noisy-prefix。
+- 阶段 4 Poker Legends stack OCR hardening v4（字段语义 + ROI 证据 + safety report 前置）：`*_stack`
+  OCR 的 accepted `normalized_number` 现在按可用 stack 的 `base_number` 语义输出，`overlay_number` /
+  `total_number` 只作为组件证据；evaluator 对历史 truth 中 base/total 混标的 stack overlay 做
+  stack-aware comparison，同时继续保留 component-level base/total mismatch 诊断。`hero_stack` 增加
+  `crop_variant` / `roi_rect` 证据字段，并只在默认 OCR 低置信且 raw 显示边缘污染时懒触发
+  `hero_stack_no_pad` 或 `hero_stack_trim_right_16`，避免每帧无条件多跑 Tesseract。`right_top_stack`
+  到最小 opponent seat 的合成改为显式 seat-to-ROI 映射（`right_top_stack -> seat 1 / ui_slot=right_top`，
+  controlled seat 冲突时才回退下一个空 seat），opponent overlay 仍 fail-closed。Evaluator 新增
+  `negative_safety_tag_counts` / `negative_safety_by_tag` 与 `temporal_tracker_*_counts`，为 hard negative
+  与后续 tracker 接入提供固定报告口径。当前 image-only replay（119 帧含 non-actionable，
+  `/tmp/poker-legends-table-eval-image-only-stack-field-roi-final-v1`）：authorization 0、unsafe 0、stale 0、
+  screen false actionable 0、source-policy violation 0、accepted-critical-wrong 0；accepted hero_stack 7 -> 10
+  且 stack-aware accepted match 10/10，raw hero_stack match 36/41；负样本统计覆盖 62 个 non-actionable
+  frames（blocked_overlay 17、table_observe 45，含 preselect/shortcut 2、modal/menu 5）。剩余 blocker：
+  hero low-confidence 6、hero unverified overlay 25、opponent low-confidence 29、opponent missing OCR 8、
+  opponent unverified overlay 3；下一步应继续做真正字符级 OCR/stack ROI 数据集，而不是扩大 opponent
+  accepted path。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

@@ -26,7 +26,7 @@ def test_poker_legends_number_recognizer_parses_core_numeric_rois(tmp_path: Path
     }
 
     assert predictions["pot"].normalized_number == 1350
-    assert predictions["hero_stack"].normalized_number == 1000
+    assert predictions["hero_stack"].normalized_number == 290
     assert predictions["hero_stack"].base_number == 290
     assert predictions["hero_stack"].overlay_number == 710
     assert predictions["hero_stack"].total_number == 1000
@@ -75,7 +75,7 @@ def test_poker_legends_number_ocr_report_compares_truth(tmp_path: Path) -> None:
                 "frame_id": "numbers",
                 "texts": [
                     {"name": "pot", "visible": True, "normalized_number": 1350},
-                    {"name": "hero_stack", "visible": True, "normalized_number": 1000},
+                    {"name": "hero_stack", "visible": True, "normalized_number": 290},
                 ],
                 "buttons": [
                     {"name": "primary_left", "visible": True, "label": "Call $25"},
@@ -135,6 +135,117 @@ def test_poker_legends_number_confidence_marks_fragmented_ocr_low() -> None:
     assert poker_legends_numbers._confidence("930,", (930,)) == 0.65
     assert poker_legends_numbers._confidence("6845+ 50", (6845, 50)) == 0.65
     assert poker_legends_numbers._confidence("99+995", (99, 995)) == 0.65
+
+
+def test_poker_legends_number_prediction_round_trips_crop_evidence() -> None:
+    prediction = poker_legends_numbers.PokerLegendsNumberPrediction(
+        name="hero_stack",
+        group="texts",
+        visible=True,
+        raw="$990+10",
+        numbers=(990, 10),
+        first_number=990,
+        sum_number=1000,
+        normalized_number=990,
+        confidence=0.82,
+        base_number=990,
+        overlay_number=10,
+        total_number=1000,
+        crop_variant="hero_stack_no_pad",
+        roi_rect=(660, 708, 210, 52),
+    )
+
+    restored = poker_legends_numbers.PokerLegendsNumberPrediction.from_dict(prediction.to_dict())
+
+    assert restored.crop_variant == "hero_stack_no_pad"
+    assert restored.roi_rect == (660, 708, 210, 52)
+
+
+def test_poker_legends_number_prediction_from_dict_defaults_crop_evidence() -> None:
+    restored = poker_legends_numbers.PokerLegendsNumberPrediction.from_dict(
+        {
+            "name": "pot",
+            "group": "texts",
+            "visible": True,
+            "raw": "$100",
+            "numbers": [100],
+            "first_number": 100,
+            "sum_number": None,
+            "normalized_number": 100,
+            "confidence": 0.90,
+        }
+    )
+
+    assert restored.crop_variant == "default"
+    assert restored.roi_rect is None
+
+
+def test_hero_stack_crop_selector_prefers_no_pad_for_left_edge_pollution() -> None:
+    selected = poker_legends_numbers._select_field_prediction(
+        (
+            number_prediction("28\n\n$990+10", 1000, 0.65, "default"),
+            number_prediction("$990+10", 990, 0.82, "hero_stack_no_pad"),
+            number_prediction("$990+10", 990, 0.82, "hero_stack_trim_right_16"),
+        ),
+        name="hero_stack",
+        group="texts",
+    )
+
+    assert selected.crop_variant == "hero_stack_no_pad"
+
+
+def test_hero_stack_crop_selector_prefers_trim_right_for_trailing_pollution() -> None:
+    selected = poker_legends_numbers._select_field_prediction(
+        (
+            number_prediction("$890+110 4", 1994, 0.65, "default"),
+            number_prediction("6890+110m", 110006890, 0.82, "hero_stack_no_pad"),
+            number_prediction("$89 0+110", 890, 0.82, "hero_stack_trim_right_16"),
+        ),
+        name="hero_stack",
+        group="texts",
+    )
+
+    assert selected.crop_variant == "hero_stack_trim_right_16"
+    assert selected.normalized_number == 890
+
+
+def test_hero_stack_crop_selector_detects_split_overlay_token() -> None:
+    selected = poker_legends_numbers._select_field_prediction(
+        (
+            number_prediction("$900+1 00", 900, 0.65, "default"),
+            number_prediction("$900+1004", 900, 0.65, "hero_stack_no_pad"),
+            number_prediction("$900+100", 900, 0.82, "hero_stack_trim_right_16"),
+        ),
+        name="hero_stack",
+        group="texts",
+    )
+
+    assert selected.crop_variant == "hero_stack_trim_right_16"
+
+
+def number_prediction(
+    raw: str,
+    normalized_number: int | None,
+    confidence: float,
+    crop_variant: str,
+) -> poker_legends_numbers.PokerLegendsNumberPrediction:
+    numbers = parse_poker_legends_chip_numbers(raw)
+    components = parse_poker_legends_chip_components(raw)
+    return poker_legends_numbers.PokerLegendsNumberPrediction(
+        name="hero_stack",
+        group="texts",
+        visible=True,
+        raw=raw,
+        numbers=numbers,
+        first_number=numbers[0] if numbers else None,
+        sum_number=sum(numbers) if len(numbers) >= 2 else None,
+        normalized_number=normalized_number,
+        confidence=confidence,
+        base_number=components["base_number"],
+        overlay_number=components["overlay_number"],
+        total_number=components["total_number"],
+        crop_variant=crop_variant,
+    )
 
 
 def write_number_fixture(image_path: Path, annotation_path: Path) -> None:

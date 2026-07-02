@@ -180,10 +180,14 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert summary["review_queue_frames"] == 1
     assert summary["review_queue_tag_counts"] == {"missing_pot": 1}
     assert summary["review_queue_by_tag"] == {"missing_pot": ["frame_003"]}
+    assert summary["negative_safety_tag_counts"] == {}
+    assert summary["negative_safety_by_tag"] == {}
     assert summary["result_counts"] == {"missing_pot": 1, "state": 1}
     assert summary["issue_counts"] == {"POT_REQUIRED_BY_POLICY": 1}
     assert summary["action_panel_flag_counts"] == {"missing_current_action_row": 1}
     assert summary["blocking_action_panel_flag_counts"] == {"missing_current_action_row": 1}
+    assert summary["temporal_tracker_status_counts"] == {}
+    assert summary["temporal_tracker_reason_counts"] == {}
     assert summary["review_tag_counts"] == {"missing_pot": 1}
     assert summary["examples"] == {"missing_pot": ["frame_003"], "state": ["frame_001"]}
     rows = summary["rows"]
@@ -254,6 +258,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "## Accepted Number Prediction Confidence Counts" in report
     assert "## Number Readiness Details" in report
     assert "## Review Tag Counts" in report
+    assert "## Negative Safety Tag Counts" in report
+    assert "## Negative Safety By Tag" in report
     assert "## Screen Truth Confusion" in report
     assert "- actionable_table: actionable_table=2" in report
     assert "## Recognition Mode Counts" in report
@@ -263,6 +269,8 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert "- missing_pot: `frame_003`" in report
     assert "- missing_current_action_row: 1" in report
     assert "## Blocking Action Panel Flag Counts" in report
+    assert "## Temporal Tracker Status Counts" in report
+    assert "## Temporal Tracker Reason Counts" in report
     assert "Truth Buttons" in report
     assert "`primary_left:visible=True:check:Check`" in report
     assert (
@@ -309,6 +317,20 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert all_summary["review_queue_frames"] == 1
     assert all_summary["review_queue_tag_counts"] == {"missing_pot": 1}
     assert all_summary["review_queue_by_tag"] == {"missing_pot": ["frame_003"]}
+    assert all_summary["negative_safety_tag_counts"] == {
+        "recognized_screen:false_actionable": 1,
+        "truth_screen:table_observe": 1,
+    }
+    assert all_summary["negative_safety_by_tag"] == {
+        "recognized_screen:false_actionable": ["frame_002"],
+        "truth_screen:table_observe": ["frame_002"],
+    }
+    negative_safety_by_tag = json.loads(
+        (all_out / "table_recognizer_negative_safety_by_tag.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert negative_safety_by_tag == all_summary["negative_safety_by_tag"]
 
     image_only_out = tmp_path / "image-only-out"
     image_only_summary = poker_legends_table_eval.evaluate_poker_legends_table_recognizer(
@@ -373,6 +395,10 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     assert image_only_summary["number_readiness_by_flag"] == {
         "readiness_low_confidence_opponent_stack": ["frame_001"]
     }
+    assert image_only_summary["temporal_tracker_status_counts"] == {"not_tracking": 1}
+    assert image_only_summary["temporal_tracker_reason_counts"] == {
+        "not_single_frame_valid": 1
+    }
     assert image_only_summary["review_queue_by_tag"] == {
         "missing_table_metadata": ["frame_001"],
         "screen_missed_actionable": ["frame_003"],
@@ -427,7 +453,7 @@ def test_number_readiness_flags_distinguish_unverified_stack_overlay() -> None:
             {
                 "group": "texts",
                 "name": "right_top_stack",
-                "normalized_number": 1210,
+                "normalized_number": 1200,
                 "base_number": 1200,
                 "overlay_number": 10,
                 "total_number": 1210,
@@ -442,7 +468,7 @@ def test_number_readiness_flags_distinguish_unverified_stack_overlay() -> None:
             {
                 "group": "texts",
                 "name": "hero_stack",
-                "normalized_number": 1000,
+                "normalized_number": 290,
                 "base_number": 290,
                 "overlay_number": 710,
                 "total_number": 1000,
@@ -457,7 +483,7 @@ def test_number_readiness_flags_distinguish_unverified_stack_overlay() -> None:
             {
                 "group": "texts",
                 "name": "right_top_stack",
-                "normalized_number": 1210,
+                "normalized_number": 1200,
                 "base_number": 1200,
                 "overlay_number": 10,
                 "total_number": 1210,
@@ -469,7 +495,7 @@ def test_number_readiness_flags_distinguish_unverified_stack_overlay() -> None:
             {
                 "group": "texts",
                 "name": "right_top_stack",
-                "normalized_number": 1210,
+                "normalized_number": 1200,
                 "base_number": 1200,
                 "overlay_number": 10,
                 "total_number": 1210,
@@ -482,6 +508,21 @@ def test_number_readiness_flags_distinguish_unverified_stack_overlay() -> None:
     assert opponent_flags == ["readiness_unverified_opponent_stack_overlay"]
     assert hero_flags == ["readiness_unverified_hero_stack_overlay"]
     assert low_confidence_overlay_flags == ["readiness_low_confidence_opponent_stack"]
+
+
+def test_number_truth_match_accepts_stack_overlay_base_or_total() -> None:
+    prediction = {
+        "group": "texts",
+        "name": "hero_stack",
+        "normalized_number": 890,
+        "base_number": 890,
+        "overlay_number": 10,
+        "total_number": 900,
+    }
+
+    assert poker_legends_table_eval._number_prediction_matches_truth(prediction, 890)
+    assert poker_legends_table_eval._number_prediction_matches_truth(prediction, 900)
+    assert not poker_legends_table_eval._number_prediction_matches_truth(prediction, 910)
 
 
 class FakeRecognizer:
@@ -497,6 +538,10 @@ class FakeRecognizer:
                     block_reason="screen_not_actionable",
                     reason_code="SCREEN_NOT_ACTIONABLE",
                     screen=ScreenState.table_observe(),
+                    temporal_tracker={
+                        "status": "not_tracking",
+                        "reasons": ["not_single_frame_valid"],
+                    },
                 )
             return _blocked_result(
                 frame_id,
@@ -596,6 +641,7 @@ def _blocked_result(
     recognized_table: dict[str, object] | None = None,
     number_predictions: tuple[dict[str, object], ...] = (),
     accepted_number_predictions: tuple[dict[str, object], ...] = (),
+    temporal_tracker: dict[str, object] | None = None,
 ) -> RecognitionResult:
     evidence = FrameEvidence(session_id=None, frame_id=frame_id)
     screen = screen or ScreenState.actionable_table(hero_turn=True)
@@ -648,21 +694,24 @@ def _blocked_result(
         screen_confidence=1.0,
         observation_id=frame_id,
     )
+    metadata = {
+        "state_block_reason": block_reason,
+        "recognized_table": recognized_table or {
+            "street": "turn",
+            "pot": None,
+            "buttons": [{"command": "primary_left", "action_type": "check"}],
+            "seats": [{"seat": 0, "stack": 1000, "committed": 0, "current": True}],
+        },
+        "assembly_result": assembly.to_dict(),
+        "number_predictions": list(number_predictions),
+        "accepted_number_predictions": list(accepted_number_predictions),
+    }
+    if temporal_tracker is not None:
+        metadata["temporal_tracker"] = temporal_tracker
     return RecognitionResult(
         state=None,
         confidence=1.0,
-        metadata={
-            "state_block_reason": block_reason,
-            "recognized_table": recognized_table or {
-                "street": "turn",
-                "pot": None,
-                "buttons": [{"command": "primary_left", "action_type": "check"}],
-                "seats": [{"seat": 0, "stack": 1000, "committed": 0, "current": True}],
-            },
-            "assembly_result": assembly.to_dict(),
-            "number_predictions": list(number_predictions),
-            "accepted_number_predictions": list(accepted_number_predictions),
-        },
+        metadata=metadata,
         screen=screen,
         recognition_mode=mode,
         safety_contract=ContractLevel.OBSERVE_ONLY,

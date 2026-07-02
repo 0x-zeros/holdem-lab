@@ -614,7 +614,7 @@ def test_poker_legends_table_recognizer_accepts_validated_hero_stack_overlay_ocr
                     numbers=(990, 10),
                     first_number=990,
                     sum_number=1000,
-                    normalized_number=1000,
+                    normalized_number=990,
                     confidence=0.90,
                     base_number=990,
                     overlay_number=10,
@@ -639,7 +639,7 @@ def test_poker_legends_table_recognizer_accepts_validated_hero_stack_overlay_ocr
     )
 
     assert result.state is not None
-    assert result.state.player(0).stack == 1000
+    assert result.state.player(0).stack == 990
     assert result.state.player(0).committed == 10
     assert result.metadata["accepted_number_predictions"][0]["name"] == "hero_stack"
     assert result.metadata["number_prediction_rejections"] == []
@@ -654,7 +654,7 @@ def test_poker_legends_table_recognizer_validates_hero_stack_overlay_with_curren
         numbers=(990, 10),
         first_number=990,
         sum_number=1000,
-        normalized_number=1000,
+        normalized_number=990,
         confidence=0.90,
         base_number=990,
         overlay_number=10,
@@ -788,6 +788,9 @@ def test_poker_legends_table_recognizer_adds_single_truth_opponent_from_stack_te
     assert result.state is not None
     assert len(result.state.players) == 2
     assert result.state.player(1).stack == 1200
+    seats = result.metadata["recognized_table"]["seats"]
+    assert seats[1]["seat"] == 1
+    assert seats[1]["ui_slot"] == "right_top"
 
 
 def test_poker_legends_table_recognizer_adds_single_ocr_opponent_from_stack_text(
@@ -840,6 +843,9 @@ def test_poker_legends_table_recognizer_adds_single_ocr_opponent_from_stack_text
     assert result.state is not None
     assert len(result.state.players) == 2
     assert result.state.player(1).stack == 1200
+    seats = result.metadata["recognized_table"]["seats"]
+    assert seats[1]["seat"] == 1
+    assert seats[1]["ui_slot"] == "right_top"
 
 
 def test_poker_legends_table_recognizer_rejects_unverified_overlay_stack_ocr(
@@ -880,7 +886,7 @@ def test_poker_legends_table_recognizer_rejects_unverified_overlay_stack_ocr(
                     numbers=(1200, 10),
                     first_number=1200,
                     sum_number=1210,
-                    normalized_number=1210,
+                    normalized_number=1200,
                     confidence=0.90,
                     base_number=1200,
                     overlay_number=10,

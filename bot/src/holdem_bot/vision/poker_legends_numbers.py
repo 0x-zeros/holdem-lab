@@ -57,6 +57,8 @@ class PokerLegendsNumberPrediction:
     base_number: int | None = None
     overlay_number: int | None = None
     total_number: int | None = None
+    crop_variant: str = "default"
+    roi_rect: tuple[int, int, int, int] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -76,7 +78,16 @@ class PokerLegendsNumberPrediction:
             base_number=_optional_int(data.get("base_number")),
             overlay_number=_optional_int(data.get("overlay_number")),
             total_number=_optional_int(data.get("total_number")),
+            crop_variant=str(data.get("crop_variant") or "default"),
+            roi_rect=_optional_rect_tuple(data.get("roi_rect")),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _CropSpec:
+    variant: str
+    rect: ScreenRect
+    pad: int
 
 
 class PokerLegendsNumberRecognizer:
@@ -131,12 +142,39 @@ class PokerLegendsNumberRecognizer:
         name: str,
         group: str,
     ) -> PokerLegendsNumberPrediction:
-        crop = _crop(image, rect, pad=4 if group == "texts" else 0)
+        default = self._recognize_crop(
+            image,
+            _default_crop_spec(rect, group=group),
+            name=name,
+            group=group,
+        )
+        specs = _fallback_crop_specs_for_prediction(default, rect, name=name, group=group)
+        predictions = (default,) + tuple(
+            self._recognize_crop(image, spec, name=name, group=group) for spec in specs
+        )
+        return _select_field_prediction(predictions, name=name, group=group)
+
+    def _recognize_crop(
+        self,
+        image: RgbImage,
+        spec: _CropSpec,
+        *,
+        name: str,
+        group: str,
+    ) -> PokerLegendsNumberPrediction:
+        crop = _crop(image, spec.rect, pad=spec.pad)
         whitelist = _BUTTON_WHITELIST if group == "buttons" else _NUMERIC_WHITELIST
         raw = _best_numeric_text(crop, whitelist=whitelist)
         numbers = tuple(_numbers_from_text(raw))
         normalized = _normalized_number(raw, numbers=numbers)
         base, overlay, total = _number_components(raw, numbers=numbers)
+        field_normalized = _field_normalized_number(
+            group=group,
+            name=name,
+            normalized=normalized,
+            base=base,
+            overlay=overlay,
+        )
         visible = bool(_normalize_text(raw))
         return PokerLegendsNumberPrediction(
             name=name,
@@ -146,11 +184,13 @@ class PokerLegendsNumberRecognizer:
             numbers=numbers,
             first_number=numbers[0] if numbers else None,
             sum_number=sum(numbers) if len(numbers) >= 2 else None,
-            normalized_number=normalized,
+            normalized_number=field_normalized,
             confidence=_confidence(raw, numbers),
             base_number=base,
             overlay_number=overlay,
             total_number=total,
+            crop_variant=spec.variant,
+            roi_rect=(spec.rect.x, spec.rect.y, spec.rect.width, spec.rect.height),
         )
 
 
@@ -265,6 +305,87 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(json.dumps(_stdout_summary(summary), indent=2, sort_keys=True))
 
 
+def _default_crop_spec(rect: ScreenRect, *, group: str) -> _CropSpec:
+    default_pad = 4 if group == "texts" else 0
+    return _CropSpec("default", rect, default_pad)
+
+
+def _fallback_crop_specs_for_prediction(
+    default: PokerLegendsNumberPrediction,
+    rect: ScreenRect,
+    *,
+    name: str,
+    group: str,
+) -> tuple[_CropSpec, ...]:
+    if group != "texts" or name != "hero_stack" or default.confidence >= 0.70:
+        return ()
+    specs: list[_CropSpec] = []
+    if _looks_like_left_edge_stack_pollution(default.raw):
+        specs.append(_CropSpec("hero_stack_no_pad", rect, 0))
+    if _looks_like_right_edge_stack_pollution(default.raw):
+        specs.append(
+            _CropSpec(
+                "hero_stack_trim_right_16",
+                ScreenRect(rect.x, rect.y, max(1, rect.width - 16), rect.height),
+                0,
+            )
+        )
+    if not specs:
+        specs.append(_CropSpec("hero_stack_no_pad", rect, 0))
+    return tuple(specs)
+
+
+def _select_field_prediction(
+    predictions: tuple[PokerLegendsNumberPrediction, ...],
+    *,
+    name: str,
+    group: str,
+) -> PokerLegendsNumberPrediction:
+    if not predictions:
+        raise ValueError("at least one prediction is required")
+    default = predictions[0]
+    if group != "texts" or name != "hero_stack":
+        return default
+    if default.confidence >= 0.70:
+        return default
+    variant_by_name = {prediction.crop_variant: prediction for prediction in predictions}
+    if _looks_like_right_edge_stack_pollution(default.raw):
+        trim_right = variant_by_name.get("hero_stack_trim_right_16")
+        if trim_right is not None and _is_safe_stack_variant(trim_right):
+            return trim_right
+    if _looks_like_left_edge_stack_pollution(default.raw):
+        no_pad = variant_by_name.get("hero_stack_no_pad")
+        if no_pad is not None and _is_safe_stack_variant(no_pad):
+            return no_pad
+    no_pad = variant_by_name.get("hero_stack_no_pad")
+    if no_pad is not None and _is_safe_stack_variant(no_pad):
+        return no_pad
+    return default
+
+
+def _is_safe_stack_variant(prediction: PokerLegendsNumberPrediction) -> bool:
+    if prediction.normalized_number is None or prediction.confidence < 0.70:
+        return False
+    if prediction.normalized_number < 0 or prediction.normalized_number > 10_000:
+        return False
+    return not _looks_fragmented_numeric_ocr(prediction.raw)
+
+
+def _looks_like_left_edge_stack_pollution(raw: str) -> bool:
+    normalized = _normalize_text(raw).translate(str.maketrans("OoI|", "0011"))
+    if "$" in normalized and re.search(r"[0-9KkMm]", normalized.rsplit("$", maxsplit=1)[0]):
+        return True
+    return "$" not in normalized and bool(re.search(r"\d", normalized))
+
+
+def _looks_like_right_edge_stack_pollution(raw: str) -> bool:
+    normalized = _normalize_text(raw)
+    raw_source = _amount_source(normalized.translate(str.maketrans("OoI|", "0011")))
+    if re.search(r"\+\s*\d+(?:\s+\d+)+", raw_source):
+        return True
+    return bool(re.search(r"\d[.,]?\s+\d$", normalized))
+
+
 def _best_numeric_text(image: RgbImage, *, whitelist: str) -> str:
     candidates: list[str] = []
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -334,6 +455,23 @@ def _number_components(
         overlay = sum(numbers[1:])
         return base, overlay, total
     return total, None, total
+
+
+def _field_normalized_number(
+    *,
+    group: str,
+    name: str,
+    normalized: int | None,
+    base: int | None,
+    overlay: int | None,
+) -> int | None:
+    if group == "texts" and _is_stack_field_name(name) and overlay is not None:
+        return base
+    return normalized
+
+
+def _is_stack_field_name(name: str) -> bool:
+    return name == "opponent_stack" or name.endswith("_stack")
 
 
 def _normalize_numeric_text(text: str) -> str:
@@ -575,6 +713,15 @@ def _optional_int(value: object) -> int | None:
     if value is None:
         return None
     return _to_int(value)
+
+
+def _optional_rect_tuple(value: object) -> tuple[int, int, int, int] | None:
+    if value is None:
+        return None
+    items = _sequence(value)
+    if len(items) != 4:
+        return None
+    return (_to_int(items[0]), _to_int(items[1]), _to_int(items[2]), _to_int(items[3]))
 
 
 def _to_float(value: object) -> float:
