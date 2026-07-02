@@ -313,6 +313,36 @@ def test_poker_legends_number_confidence_marks_fragmented_ocr_low() -> None:
     assert poker_legends_numbers._confidence("6780+1559", (6780, 1559)) == 0.65
 
 
+def test_hero_current_bet_confidence_rejects_tiny_false_positives() -> None:
+    assert (
+        poker_legends_numbers._field_confidence(
+            group="texts",
+            name="hero_current_bet",
+            raw="1",
+            numbers=(1,),
+        )
+        == 0.65
+    )
+    assert (
+        poker_legends_numbers._field_confidence(
+            group="texts",
+            name="hero_current_bet",
+            raw=".7",
+            numbers=(7,),
+        )
+        == 0.65
+    )
+    assert (
+        poker_legends_numbers._field_confidence(
+            group="texts",
+            name="hero_current_bet",
+            raw="$5",
+            numbers=(5,),
+        )
+        == 0.90
+    )
+
+
 def test_poker_legends_number_prediction_round_trips_crop_evidence() -> None:
     prediction = poker_legends_numbers.PokerLegendsNumberPrediction(
         name="hero_stack",

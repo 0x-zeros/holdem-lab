@@ -185,7 +185,7 @@ class PokerLegendsNumberRecognizer:
             first_number=numbers[0] if numbers else None,
             sum_number=sum(numbers) if len(numbers) >= 2 else None,
             normalized_number=field_normalized,
-            confidence=_confidence(raw, numbers),
+            confidence=_field_confidence(group=group, name=name, raw=raw, numbers=numbers),
             base_number=base,
             overlay_number=overlay,
             total_number=total,
@@ -852,6 +852,40 @@ def _confidence(raw: str, numbers: tuple[int, ...]) -> float:
     return confidence
 
 
+def _field_confidence(
+    *,
+    group: str,
+    name: str,
+    raw: str,
+    numbers: tuple[int, ...],
+) -> float:
+    confidence = _confidence(raw, numbers)
+    if group == "texts" and name == "hero_current_bet":
+        normalized = _normalize_numeric_text(raw)
+        source = _amount_source(normalized)
+        if _looks_like_tiny_current_bet_false_positive(
+            source,
+            numbers,
+            has_currency="$" in normalized,
+        ):
+            return min(confidence, 0.65)
+    return confidence
+
+
+def _looks_like_tiny_current_bet_false_positive(
+    source: str,
+    numbers: tuple[int, ...],
+    *,
+    has_currency: bool,
+) -> bool:
+    if not numbers:
+        return False
+    compact = re.sub(r"[^0-9.,]", "", source)
+    if source.strip().startswith("."):
+        return True
+    return len(numbers) == 1 and numbers[0] < 10 and not has_currency and compact == str(numbers[0])
+
+
 def _looks_fragmented_numeric_ocr(raw: str) -> bool:
     normalized = _normalize_text(raw).translate(str.maketrans("OoI|", "0011"))
     if "$" in normalized and re.search(r"[0-9KkMm]", normalized.rsplit("$", maxsplit=1)[0]):
@@ -1068,7 +1102,7 @@ def _recognize_crop_file(
             base=base,
             overlay=overlay,
         ),
-        confidence=_confidence(raw, numbers),
+        confidence=_field_confidence(group=group, name=name, raw=raw, numbers=numbers),
         base_number=base,
         overlay_number=overlay,
         total_number=total,

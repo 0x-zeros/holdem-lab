@@ -544,6 +544,12 @@
   precision 从 0.710 提升到 0.786，accepted wrong 从 9 降到 6，review queue 40。剩余 high-priority
   blocker 集中在 `hero_current_bet` 小数字误读和 `$0+30` 这类真值/ROI歧义；结论仍是不接 runtime，
   但 review queue 已更接近真实安全风险。
+- 阶段 4 Poker Legends hero current-bet confidence hardening v1：数字 OCR confidence 现在对
+  `hero_current_bet` 做字段感知降置信：无 `$` 的单个小数字或 `.7` 这类 punctuation-leading OCR 不再按
+  0.90 accepted，而是压到 0.65；带 `$` 的小额（如 `$5`）不受影响。120-crop smoke
+  `/tmp/poker-legends-number-crop-ocr-current-bet-sample-v1`：raw accuracy 仍为 0.558，但 accepted precision
+  从 0.786 提升到 0.880，accepted wrong 从 6 降到 3；剩余 accepted wrong 全集中在同一帧
+  `hero_stack=$0+30` 的三个 crop variant，适合人工复核 ROI/truth，而不是继续靠 Tesseract 规则硬猜。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
