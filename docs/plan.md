@@ -537,6 +537,13 @@
   `/tmp/poker-legends-number-crop-ocr-review-queue-sample-v1` 生成 41 条 review rows：accepted_wrong 9、
   missing_labeled 2、mismatch_labeled 8、accepted_unlabeled 22。结论：短期最有价值的是复核 accepted_wrong
   和 accepted_unlabeled 中的 right_top/按钮误读，继续避免把 Tesseract accepted 直接接进授权链路。
+- 阶段 4 Poker Legends number crop accepted policy v1：crop OCR evaluator 的 accepted 口径改为字段感知，
+  stack crop 必须通过 `_is_safe_stack_variant` 才计入 accepted；同时把无 `$` 的 `5900+100m` /
+  `6780+1559` 等 plus OCR 明确降置信，避免把左缘/右缘污染当高置信 stack。120-crop smoke
+  `/tmp/poker-legends-number-crop-ocr-field-aware-sample-v1`：raw accuracy 仍为 0.558，但 accepted
+  precision 从 0.710 提升到 0.786，accepted wrong 从 9 降到 6，review queue 40。剩余 high-priority
+  blocker 集中在 `hero_current_bet` 小数字误读和 `$0+30` 这类真值/ROI歧义；结论仍是不接 runtime，
+  但 review queue 已更接近真实安全风险。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

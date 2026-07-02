@@ -431,9 +431,9 @@ def evaluate_poker_legends_number_crop_dataset(
         )
         expected = _optional_int(dataset_row.get("truth_normalized_number"))
         status = _number_crop_eval_status(prediction.normalized_number, expected)
-        accepted = (
-            prediction.normalized_number is not None
-            and prediction.confidence >= accepted_confidence
+        accepted = _number_crop_prediction_accepted(
+            prediction,
+            accepted_confidence=accepted_confidence,
         )
         eval_row = {
             "frame_id": dataset_row.get("frame_id"),
@@ -868,6 +868,9 @@ def _looks_fragmented_numeric_ocr(raw: str) -> bool:
             return True
         compact_source = re.sub(r"\s+", "", source)
         plus_parts = compact_source.split("+")
+        if "$" not in normalized and "," not in compact_source and plus_parts[0].isdigit():
+            if len(plus_parts[0]) >= 4:
+                return True
         if (
             "$" not in normalized
             and "," not in compact_source
@@ -1082,6 +1085,18 @@ def _number_crop_eval_status(observed: int | None, expected: int | None) -> str:
     if observed == expected:
         return "match"
     return "mismatch"
+
+
+def _number_crop_prediction_accepted(
+    prediction: PokerLegendsNumberPrediction,
+    *,
+    accepted_confidence: float,
+) -> bool:
+    if prediction.normalized_number is None or prediction.confidence < accepted_confidence:
+        return False
+    if prediction.group == "texts" and _is_stack_field_name(prediction.name):
+        return _is_safe_stack_variant(prediction)
+    return True
 
 
 def _new_number_crop_eval_stats() -> dict[str, int]:

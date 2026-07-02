@@ -309,6 +309,8 @@ def test_poker_legends_number_confidence_marks_fragmented_ocr_low() -> None:
     assert poker_legends_numbers._confidence("930,", (930,)) == 0.65
     assert poker_legends_numbers._confidence("6845+ 50", (6845, 50)) == 0.65
     assert poker_legends_numbers._confidence("99+995", (99, 995)) == 0.65
+    assert poker_legends_numbers._confidence("5900+100m", (5900, 100_000_000)) == 0.65
+    assert poker_legends_numbers._confidence("6780+1559", (6780, 1559)) == 0.65
 
 
 def test_poker_legends_number_prediction_round_trips_crop_evidence() -> None:
