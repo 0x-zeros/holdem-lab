@@ -8,6 +8,7 @@ from holdem_bot.vision import (
     PokerLegendsNumberRecognizer,
     build_poker_legends_number_crop_dataset,
     build_poker_legends_number_ocr_report,
+    evaluate_poker_legends_number_crop_dataset,
     parse_poker_legends_chip_amount,
     parse_poker_legends_chip_components,
     parse_poker_legends_chip_numbers,
@@ -120,7 +121,7 @@ def test_poker_legends_number_crop_dataset_exports_variants_and_labels(
                         "name": "hero_stack",
                         "visible": True,
                         "value": "$290+710",
-                        "normalized_number": 290,
+                        "normalized_number": 1000,
                     },
                 ],
                 "seats": [
@@ -164,6 +165,7 @@ def test_poker_legends_number_crop_dataset_exports_variants_and_labels(
         "hero_stack_trim_right_16",
     }
     assert {row["truth_canonical_text"] for row in hero_rows} == {"$290+710"}
+    assert {row["truth_normalized_number"] for row in hero_rows} == {290}
     assert {tuple(row["truth_chip_numbers"]) for row in hero_rows} == {(290, 710)}
     current_bet_row = next(row for row in rows if row["name"] == "hero_current_bet")
     assert current_bet_row["truth_canonical_text"] == "$25"
@@ -171,6 +173,103 @@ def test_poker_legends_number_crop_dataset_exports_variants_and_labels(
     assert all((tmp_path / "out" / str(row["crop_path"])).exists() for row in rows)
     assert (tmp_path / "out" / "number_crop_dataset_manifest.json").exists()
     assert (tmp_path / "out" / "number_crop_dataset_report.md").exists()
+
+
+def test_poker_legends_number_crop_ocr_evaluator_reports_variant_stats(
+    tmp_path: Path,
+) -> None:
+    crop_dir = tmp_path / "crops"
+    crop_dir.mkdir()
+    crop_path = crop_dir / "pot.png"
+    crop = np.full((90, 220, 3), 24, dtype=np.uint8)
+    cv2.putText(
+        crop,
+        "$100",
+        (12, 62),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.6,
+        (245, 245, 245),
+        3,
+        cv2.LINE_AA,
+    )
+    cv2.imwrite(str(crop_path), crop)
+    manifest_path = tmp_path / "number_crop_dataset_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "rows": [
+                    {
+                        "frame_id": "frame_001",
+                        "group": "texts",
+                        "name": "pot",
+                        "role": "pot",
+                        "crop_variant": "default",
+                        "crop_path": "crops/pot.png",
+                        "roi_rect": [0, 0, 220, 90],
+                        "screen_kind": "actionable_table",
+                        "truth_normalized_number": 100,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = evaluate_poker_legends_number_crop_dataset(
+        manifest_path,
+        output_dir=tmp_path / "eval",
+    )
+
+    overall = cast(dict[str, Any], summary["overall"])
+    assert overall["labeled"] == 1
+    assert overall["correct"] == 1
+    assert overall["accepted_correct"] == 1
+    assert overall["accepted_wrong"] == 0
+    by_field_variant = cast(dict[str, dict[str, Any]], summary["by_field_variant"])
+    assert by_field_variant["texts:pot:default"]["correct"] == 1
+    assert (tmp_path / "eval" / "number_crop_ocr_summary.json").exists()
+    assert (tmp_path / "eval" / "number_crop_ocr_report.md").exists()
+
+
+def test_poker_legends_number_crop_dataset_does_not_label_ambiguous_hero_stack(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "numbers.png"
+    annotation_path = tmp_path / "numbers.json"
+    truth_dir = tmp_path / "truth"
+    truth_dir.mkdir()
+    write_number_fixture(image_path, annotation_path)
+    (truth_dir / "numbers.json").write_text(
+        json.dumps(
+            {
+                "frame_id": "numbers",
+                "screen": {"kind": "table_observe"},
+                "seats": [
+                    {
+                        "name": "hero",
+                        "visible": True,
+                        "stack": 1000,
+                        "committed": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_poker_legends_number_crop_dataset(
+        [annotation_path],
+        image_root=tmp_path,
+        truth_dir=truth_dir,
+        output_dir=tmp_path / "out",
+        text_names=("hero_stack",),
+        button_names=(),
+    )
+
+    assert summary["labeled_crops"] == 0
+    rows = cast(list[dict[str, Any]], summary["rows"])
+    assert {row["truth_normalized_number"] for row in rows} == {None}
 
 
 def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:

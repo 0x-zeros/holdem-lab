@@ -399,6 +399,107 @@ def build_poker_legends_number_crop_dataset(
     return summary
 
 
+def evaluate_poker_legends_number_crop_dataset(
+    manifest_path: str | Path,
+    *,
+    output_dir: str | Path,
+    accepted_confidence: float = 0.70,
+    max_crops: int | None = None,
+) -> dict[str, object]:
+    manifest_file = Path(manifest_path)
+    manifest = _read_json_object(manifest_file)
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, object]] = []
+    overall = _new_number_crop_eval_stats()
+    by_field: dict[str, dict[str, int]] = {}
+    by_variant: dict[str, dict[str, int]] = {}
+    by_field_variant: dict[str, dict[str, int]] = {}
+    dataset_rows = _mapping_sequence(manifest.get("rows"))
+    selected_rows = dataset_rows[:max_crops] if max_crops is not None else dataset_rows
+    for dataset_row in selected_rows:
+        group = str(dataset_row.get("group") or "")
+        name = str(dataset_row.get("name") or "")
+        variant = str(dataset_row.get("crop_variant") or "default")
+        crop_path = _resolve_crop_path(manifest_file.parent, dataset_row.get("crop_path"))
+        prediction = _recognize_crop_file(
+            crop_path,
+            group=group,
+            name=name,
+            variant=variant,
+            roi_rect=_optional_rect_tuple(dataset_row.get("roi_rect")),
+        )
+        expected = _optional_int(dataset_row.get("truth_normalized_number"))
+        status = _number_crop_eval_status(prediction.normalized_number, expected)
+        accepted = (
+            prediction.normalized_number is not None
+            and prediction.confidence >= accepted_confidence
+        )
+        eval_row = {
+            "frame_id": dataset_row.get("frame_id"),
+            "group": group,
+            "name": name,
+            "role": dataset_row.get("role"),
+            "crop_variant": variant,
+            "crop_path": str(crop_path),
+            "screen_kind": dataset_row.get("screen_kind"),
+            "expected": expected,
+            "observed": prediction.normalized_number,
+            "raw": prediction.raw,
+            "numbers": list(prediction.numbers),
+            "base_number": prediction.base_number,
+            "overlay_number": prediction.overlay_number,
+            "total_number": prediction.total_number,
+            "confidence": prediction.confidence,
+            "status": status,
+            "accepted": accepted,
+        }
+        rows.append(eval_row)
+        for stats in (
+            overall,
+            by_field.setdefault(f"{group}:{name}", _new_number_crop_eval_stats()),
+            by_variant.setdefault(variant, _new_number_crop_eval_stats()),
+            by_field_variant.setdefault(
+                f"{group}:{name}:{variant}",
+                _new_number_crop_eval_stats(),
+            ),
+        ):
+            _update_number_crop_eval_stats(
+                stats,
+                status=status,
+                expected=expected,
+                accepted=accepted,
+            )
+    summary: dict[str, object] = {
+        "schema_version": 1,
+        "manifest": str(manifest_file),
+        "available_crops": len(dataset_rows),
+        "evaluated_crops": len(selected_rows),
+        "max_crops": max_crops,
+        "accepted_confidence": accepted_confidence,
+        "overall": _finalize_number_crop_eval_stats(overall),
+        "by_field": {
+            key: _finalize_number_crop_eval_stats(stats)
+            for key, stats in sorted(by_field.items())
+        },
+        "by_variant": {
+            key: _finalize_number_crop_eval_stats(stats)
+            for key, stats in sorted(by_variant.items())
+        },
+        "by_field_variant": {
+            key: _finalize_number_crop_eval_stats(stats)
+            for key, stats in sorted(by_field_variant.items())
+        },
+        "rows": rows,
+    }
+    (output / "number_crop_ocr_summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _write_number_crop_ocr_report(output / "number_crop_ocr_report.md", summary)
+    return summary
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run Poker Legends numeric OCR on text/button ROIs."
@@ -441,6 +542,26 @@ def build_crop_dataset_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_crop_ocr_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Evaluate Poker Legends numeric OCR on an exported crop dataset."
+    )
+    parser.add_argument("manifest", help="number_crop_dataset_manifest.json")
+    parser.add_argument("--out", required=True)
+    parser.add_argument(
+        "--accepted-confidence",
+        type=float,
+        default=0.70,
+        help="Confidence threshold for accepted precision reporting.",
+    )
+    parser.add_argument(
+        "--max-crops",
+        type=int,
+        help="Evaluate only the first N manifest rows for quick offline smoke runs.",
+    )
+    return parser
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
     summary = build_poker_legends_number_ocr_report(
@@ -465,6 +586,17 @@ def crop_dataset_main(argv: Sequence[str] | None = None) -> None:
         button_names=tuple(args.button_names or ("primary_left",)),
     )
     print(json.dumps(_crop_dataset_stdout_summary(summary), indent=2, sort_keys=True))
+
+
+def crop_ocr_main(argv: Sequence[str] | None = None) -> None:
+    args = build_crop_ocr_arg_parser().parse_args(argv)
+    summary = evaluate_poker_legends_number_crop_dataset(
+        args.manifest,
+        output_dir=args.out,
+        accepted_confidence=args.accepted_confidence,
+        max_crops=args.max_crops,
+    )
+    print(json.dumps(_crop_ocr_stdout_summary(summary), indent=2, sort_keys=True))
 
 
 def _default_crop_spec(rect: ScreenRect, *, group: str) -> _CropSpec:
@@ -781,7 +913,10 @@ def _truth_number_label(
             if str(text.get("name") or "") == name:
                 value = text.get("value")
                 normalized_number = _optional_int(text.get("normalized_number"))
-                if normalized_number is None and isinstance(value, str):
+                if _is_stack_field_name(name) and isinstance(value, str):
+                    stack_components = parse_poker_legends_chip_components(value)
+                    normalized_number = stack_components["base_number"]
+                elif normalized_number is None and isinstance(value, str):
                     normalized_number = parse_poker_legends_chip_amount(value)
                 return {
                     "visible": bool(text.get("visible", True)),
@@ -789,7 +924,7 @@ def _truth_number_label(
                     "normalized_number": normalized_number,
                 }
         if name == "hero_stack":
-            stack = _truth_hero_seat_number(truth, "stack")
+            stack = _truth_unambiguous_hero_stack_number(truth)
             if stack is not None:
                 return {"visible": True, "value": f"${stack}", "normalized_number": stack}
         if name == "hero_current_bet":
@@ -821,6 +956,19 @@ def _truth_hero_seat_number(truth: Mapping[str, object], field_name: str) -> int
         if str(seat.get("name") or "").lower() != "hero":
             continue
         return _optional_int(seat.get(field_name))
+    return None
+
+
+def _truth_unambiguous_hero_stack_number(truth: Mapping[str, object]) -> int | None:
+    for seat in _mapping_sequence(truth.get("seats")):
+        if not bool(seat.get("visible", True)):
+            continue
+        if str(seat.get("name") or "").lower() != "hero":
+            continue
+        stack = _optional_int(seat.get("stack"))
+        committed = _optional_int(seat.get("committed"))
+        if stack is not None and committed == 0:
+            return stack
     return None
 
 
@@ -866,6 +1014,114 @@ def _crop_dataset_path(
 ) -> Path:
     field = f"{group}_{name}"
     return crop_root / field / f"{frame_id}__{field}__{variant}.png"
+
+
+def _recognize_crop_file(
+    crop_path: Path,
+    *,
+    group: str,
+    name: str,
+    variant: str,
+    roi_rect: tuple[int, int, int, int] | None,
+) -> PokerLegendsNumberPrediction:
+    image = _load_rgb_image(crop_path)
+    whitelist = _BUTTON_WHITELIST if group == "buttons" else _NUMERIC_WHITELIST
+    raw = _best_numeric_text(image, whitelist=whitelist)
+    numbers = tuple(_numbers_from_text(raw))
+    normalized = _normalized_number(raw, numbers=numbers)
+    base, overlay, total = _number_components(raw, numbers=numbers)
+    return PokerLegendsNumberPrediction(
+        name=name,
+        group=group,
+        visible=bool(_normalize_text(raw)),
+        raw=raw,
+        numbers=numbers,
+        first_number=numbers[0] if numbers else None,
+        sum_number=sum(numbers) if len(numbers) >= 2 else None,
+        normalized_number=_field_normalized_number(
+            group=group,
+            name=name,
+            normalized=normalized,
+            base=base,
+            overlay=overlay,
+        ),
+        confidence=_confidence(raw, numbers),
+        base_number=base,
+        overlay_number=overlay,
+        total_number=total,
+        crop_variant=variant,
+        roi_rect=roi_rect,
+    )
+
+
+def _number_crop_eval_status(observed: int | None, expected: int | None) -> str:
+    if expected is None:
+        return "not_labeled"
+    if observed is None:
+        return "missing"
+    if observed == expected:
+        return "match"
+    return "mismatch"
+
+
+def _new_number_crop_eval_stats() -> dict[str, int]:
+    return {
+        "crops": 0,
+        "labeled": 0,
+        "correct": 0,
+        "missing": 0,
+        "mismatch": 0,
+        "accepted": 0,
+        "accepted_labeled": 0,
+        "accepted_correct": 0,
+        "accepted_wrong": 0,
+    }
+
+
+def _update_number_crop_eval_stats(
+    stats: dict[str, int],
+    *,
+    status: str,
+    expected: int | None,
+    accepted: bool,
+) -> None:
+    stats["crops"] += 1
+    if expected is not None:
+        stats["labeled"] += 1
+        if status == "match":
+            stats["correct"] += 1
+        elif status == "missing":
+            stats["missing"] += 1
+        elif status == "mismatch":
+            stats["mismatch"] += 1
+    if accepted:
+        stats["accepted"] += 1
+        if expected is not None:
+            stats["accepted_labeled"] += 1
+            if status == "match":
+                stats["accepted_correct"] += 1
+            elif status == "mismatch":
+                stats["accepted_wrong"] += 1
+
+
+def _finalize_number_crop_eval_stats(stats: Mapping[str, int]) -> dict[str, object]:
+    labeled = stats["labeled"]
+    accepted_labeled = stats["accepted_labeled"]
+    return {
+        "crops": stats["crops"],
+        "labeled": labeled,
+        "correct": stats["correct"],
+        "missing": stats["missing"],
+        "mismatch": stats["mismatch"],
+        "accuracy": stats["correct"] / labeled if labeled else None,
+        "accepted": stats["accepted"],
+        "accepted_labeled": accepted_labeled,
+        "accepted_correct": stats["accepted_correct"],
+        "accepted_wrong": stats["accepted_wrong"],
+        "accepted_precision": (
+            stats["accepted_correct"] / accepted_labeled if accepted_labeled else None
+        ),
+    }
 
 
 def _write_number_ocr_report(path: Path, summary: Mapping[str, object]) -> None:
@@ -919,6 +1175,82 @@ def _write_number_crop_dataset_report(path: Path, summary: Mapping[str, object])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_number_crop_ocr_report(path: Path, summary: Mapping[str, object]) -> None:
+    overall = cast(Mapping[str, object], summary["overall"])
+    rows = _mapping_sequence(summary["rows"])
+    accepted_wrong = [
+        row
+        for row in rows
+        if bool(row.get("accepted")) and row.get("status") == "mismatch"
+    ]
+    mismatches = [
+        row
+        for row in rows
+        if row.get("status") in {"missing", "mismatch"}
+        and row.get("expected") is not None
+    ]
+    lines = [
+        "# Poker Legends Number Crop OCR",
+        "",
+        "## Summary",
+        f"- Manifest: `{summary['manifest']}`",
+        f"- Evaluated crops: {summary['evaluated_crops']} / {summary['available_crops']}",
+        f"- Max crops: {summary['max_crops']}",
+        f"- Accepted confidence: {summary['accepted_confidence']}",
+        f"- Crops: {overall['crops']}",
+        f"- Labeled: {overall['labeled']}",
+        f"- Correct: {overall['correct']}",
+        f"- Accuracy: {_optional_ratio(overall.get('accuracy'))}",
+        f"- Missing: {overall['missing']}",
+        f"- Mismatch: {overall['mismatch']}",
+        f"- Accepted labeled: {overall['accepted_labeled']}",
+        f"- Accepted correct: {overall['accepted_correct']}",
+        f"- Accepted wrong: {overall['accepted_wrong']}",
+        f"- Accepted precision: {_optional_ratio(overall.get('accepted_precision'))}",
+        "",
+        "## By Field Variant",
+    ]
+    for key, stats in cast(Mapping[str, object], summary["by_field_variant"]).items():
+        stat_map = cast(Mapping[str, object], stats)
+        lines.append(
+            f"- `{key}`: labeled={stat_map['labeled']}, correct={stat_map['correct']}, "
+            f"missing={stat_map['missing']}, mismatch={stat_map['mismatch']}, "
+            f"accepted={stat_map['accepted_labeled']}, "
+            f"accepted_wrong={stat_map['accepted_wrong']}, "
+            f"accepted_precision={_optional_ratio(stat_map.get('accepted_precision'))}"
+        )
+    lines.extend(["", "## Accepted Wrong"])
+    if accepted_wrong:
+        for row in accepted_wrong:
+            lines.append(_crop_ocr_conflict_line(row))
+    else:
+        lines.append("No accepted wrong labeled crops.")
+    lines.extend(["", "## Missing Or Mismatch"])
+    if mismatches:
+        for row in mismatches[:50]:
+            lines.append(_crop_ocr_conflict_line(row))
+        if len(mismatches) > 50:
+            lines.append(f"- ... {len(mismatches) - 50} more")
+    else:
+        lines.append("No missing or mismatched labeled crops.")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _crop_ocr_conflict_line(row: Mapping[str, object]) -> str:
+    return (
+        f"- `{row.get('frame_id')}` `{row.get('group')}.{row.get('name')}` "
+        f"`{row.get('crop_variant')}`: {row.get('status')}; "
+        f"expected={row.get('expected')!r}, observed={row.get('observed')!r}, "
+        f"conf={_to_float(row.get('confidence')):.2f}, raw={row.get('raw')!r}"
+    )
+
+
+def _optional_ratio(value: object) -> str:
+    if value is None:
+        return "n/a"
+    return f"{_to_float(value):.3f}"
+
+
 def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
     return {
         "frames": summary["frames"],
@@ -936,6 +1268,22 @@ def _crop_dataset_stdout_summary(summary: Mapping[str, object]) -> dict[str, obj
         "labeled_crops": summary["labeled_crops"],
         "manifest": "number_crop_dataset_manifest.json",
         "report": "number_crop_dataset_report.md",
+    }
+
+
+def _crop_ocr_stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
+    overall = cast(Mapping[str, object], summary["overall"])
+    return {
+        "available_crops": summary["available_crops"],
+        "evaluated_crops": summary["evaluated_crops"],
+        "max_crops": summary["max_crops"],
+        "crops": overall["crops"],
+        "labeled": overall["labeled"],
+        "accuracy": overall["accuracy"],
+        "accepted_labeled": overall["accepted_labeled"],
+        "accepted_precision": overall["accepted_precision"],
+        "accepted_wrong": overall["accepted_wrong"],
+        "report": "number_crop_ocr_report.md",
     }
 
 
@@ -998,6 +1346,13 @@ def _resolve_image_path(image_root: Path, image_value: object) -> Path:
     if image_path.is_absolute():
         return image_path
     return image_root / image_path
+
+
+def _resolve_crop_path(manifest_dir: Path, crop_value: object) -> Path:
+    crop_path = Path(str(crop_value))
+    if crop_path.is_absolute():
+        return crop_path
+    return manifest_dir / crop_path
 
 
 def _crop(image: RgbImage, rect: ScreenRect, *, pad: int) -> RgbImage:

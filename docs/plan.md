@@ -519,6 +519,17 @@
   `hero_stack` 336、`right_top_stack` 144、`pot` 62、`hero_current_bet` 30、`primary_left` 12。下一步可以
   基于该 manifest 做字符/CTC OCR baseline 或人工 review queue，不应直接把 unlabeled / opponent overlay
   crop 放进授权链路。
+- 阶段 4 Poker Legends number crop OCR baseline v1（离线评估，不接 live）：新增
+  `evaluate_poker_legends_number_crop_dataset` / `holdem-bot-evaluate-poker-legends-number-crops`，读取
+  `number_crop_dataset_manifest.json` 后按 field / crop variant 输出 raw accuracy、accepted precision 与
+  accepted-wrong 明细；支持 `--max-crops`，避免 1071 crops 全量 Tesseract 慢跑被误用作日常检查。同时收紧
+  crop label 语义：`*_stack` direct text 的 `base+overlay` 统一标为 base/available stack；缺 direct text
+  的 hero stack 只有 reviewed `committed == 0` 时才从 seat.stack 派生，否则保持 unlabeled，避免旧
+  total/base 混标污染训练。当前真实数据集 v5 为 119 帧、1071 crops、575 labeled crops（`hero_stack`
+  327、`right_top_stack` 144、`pot` 62、`hero_current_bet` 30、`primary_left` 12）。120-crop smoke
+  baseline（`/tmp/poker-legends-number-crop-ocr-baseline-sample-v3`）显示现有 Tesseract crop OCR 仍不可接入：
+  labeled 43、raw accuracy 0.558、accepted precision 0.710、accepted wrong 9；后续应先做 accepted-wrong
+  review queue / 字符模板或小模型 OCR，而不是放宽 runtime gate。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
