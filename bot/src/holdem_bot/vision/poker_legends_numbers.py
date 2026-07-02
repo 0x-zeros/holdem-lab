@@ -492,11 +492,31 @@ def evaluate_poker_legends_number_crop_dataset(
         },
         "rows": rows,
     }
+    review_queue = _number_crop_ocr_review_queue(rows)
+    summary["review_queue_counts"] = _number_crop_ocr_review_queue_counts(review_queue)
+    summary["review_queue"] = review_queue
     (output / "number_crop_ocr_summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    (output / "number_crop_ocr_review_queue.json").write_text(
+        json.dumps(
+            {
+                "manifest": str(manifest_file),
+                "counts": summary["review_queue_counts"],
+                "rows": review_queue,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     _write_number_crop_ocr_report(output / "number_crop_ocr_report.md", summary)
+    _write_number_crop_ocr_review_queue_report(
+        output / "number_crop_ocr_review_queue.md",
+        summary,
+    )
     return summary
 
 
@@ -1124,6 +1144,80 @@ def _finalize_number_crop_eval_stats(stats: Mapping[str, int]) -> dict[str, obje
     }
 
 
+def _number_crop_ocr_review_queue(rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    queue: list[dict[str, object]] = []
+    for row in rows:
+        category = _number_crop_ocr_review_category(row)
+        if category is None:
+            continue
+        queue.append(
+            {
+                "category": category,
+                "priority": _number_crop_ocr_review_priority(category),
+                "frame_id": row.get("frame_id"),
+                "group": row.get("group"),
+                "name": row.get("name"),
+                "role": row.get("role"),
+                "crop_variant": row.get("crop_variant"),
+                "crop_path": row.get("crop_path"),
+                "screen_kind": row.get("screen_kind"),
+                "expected": row.get("expected"),
+                "observed": row.get("observed"),
+                "raw": row.get("raw"),
+                "numbers": row.get("numbers"),
+                "confidence": row.get("confidence"),
+                "accepted": row.get("accepted"),
+            }
+        )
+    return sorted(
+        queue,
+        key=lambda item: (
+            _to_int(item["priority"]),
+            str(item.get("frame_id") or ""),
+            str(item.get("group") or ""),
+            str(item.get("name") or ""),
+            str(item.get("crop_variant") or ""),
+        ),
+    )
+
+
+def _number_crop_ocr_review_category(row: Mapping[str, object]) -> str | None:
+    status = str(row.get("status") or "")
+    expected = row.get("expected")
+    accepted = bool(row.get("accepted"))
+    if expected is not None and status == "mismatch" and accepted:
+        return "accepted_wrong"
+    if expected is not None and status == "missing":
+        return "missing_labeled"
+    if expected is not None and status == "mismatch":
+        return "mismatch_labeled"
+    if expected is None and accepted:
+        return "accepted_unlabeled"
+    return None
+
+
+def _number_crop_ocr_review_priority(category: str) -> int:
+    if category == "accepted_wrong":
+        return 0
+    if category == "missing_labeled":
+        return 1
+    if category == "mismatch_labeled":
+        return 2
+    if category == "accepted_unlabeled":
+        return 3
+    return 9
+
+
+def _number_crop_ocr_review_queue_counts(
+    rows: Sequence[Mapping[str, object]],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        category = str(row.get("category") or "")
+        counts[category] = counts.get(category, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def _write_number_ocr_report(path: Path, summary: Mapping[str, object]) -> None:
     rows = _mapping_sequence(summary["rows"])
     lines = [
@@ -1207,6 +1301,7 @@ def _write_number_crop_ocr_report(path: Path, summary: Mapping[str, object]) -> 
         f"- Accepted correct: {overall['accepted_correct']}",
         f"- Accepted wrong: {overall['accepted_wrong']}",
         f"- Accepted precision: {_optional_ratio(overall.get('accepted_precision'))}",
+        f"- Review queue: {len(_mapping_sequence(summary.get('review_queue')))}",
         "",
         "## By Field Variant",
     ]
@@ -1234,6 +1329,44 @@ def _write_number_crop_ocr_report(path: Path, summary: Mapping[str, object]) -> 
     else:
         lines.append("No missing or mismatched labeled crops.")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_number_crop_ocr_review_queue_report(
+    path: Path,
+    summary: Mapping[str, object],
+) -> None:
+    queue = _mapping_sequence(summary.get("review_queue"))
+    counts = cast(Mapping[str, object], summary.get("review_queue_counts") or {})
+    lines = [
+        "# Poker Legends Number Crop OCR Review Queue",
+        "",
+        "## Summary",
+        f"- Manifest: `{summary['manifest']}`",
+        f"- Evaluated crops: {summary['evaluated_crops']} / {summary['available_crops']}",
+        "",
+        "## Counts",
+        *_count_lines(counts),
+        "",
+        "## Rows",
+    ]
+    if queue:
+        for row in queue[:100]:
+            lines.append(_crop_ocr_review_queue_line(row))
+        if len(queue) > 100:
+            lines.append(f"- ... {len(queue) - 100} more")
+    else:
+        lines.append("No review rows.")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _crop_ocr_review_queue_line(row: Mapping[str, object]) -> str:
+    return (
+        f"- `{row.get('category')}` `{row.get('frame_id')}` "
+        f"`{row.get('group')}.{row.get('name')}` `{row.get('crop_variant')}`: "
+        f"expected={row.get('expected')!r}, observed={row.get('observed')!r}, "
+        f"conf={_to_float(row.get('confidence')):.2f}, raw={row.get('raw')!r}, "
+        f"crop=`{row.get('crop_path')}`"
+    )
 
 
 def _crop_ocr_conflict_line(row: Mapping[str, object]) -> str:
@@ -1283,7 +1416,9 @@ def _crop_ocr_stdout_summary(summary: Mapping[str, object]) -> dict[str, object]
         "accepted_labeled": overall["accepted_labeled"],
         "accepted_precision": overall["accepted_precision"],
         "accepted_wrong": overall["accepted_wrong"],
+        "review_queue": len(_mapping_sequence(summary.get("review_queue"))),
         "report": "number_crop_ocr_report.md",
+        "review_report": "number_crop_ocr_review_queue.md",
     }
 
 

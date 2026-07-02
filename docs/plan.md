@@ -530,6 +530,13 @@
   baseline（`/tmp/poker-legends-number-crop-ocr-baseline-sample-v3`）显示现有 Tesseract crop OCR 仍不可接入：
   labeled 43、raw accuracy 0.558、accepted precision 0.710、accepted wrong 9；后续应先做 accepted-wrong
   review queue / 字符模板或小模型 OCR，而不是放宽 runtime gate。
+- 阶段 4 Poker Legends number OCR review queue v1：crop OCR evaluator 现在额外输出
+  `number_crop_ocr_review_queue.json` / `.md`，按 `accepted_wrong`、`missing_labeled`、
+  `mismatch_labeled`、`accepted_unlabeled` 分类并携带 crop path / raw OCR / confidence / expected /
+  observed，供人工复核和主动学习选样；stdout 同步报告 queue 数量。当前 120-crop smoke
+  `/tmp/poker-legends-number-crop-ocr-review-queue-sample-v1` 生成 41 条 review rows：accepted_wrong 9、
+  missing_labeled 2、mismatch_labeled 8、accepted_unlabeled 22。结论：短期最有价值的是复核 accepted_wrong
+  和 accepted_unlabeled 中的 right_top/按钮误读，继续避免把 Tesseract accepted 直接接进授权链路。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

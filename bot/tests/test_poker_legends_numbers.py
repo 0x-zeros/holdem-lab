@@ -226,10 +226,13 @@ def test_poker_legends_number_crop_ocr_evaluator_reports_variant_stats(
     assert overall["correct"] == 1
     assert overall["accepted_correct"] == 1
     assert overall["accepted_wrong"] == 0
+    assert summary["review_queue"] == []
     by_field_variant = cast(dict[str, dict[str, Any]], summary["by_field_variant"])
     assert by_field_variant["texts:pot:default"]["correct"] == 1
     assert (tmp_path / "eval" / "number_crop_ocr_summary.json").exists()
     assert (tmp_path / "eval" / "number_crop_ocr_report.md").exists()
+    assert (tmp_path / "eval" / "number_crop_ocr_review_queue.json").exists()
+    assert (tmp_path / "eval" / "number_crop_ocr_review_queue.md").exists()
 
 
 def test_poker_legends_number_crop_dataset_does_not_label_ambiguous_hero_stack(
