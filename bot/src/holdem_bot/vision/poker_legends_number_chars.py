@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import importlib
 import json
 import math
 import shutil
@@ -28,13 +29,17 @@ DEFAULT_GLYPH_WIDTH = 24
 DEFAULT_GLYPH_HEIGHT = 32
 DEFAULT_TEMPLATE_MAX_DISTANCE = 0.060
 DEFAULT_MLP_MIN_CONFIDENCE = 0.60
+DEFAULT_CNN_MIN_CONFIDENCE = 0.80
+DEFAULT_CNN_EPOCHS = 60
+DEFAULT_CNN_BATCH_SIZE = 64
+DEFAULT_CNN_SEED = 1729
 DEFAULT_TEST_FRAME_MODULO = 5
 NUMBER_CHAR_RECOGNIZER_SUMMARY = "number_char_recognizer_summary.json"
 NUMBER_CHAR_RECOGNIZER_REPORT = "number_char_recognizer_report.md"
 NUMBER_CHAR_RECOGNIZER_REVIEW_HTML = "number_char_recognizer_review.html"
 NUMBER_CHAR_RECOGNIZER_REVIEW_MD = "number_char_recognizer_review.md"
 ALLOWED_CHARS = frozenset("$0123456789+,.KM")
-RecognitionMethod = Literal["template", "opencv_mlp", "tesseract"]
+RecognitionMethod = Literal["template", "opencv_mlp", "cnn", "template_cnn", "tesseract"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +110,8 @@ class _EvaluationRow:
     segmentation_status: str
     template: StringPrediction
     opencv_mlp: StringPrediction
+    cnn: StringPrediction
+    template_cnn: StringPrediction
     tesseract: StringPrediction
 
 
@@ -268,6 +275,137 @@ class NumberOpenCvMlpRecognizer:
         return model if ok else None
 
 
+class NumberTorchCnnRecognizer:
+    def __init__(
+        self,
+        samples: Sequence[NumberGlyphSample],
+        *,
+        glyph_root: str | Path,
+        min_confidence: float = DEFAULT_CNN_MIN_CONFIDENCE,
+        epochs: int = DEFAULT_CNN_EPOCHS,
+        batch_size: int = DEFAULT_CNN_BATCH_SIZE,
+        seed: int = DEFAULT_CNN_SEED,
+    ) -> None:
+        self.min_confidence = min_confidence
+        self.epochs = max(1, epochs)
+        self.batch_size = max(1, batch_size)
+        self.seed = seed
+        self._labels = tuple(sorted({sample.label for sample in samples}))
+        self._label_to_index = {label: index for index, label in enumerate(self._labels)}
+        self._torch: Any | None = None
+        self._model: Any | None = None
+        self._reason = "untrained"
+        self._train(samples, glyph_root=Path(glyph_root))
+
+    @property
+    def available(self) -> bool:
+        return self._model is not None and self._torch is not None and bool(self._labels)
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+    def recognize(self, glyphs: Sequence[FloatImage]) -> StringPrediction:
+        if not glyphs:
+            return StringPrediction(
+                method="cnn",
+                text=None,
+                confidence=0.0,
+                accepted=False,
+                reason="no_glyphs",
+            )
+        if not self.available:
+            return StringPrediction(
+                method="cnn",
+                text=None,
+                confidence=0.0,
+                accepted=False,
+                reason=self._reason,
+            )
+        torch = self._torch
+        model = self._model
+        assert torch is not None
+        assert model is not None
+        batch = np.stack(glyphs).astype(np.float32)[:, None, :, :]
+        with torch.inference_mode():
+            logits = model(torch.from_numpy(batch))
+            probabilities = torch.softmax(logits, dim=1).detach().cpu().numpy()
+        predicted: list[str] = []
+        confidences: list[float] = []
+        for row in cast(NDArray[np.float32], probabilities):
+            index = int(np.argmax(row))
+            predicted.append(self._labels[index])
+            confidences.append(float(row[index]))
+        confidence = min(confidences) if confidences else 0.0
+        return StringPrediction(
+            method="cnn",
+            text="".join(predicted),
+            confidence=confidence,
+            accepted=confidence >= self.min_confidence,
+            reason="accepted" if confidence >= self.min_confidence else "confidence",
+            char_confidences=tuple(confidences),
+        )
+
+    def _train(
+        self,
+        samples: Sequence[NumberGlyphSample],
+        *,
+        glyph_root: Path,
+    ) -> None:
+        if len(samples) < 2 or len(self._labels) < 2:
+            self._reason = "insufficient_training_data"
+            return
+        try:
+            torch = cast(Any, importlib.import_module("torch"))
+            nn = cast(Any, importlib.import_module("torch.nn"))
+            optim = cast(Any, importlib.import_module("torch.optim"))
+        except ImportError:
+            self._reason = "torch_unavailable"
+            return
+        rows: list[FloatImage] = []
+        labels: list[int] = []
+        for sample in samples:
+            rows.append(_load_glyph(glyph_root / sample.glyph_path))
+            labels.append(self._label_to_index[sample.label])
+        train_data = np.stack(rows).astype(np.float32)[:, None, :, :]
+        train_labels = np.array(labels, dtype=np.int64)
+        torch.manual_seed(self.seed)
+        try:
+            torch.use_deterministic_algorithms(True)
+        except Exception:  # pragma: no cover - older or platform-specific torch builds.
+            pass
+        model = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Flatten(),
+            nn.Linear(32 * (DEFAULT_GLYPH_HEIGHT // 4) * (DEFAULT_GLYPH_WIDTH // 4), 64),
+            nn.ReLU(),
+            nn.Linear(64, len(self._labels)),
+        )
+        optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001)
+        criterion = nn.CrossEntropyLoss()
+        x = torch.from_numpy(train_data)
+        y = torch.from_numpy(train_labels)
+        model.train()
+        for _epoch in range(self.epochs):
+            order = torch.randperm(x.shape[0])
+            for start in range(0, x.shape[0], self.batch_size):
+                batch_index = order[start : start + self.batch_size]
+                logits = model(x[batch_index])
+                loss = criterion(logits, y[batch_index])
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+        model.eval()
+        self._torch = torch
+        self._model = model
+        self._reason = "trained"
+
+
 def build_and_evaluate_poker_legends_number_char_recognizers(
     manifest_path: str | Path,
     *,
@@ -277,6 +415,9 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
     test_frame_modulo: int = DEFAULT_TEST_FRAME_MODULO,
     template_max_distance: float = DEFAULT_TEMPLATE_MAX_DISTANCE,
     mlp_min_confidence: float = DEFAULT_MLP_MIN_CONFIDENCE,
+    cnn_min_confidence: float = DEFAULT_CNN_MIN_CONFIDENCE,
+    cnn_epochs: int = DEFAULT_CNN_EPOCHS,
+    enable_cnn: bool = True,
 ) -> dict[str, object]:
     manifest_file = Path(manifest_path)
     output = Path(output_dir)
@@ -336,6 +477,16 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         glyph_root=output,
         min_confidence=mlp_min_confidence,
     )
+    cnn = (
+        NumberTorchCnnRecognizer(
+            train_samples,
+            glyph_root=output,
+            min_confidence=cnn_min_confidence,
+            epochs=cnn_epochs,
+        )
+        if enable_cnn
+        else None
+    )
 
     evaluation_rows: list[_EvaluationRow] = []
     for row in source_rows:
@@ -353,6 +504,16 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             if segmentation_status == "match"
             else _segmentation_failed_prediction("opencv_mlp", segmentation_status)
         )
+        if segmentation_status != "match":
+            cnn_prediction = _segmentation_failed_prediction("cnn", segmentation_status)
+        elif cnn is None:
+            cnn_prediction = _unavailable_prediction("cnn", "disabled")
+        else:
+            cnn_prediction = cnn.recognize(glyphs)
+        template_cnn_prediction = _template_cnn_consensus_prediction(
+            template_prediction,
+            cnn_prediction,
+        )
         tesseract_prediction = _tesseract_prediction(row.crop_path)
         evaluation_rows.append(
             _EvaluationRow(
@@ -361,9 +522,22 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                 segmentation_status=segmentation_status,
                 template=template_prediction,
                 opencv_mlp=mlp_prediction,
+                cnn=cnn_prediction,
+                template_cnn=template_cnn_prediction,
                 tesseract=tesseract_prediction,
             )
         )
+    cnn_summary = _method_summary(evaluation_rows, "cnn")
+    if not enable_cnn:
+        cnn_summary["status"] = "not_run"
+        cnn_summary["reason"] = "disabled"
+    elif cnn is None or not cnn.available:
+        cnn_summary["status"] = "not_run"
+        cnn_summary["reason"] = cnn.reason if cnn is not None else "disabled"
+    else:
+        cnn_summary["status"] = "trained"
+        cnn_summary["epochs"] = cnn_epochs
+        cnn_summary["min_confidence"] = cnn_min_confidence
 
     summary: dict[str, object] = {
         "schema_version": 1,
@@ -373,6 +547,9 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "test_frame_modulo": test_frame_modulo,
         "template_max_distance": template_max_distance,
         "mlp_min_confidence": mlp_min_confidence,
+        "cnn_min_confidence": cnn_min_confidence,
+        "cnn_epochs": cnn_epochs,
+        "enable_cnn": enable_cnn,
         "rows": len(source_rows),
         "train_rows": len([row for row in source_rows if row.split == "train"]),
         "test_rows": len(evaluation_rows),
@@ -384,11 +561,9 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "segmentation": _segmentation_summary(source_rows, segmentation_by_row),
         "template": _method_summary(evaluation_rows, "template"),
         "opencv_mlp": _method_summary(evaluation_rows, "opencv_mlp"),
+        "template_cnn": _method_summary(evaluation_rows, "template_cnn"),
         "tesseract": _method_summary(evaluation_rows, "tesseract"),
-        "cnn": {
-            "status": "not_run",
-            "reason": "PyTorch/TensorFlow are not project dependencies in the current environment.",
-        },
+        "cnn": cnn_summary,
         "evaluation_rows": [
             _evaluation_row_to_dict(row, output, preview_crop_dir) for row in evaluation_rows
         ],
@@ -459,6 +634,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_TEMPLATE_MAX_DISTANCE,
     )
     parser.add_argument("--mlp-min-confidence", type=float, default=DEFAULT_MLP_MIN_CONFIDENCE)
+    parser.add_argument("--cnn-min-confidence", type=float, default=DEFAULT_CNN_MIN_CONFIDENCE)
+    parser.add_argument("--cnn-epochs", type=int, default=DEFAULT_CNN_EPOCHS)
+    parser.add_argument("--disable-cnn", action="store_true")
     return parser
 
 
@@ -472,6 +650,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         test_frame_modulo=args.test_frame_modulo,
         template_max_distance=args.template_max_distance,
         mlp_min_confidence=args.mlp_min_confidence,
+        cnn_min_confidence=args.cnn_min_confidence,
+        cnn_epochs=args.cnn_epochs,
+        enable_cnn=not args.disable_cnn,
     )
     print(json.dumps(_stdout_summary(summary), indent=2, sort_keys=True))
 
@@ -525,13 +706,17 @@ def _load_rows(
 
 
 def _expected_text(row: Mapping[str, object]) -> str | None:
+    role = str(row.get("role") or "")
+    if role in {"hero_stack", "seat_stack"}:
+        normalized_number = _optional_int(row.get("truth_normalized_number"))
+        if normalized_number is not None:
+            return f"${normalized_number:,}"
     raw = row.get("truth_canonical_text")
     if not isinstance(raw, str):
         return None
     text = _normalize_compare_text(raw)
     if not text:
         return None
-    role = str(row.get("role") or "")
     if role in {"hero_stack", "seat_stack"} and not text.startswith("$"):
         text = f"${text}"
     if any(char not in ALLOWED_CHARS for char in text):
@@ -540,15 +725,8 @@ def _expected_text(row: Mapping[str, object]) -> str | None:
 
 
 def _text_mask(image: RgbImage) -> GrayImage:
-    hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
     white = (image[:, :, 0] > 165) & (image[:, :, 1] > 165) & (image[:, :, 2] > 165)
-    cyan = (
-        (image[:, :, 0] < 120)
-        & (image[:, :, 1] > 145)
-        & (image[:, :, 2] > 120)
-        & (hsv[:, :, 1] > 70)
-    )
-    mask = ((white | cyan).astype(np.uint8)) * 255
+    mask = white.astype(np.uint8) * 255
     return cast(GrayImage, cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8)))
 
 
@@ -623,6 +801,54 @@ def _segmentation_failed_prediction(
     )
 
 
+def _unavailable_prediction(method: RecognitionMethod, reason: str) -> StringPrediction:
+    return StringPrediction(
+        method=method,
+        text=None,
+        confidence=0.0,
+        accepted=False,
+        reason=reason,
+    )
+
+
+def _template_cnn_consensus_prediction(
+    template: StringPrediction,
+    cnn: StringPrediction,
+) -> StringPrediction:
+    confidence = min(template.confidence, cnn.confidence)
+    if not template.accepted:
+        return StringPrediction(
+            method="template_cnn",
+            text=None,
+            confidence=confidence,
+            accepted=False,
+            reason=f"template_{template.reason}",
+        )
+    if not cnn.accepted:
+        return StringPrediction(
+            method="template_cnn",
+            text=None,
+            confidence=confidence,
+            accepted=False,
+            reason=f"cnn_{cnn.reason}",
+        )
+    if template.text != cnn.text:
+        return StringPrediction(
+            method="template_cnn",
+            text=None,
+            confidence=confidence,
+            accepted=False,
+            reason="disagreement",
+        )
+    return StringPrediction(
+        method="template_cnn",
+        text=template.text,
+        confidence=confidence,
+        accepted=True,
+        reason="accepted",
+    )
+
+
 def _method_summary(rows: Sequence[_EvaluationRow], method: RecognitionMethod) -> dict[str, object]:
     evaluated = len(rows)
     exact = 0
@@ -661,6 +887,10 @@ def _prediction_for_method(row: _EvaluationRow, method: RecognitionMethod) -> St
         return row.template
     if method == "opencv_mlp":
         return row.opencv_mlp
+    if method == "cnn":
+        return row.cnn
+    if method == "template_cnn":
+        return row.template_cnn
     return row.tesseract
 
 
@@ -701,6 +931,8 @@ def _evaluation_row_to_dict(
         "segmentation_boxes": [box.to_dict() for box in row.segmentation_boxes],
         "template": row.template.to_dict(),
         "opencv_mlp": row.opencv_mlp.to_dict(),
+        "cnn": row.cnn.to_dict(),
+        "template_cnn": row.template_cnn.to_dict(),
         "tesseract": row.tesseract.to_dict(),
     }
 
@@ -721,14 +953,16 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         "## Methods",
         f"- Template: {_compact_method_summary(summary['template'])}",
+        f"- CNN: {_compact_method_summary(summary['cnn'])}",
+        f"- Template+CNN consensus: {_compact_method_summary(summary['template_cnn'])}",
         f"- OpenCV MLP: {_compact_method_summary(summary['opencv_mlp'])}",
         f"- Tesseract: {_compact_method_summary(summary['tesseract'])}",
-        f"- CNN: {summary['cnn']}",
         "",
         "## Notes",
-        "- Template and OpenCV MLP are offline prototypes and are not connected to runtime.",
-        "- OpenCV MLP is a dependency-free neural baseline, not a true convolutional CNN.",
-        "- A true CNN requires adding a deep learning dependency such as PyTorch.",
+        "- Template, CNN, and OpenCV MLP are offline prototypes and are not connected to runtime.",
+        "- CNN uses PyTorch and trains on the generated train split only.",
+        "- Accepted predictions are thresholded; accepted_wrong must stay at zero before "
+        "any runtime use.",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -743,14 +977,16 @@ def _write_review_files(
         "",
         "## Rows",
         "",
-        "| # | Crop | Expected | Template | MLP | Tesseract | Segmentation |",
-        "|---:|---|---|---|---|---|---|",
+        "| # | Crop | Expected | Template | CNN | Template+CNN | MLP | Tesseract | Segmentation |",
+        "|---:|---|---|---|---|---|---|---|---|",
     ]
     html_rows: list[str] = []
     for index, row in enumerate(rows, start=1):
         crop = str(row["preview_crop"])
         expected = str(row["expected"])
         template = cast(Mapping[str, object], row["template"])
+        cnn = cast(Mapping[str, object], row["cnn"])
+        template_cnn = cast(Mapping[str, object], row["template_cnn"])
         mlp = cast(Mapping[str, object], row["opencv_mlp"])
         tesseract = cast(Mapping[str, object], row["tesseract"])
         segmentation = str(row["segmentation_status"])
@@ -762,6 +998,8 @@ def _write_review_files(
                     f'<img src="{crop}" width="180">',
                     f"`{expected}`",
                     _review_prediction_md(template),
+                    _review_prediction_md(cnn),
+                    _review_prediction_md(template_cnn),
                     _review_prediction_md(mlp),
                     _review_prediction_md(tesseract),
                     f"`{segmentation}`",
@@ -775,6 +1013,8 @@ def _write_review_files(
             f'<td><img src="{html.escape(crop)}" alt="crop {index}"></td>'
             f"<td><code>{html.escape(expected)}</code></td>"
             f"<td>{_review_prediction_html(template)}</td>"
+            f"<td>{_review_prediction_html(cnn)}</td>"
+            f"<td>{_review_prediction_html(template_cnn)}</td>"
             f"<td>{_review_prediction_html(mlp)}</td>"
             f"<td>{_review_prediction_html(tesseract)}</td>"
             f"<td><code>{html.escape(segmentation)}</code></td>"
@@ -801,10 +1041,12 @@ code {{ white-space: pre-wrap; }}
 <p>Offline comparison for <code>{html.escape(str(summary["field_name"]))}</code>.</p>
 <ul>
 <li>Template: {html.escape(_compact_method_summary(summary["template"]))}</li>
+<li>CNN: {html.escape(_compact_method_summary(summary["cnn"]))}</li>
+<li>Template+CNN consensus: {html.escape(_compact_method_summary(summary["template_cnn"]))}</li>
 <li>OpenCV MLP: {html.escape(_compact_method_summary(summary["opencv_mlp"]))}</li>
 <li>Tesseract: {html.escape(_compact_method_summary(summary["tesseract"]))}</li>
 </ul>
-<table><thead><tr><th>#</th><th>Crop</th><th>Expected</th><th>Template</th><th>MLP</th><th>Tesseract</th><th>Segmentation</th></tr></thead>
+<table><thead><tr><th>#</th><th>Crop</th><th>Expected</th><th>Template</th><th>CNN</th><th>Template+CNN</th><th>MLP</th><th>Tesseract</th><th>Segmentation</th></tr></thead>
 <tbody>{''.join(html_rows)}</tbody></table>
 </body></html>
 """
@@ -848,10 +1090,12 @@ def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
         "train_rows": summary["train_rows"],
         "test_rows": summary["test_rows"],
         "glyph_samples": summary["glyph_samples"],
+        "segmentation": summary["segmentation"],
         "template": summary["template"],
+        "cnn": summary["cnn"],
+        "template_cnn": summary["template_cnn"],
         "opencv_mlp": summary["opencv_mlp"],
         "tesseract": summary["tesseract"],
-        "cnn": summary["cnn"],
         "report": NUMBER_CHAR_RECOGNIZER_REPORT,
         "review_html": NUMBER_CHAR_RECOGNIZER_REVIEW_HTML,
     }
@@ -922,6 +1166,21 @@ def _to_float(value: object) -> float:
     if isinstance(value, str):
         return float(value)
     return 0.0
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _optional_ratio(value: object) -> str:

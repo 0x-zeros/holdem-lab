@@ -30,7 +30,7 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
         crop_path = crop_dir / f"{frame_id}.png"
         cv2.imwrite(
             str(crop_path),
-            cv2.cvtColor(synthetic_number_crop("$123+45"), cv2.COLOR_RGB2BGR),
+            cv2.cvtColor(synthetic_number_crop("$123"), cv2.COLOR_RGB2BGR),
         )
         rows.append(
             {
@@ -40,7 +40,7 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
                 "role": "hero_stack",
                 "crop_variant": "default",
                 "crop_path": str(crop_path.relative_to(tmp_path)),
-                "truth_canonical_text": "$123+45",
+                "truth_canonical_text": "$123",
                 "truth_normalized_number": 123,
             }
         )
@@ -54,15 +54,18 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
         manifest_path,
         output_dir=tmp_path / "chars",
         test_frame_modulo=2,
+        cnn_epochs=2,
     )
 
     assert summary["rows"] == 4
     assert summary["test_rows"] == 2
-    assert summary["glyph_samples"] == 28
+    assert summary["glyph_samples"] == 16
     assert cast(dict[str, Any], summary["segmentation"])["counts"] == {"match": 4}
     assert cast(dict[str, Any], summary["template"])["evaluated"] == 2
     assert cast(dict[str, Any], summary["opencv_mlp"])["evaluated"] == 2
-    assert cast(dict[str, Any], summary["cnn"])["status"] == "not_run"
+    assert cast(dict[str, Any], summary["cnn"])["status"] == "trained"
+    assert cast(dict[str, Any], summary["cnn"])["evaluated"] == 2
+    assert cast(dict[str, Any], summary["template_cnn"])["evaluated"] == 2
     assert (tmp_path / "chars" / "number_char_recognizer_summary.json").exists()
     assert (tmp_path / "chars" / "number_char_recognizer_report.md").exists()
     assert (tmp_path / "chars" / "number_char_recognizer_review.html").exists()

@@ -584,6 +584,19 @@
   accepted wrong 35、accepted precision 0.386；OpenCV MLP exact 4/57 且 0 accepted，不值得继续。
   结论：字符 template 路线已经证明比 Tesseract 更适合作 fail-closed 高精度数字信号；下一步应
   改善分割覆盖，并决定是否引入官方 PyPI 的 PyTorch 做真正 CNN，而不是继续 OpenCV MLP。
+- 阶段 4 Poker Legends number char recognizer prototype v2：按人工复核结论改为识别
+  `hero_stack` 的白色 base/available stack 文本，忽略 cyan overlay/current-bet，避免 `$1000`
+  被 `$0+30` / `$840+160` 这类叠加区域污染；同时引入 PyTorch `torch==2.12.1`（官方 PyPI，
+  lockfile 固定）实现离线小型 CNN，并新增 `template_cnn` 共识指标。真实 v7 manifest 仍为
+  273 行 hero_stack、216 train / 57 test：字符分割 match 从 v1 的 153/273（0.560）提升到
+  242/273（0.886），测试集 match 54/57。最终报告
+  `artifacts/poker-legends-videos/number_char_cnn_v2/number_char_recognizer_report.md`：
+  Tesseract exact 5/57、accepted wrong 52；template exact 48/57、accepted coverage 54/57，
+  但 accepted wrong 6（不能单独作为安全信号）；CNN exact 51/57、accepted coverage 51/57、
+  accepted precision 1.000、accepted wrong 0；template+CNN 共识 accepted 48/57、precision 1.000、
+  accepted wrong 0。结论：Tesseract 继续只作弱 baseline，OpenCV MLP 放弃；后续若要接 runtime，
+  应优先让 CNN 或 template+CNN 共识进入 observation-only/contract 评估，且必须继续以
+  accepted-critical-wrong=0 和更大的 hard negative set 为门槛，不因模板 coverage 较高而单独放行。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
