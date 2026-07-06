@@ -242,6 +242,15 @@ def _apply_review_override(row: dict[str, object], override: Mapping[str, object
         row["truth_canonical_text"] = None
         row["truth_normalized_number"] = None
         row["truth_visible"] = None
+    elif status == "labeled_visible":
+        truth = override.get("truth_canonical_text")
+        if not isinstance(truth, str) or not truth.strip():
+            raise ValueError("labeled_visible review override requires truth_canonical_text")
+        row["truth_canonical_text"] = truth.strip()
+        row["truth_visible"] = True
+        normalized_number = override.get("truth_normalized_number")
+        if isinstance(normalized_number, int):
+            row["truth_normalized_number"] = normalized_number
 
 
 def _split_by_frame(frame_ids: Sequence[str], *, test_frame_modulo: int) -> dict[str, str]:

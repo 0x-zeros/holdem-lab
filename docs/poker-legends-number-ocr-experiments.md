@@ -7,15 +7,17 @@ recognizers are connected to runtime click or authorization paths.
 
 - Dataset: `/tmp/poker-legends-number-crop-dataset-v7`
 - Main field evaluated: `hero_stack`
-- Rows used by the latest component experiments: 279 rows total, 270 positive rows
-  and 9 hard-negative rows; split is 222 train / 57 test, with 54 positive test rows
-  and 3 hard-negative test rows.
+- Rows used by the latest component experiments: 300 rows total, 291 positive rows
+  and 9 hard-negative rows; split is 243 train / 57 test, with 54 positive test rows
+  and 3 hard-negative test rows. Three reviewed ROI-invalid rows are excluded.
 - Current reviewed issue classes:
   - Some crops have valid base text but weak or noisy overlay text.
   - Some truth rows are polluted, for example rows 31-33 in the review HTML show no
     usable number while truth still expects `$43,044`. This is now captured in
     `docs/poker-legends-number-review-overrides.json` as a no-visible-number override
     for `session_002__keyframe_000047` hero-stack variants.
+  - The 24-row hard-negative review pass found 21 visible but unlabeled stack crops
+    and 3 ROI-invalid player-name crops, not additional no-visible-number rows.
   - `display` should be treated as a derived value from `base + overlay`, not as the
     primary runtime OCR target.
 
@@ -44,8 +46,8 @@ glyph.
 
 Latest component report:
 
-- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v3/number_char_recognizer_report.md`
-- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v3/number_char_recognizer_review.html`
+- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v4/number_char_recognizer_report.md`
+- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v4/number_char_recognizer_review.html`
 
 Key metrics:
 
@@ -77,6 +79,9 @@ Interpretation:
 - Review overrides moved three polluted `$43,044` positive rows into hard-negative
   evaluation. Positive base test rows are now 54, with 3 no-visible-number hard
   negatives retained in the test artifact.
+- A later manual review added 21 visible stack labels to train data:
+  `$290+710`, `$1,000`, `$995+5`, `$900+100`, `$475+200`, and `$475`; it also
+  excluded 3 player-name crops as ROI-invalid.
 - Template KNN voting fixed 0/9 nearest-neighbor tie failures that previously made
   template misread `$990` and `$399` as `$900` / `$390`.
 - Template / CNN / MLP are now trained per target (`base`, `overlay`, `display`) so

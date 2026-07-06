@@ -9,6 +9,84 @@
       "crop_variant": "*",
       "clean_status": "no_visible_number",
       "reason": "Manual review: the hero_stack ROI variants show no usable number, despite upstream truth expecting $43,044."
+    },
+    {
+      "frame_id": "card_review_v1__session_001__keyframe_000020",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$290+710",
+      "truth_normalized_number": 290,
+      "reason": "Manual review: visible unlabeled stack text."
+    },
+    {
+      "frame_id": "card_review_v1__session_002__keyframe_000006",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$1,000",
+      "truth_normalized_number": 1000,
+      "reason": "Manual review: visible unlabeled stack text."
+    },
+    {
+      "frame_id": "card_review_v1__session_002__keyframe_000010",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$1,000",
+      "truth_normalized_number": 1000,
+      "reason": "Manual review: visible unlabeled stack text."
+    },
+    {
+      "frame_id": "card_review_v1__session_002__keyframe_000062",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$995+5",
+      "truth_normalized_number": 995,
+      "reason": "Manual review: visible unlabeled stack text."
+    },
+    {
+      "frame_id": "card_review_v1__session_002__keyframe_000122",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$900+100",
+      "truth_normalized_number": 900,
+      "reason": "Manual review: visible unlabeled stack text."
+    },
+    {
+      "frame_id": "card_review_v1__session_002__keyframe_000231",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$475+200",
+      "truth_normalized_number": 475,
+      "reason": "Manual review: visible unlabeled stack text."
+    },
+    {
+      "frame_id": "card_review_v1__session_002__keyframe_000253",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$475",
+      "truth_normalized_number": 475,
+      "reason": "Manual review: visible unlabeled stack text."
+    },
+    {
+      "frame_id": "session_001__keyframe_000157",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "roi_invalid",
+      "reason": "Manual review: ROI captures a player name containing digits, not hero stack."
     }
   ]
 }
