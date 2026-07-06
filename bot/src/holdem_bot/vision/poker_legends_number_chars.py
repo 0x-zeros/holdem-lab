@@ -27,21 +27,37 @@ FloatVector = NDArray[np.float32]
 
 DEFAULT_GLYPH_WIDTH = 24
 DEFAULT_GLYPH_HEIGHT = 32
+DEFAULT_SEQUENCE_WIDTH = 160
+DEFAULT_SEQUENCE_HEIGHT = 32
 DEFAULT_TEMPLATE_MAX_DISTANCE = 0.060
 DEFAULT_MLP_MIN_CONFIDENCE = 0.60
 DEFAULT_CNN_MIN_CONFIDENCE = 0.80
 DEFAULT_CNN_EPOCHS = 60
 DEFAULT_CNN_BATCH_SIZE = 64
 DEFAULT_CNN_SEED = 1729
+DEFAULT_CTC_MIN_CONFIDENCE = 0.80
+DEFAULT_CRNN_EPOCHS = 12
+DEFAULT_TRANSFORMER_EPOCHS = 12
+DEFAULT_CTC_BATCH_SIZE = 32
+DEFAULT_CTC_SEED = 2027
 DEFAULT_TEST_FRAME_MODULO = 5
 NUMBER_CHAR_RECOGNIZER_SUMMARY = "number_char_recognizer_summary.json"
 NUMBER_CHAR_RECOGNIZER_REPORT = "number_char_recognizer_report.md"
 NUMBER_CHAR_RECOGNIZER_REVIEW_HTML = "number_char_recognizer_review.html"
 NUMBER_CHAR_RECOGNIZER_REVIEW_MD = "number_char_recognizer_review.md"
 ALLOWED_CHARS = frozenset("$0123456789+,.KM")
-RecognitionMethod = Literal["template", "opencv_mlp", "cnn", "template_cnn", "tesseract"]
+RecognitionMethod = Literal[
+    "template",
+    "opencv_mlp",
+    "cnn",
+    "crnn_ctc",
+    "transformer_ctc",
+    "template_cnn",
+    "tesseract",
+]
 NumberTextTarget = Literal["base", "overlay", "display"]
 NUMBER_TEXT_TARGETS: tuple[NumberTextTarget, ...] = ("base", "overlay", "display")
+SequenceArchitecture = Literal["crnn_ctc", "transformer_ctc"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +86,16 @@ class NumberGlyphSample:
         data = asdict(self)
         data["box"] = self.box.to_dict()
         return data
+
+
+@dataclass(frozen=True, slots=True)
+class NumberSequenceSample:
+    target: NumberTextTarget
+    frame_id: str
+    row_id: str
+    crop_path: str
+    text: str
+    image: FloatImage
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +158,8 @@ class _TargetEvaluation:
     template: StringPrediction
     opencv_mlp: StringPrediction
     cnn: StringPrediction
+    crnn_ctc: StringPrediction
+    transformer_ctc: StringPrediction
     template_cnn: StringPrediction
     tesseract: StringPrediction
 
@@ -433,6 +461,236 @@ class NumberTorchCnnRecognizer:
         self._reason = "trained"
 
 
+class NumberTorchCtcRecognizer:
+    def __init__(
+        self,
+        samples: Sequence[NumberSequenceSample],
+        *,
+        architecture: SequenceArchitecture,
+        min_confidence: float = DEFAULT_CTC_MIN_CONFIDENCE,
+        epochs: int = DEFAULT_CRNN_EPOCHS,
+        batch_size: int = DEFAULT_CTC_BATCH_SIZE,
+        seed: int = DEFAULT_CTC_SEED,
+    ) -> None:
+        self.architecture = architecture
+        self.min_confidence = min_confidence
+        self.epochs = max(1, epochs)
+        self.batch_size = max(1, batch_size)
+        self.seed = seed
+        self._labels = tuple(sorted({char for sample in samples for char in sample.text}))
+        self._label_to_index = {label: index + 1 for index, label in enumerate(self._labels)}
+        self._index_to_label = {index + 1: label for index, label in enumerate(self._labels)}
+        self._blank_index = 0
+        self._torch: Any | None = None
+        self._model: Any | None = None
+        self._reason = "untrained"
+        self._train(samples)
+
+    @property
+    def available(self) -> bool:
+        return self._model is not None and self._torch is not None and bool(self._labels)
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+    def recognize(self, image: FloatImage) -> StringPrediction:
+        if image.size == 0:
+            return StringPrediction(
+                method=self.architecture,
+                text=None,
+                confidence=0.0,
+                accepted=False,
+                reason="empty_image",
+            )
+        if not self.available:
+            return StringPrediction(
+                method=self.architecture,
+                text=None,
+                confidence=0.0,
+                accepted=False,
+                reason=self._reason,
+            )
+        torch = self._torch
+        model = self._model
+        assert torch is not None
+        assert model is not None
+        batch = image.astype(np.float32)[None, None, :, :]
+        with torch.inference_mode():
+            logits = model(torch.from_numpy(batch))
+            probabilities = torch.softmax(logits, dim=2).detach().cpu().numpy()
+        text, confidences = self._decode_probabilities(cast(NDArray[np.float32], probabilities))
+        if not text:
+            return StringPrediction(
+                method=self.architecture,
+                text=None,
+                confidence=0.0,
+                accepted=False,
+                reason="blank",
+            )
+        confidence = min(confidences) if confidences else 0.0
+        return StringPrediction(
+            method=self.architecture,
+            text=text,
+            confidence=confidence,
+            accepted=confidence >= self.min_confidence,
+            reason="accepted" if confidence >= self.min_confidence else "confidence",
+            char_confidences=tuple(confidences),
+        )
+
+    def _train(self, samples: Sequence[NumberSequenceSample]) -> None:
+        if len(samples) < 2 or len(self._labels) < 2:
+            self._reason = "insufficient_training_data"
+            return
+        try:
+            torch = cast(Any, importlib.import_module("torch"))
+            nn = cast(Any, importlib.import_module("torch.nn"))
+            optim = cast(Any, importlib.import_module("torch.optim"))
+        except ImportError:
+            self._reason = "torch_unavailable"
+            return
+        encoded_samples: list[tuple[FloatImage, list[int]]] = []
+        for sample in samples:
+            encoded = [self._label_to_index[char] for char in sample.text]
+            if encoded:
+                encoded_samples.append((sample.image, encoded))
+        if len(encoded_samples) < 2:
+            self._reason = "insufficient_training_data"
+            return
+        torch.manual_seed(self.seed)
+        nn_module = nn
+        model = (
+            self._build_crnn_model(nn_module, len(self._labels) + 1)
+            if self.architecture == "crnn_ctc"
+            else self._build_transformer_model(nn_module, len(self._labels) + 1)
+        )
+        optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001)
+        criterion = nn.CTCLoss(blank=self._blank_index, zero_infinity=True)
+        images = np.stack([sample[0] for sample in encoded_samples]).astype(np.float32)
+        targets = [sample[1] for sample in encoded_samples]
+        x = torch.from_numpy(images[:, None, :, :])
+        model.train()
+        for _epoch in range(self.epochs):
+            order = torch.randperm(x.shape[0])
+            for start in range(0, x.shape[0], self.batch_size):
+                batch_index = order[start : start + self.batch_size]
+                batch_targets = [targets[int(index)] for index in batch_index]
+                target_lengths = torch.tensor(
+                    [len(target) for target in batch_targets],
+                    dtype=torch.long,
+                )
+                flat_targets = torch.tensor(
+                    [item for target in batch_targets for item in target],
+                    dtype=torch.long,
+                )
+                logits = model(x[batch_index])
+                log_probs = torch.log_softmax(logits, dim=2)
+                input_lengths = torch.full(
+                    size=(len(batch_targets),),
+                    fill_value=int(log_probs.shape[0]),
+                    dtype=torch.long,
+                )
+                loss = criterion(log_probs, flat_targets, input_lengths, target_lengths)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+        model.eval()
+        self._torch = torch
+        self._model = model
+        self._reason = "trained"
+
+    def _decode_probabilities(
+        self,
+        probabilities: NDArray[np.float32],
+    ) -> tuple[str, list[float]]:
+        steps = probabilities[:, 0, :]
+        indices = np.argmax(steps, axis=1)
+        top_probabilities = np.max(steps, axis=1)
+        labels: list[str] = []
+        confidences: list[float] = []
+        previous = self._blank_index
+        for index, confidence in zip(indices, top_probabilities, strict=True):
+            index_int = int(index)
+            if index_int == self._blank_index:
+                previous = index_int
+                continue
+            if index_int == previous:
+                continue
+            label = self._index_to_label.get(index_int)
+            if label is not None:
+                labels.append(label)
+                confidences.append(float(confidence))
+            previous = index_int
+        return "".join(labels), confidences
+
+    @staticmethod
+    def _build_crnn_model(nn: Any, output_classes: int) -> Any:
+        class _CrnnCtcModel(nn.Module):  # type: ignore[misc]
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv = nn.Sequential(
+                    nn.Conv2d(1, 16, kernel_size=3, padding=1),
+                    nn.ReLU(),
+                    nn.MaxPool2d(2),
+                    nn.Conv2d(16, 32, kernel_size=3, padding=1),
+                    nn.ReLU(),
+                    nn.MaxPool2d(2),
+                    nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                    nn.ReLU(),
+                )
+                self.rnn = nn.LSTM(
+                    input_size=64,
+                    hidden_size=64,
+                    num_layers=1,
+                    bidirectional=True,
+                )
+                self.out = nn.Linear(128, output_classes)
+
+            def forward(self, x: Any) -> Any:
+                features = self.conv(x).mean(dim=2)
+                sequence = features.permute(2, 0, 1)
+                encoded, _state = self.rnn(sequence)
+                return self.out(encoded)
+
+        return _CrnnCtcModel()
+
+    @staticmethod
+    def _build_transformer_model(nn: Any, output_classes: int) -> Any:
+        class _TransformerCtcModel(nn.Module):  # type: ignore[misc]
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv = nn.Sequential(
+                    nn.Conv2d(1, 32, kernel_size=3, padding=1),
+                    nn.ReLU(),
+                    nn.MaxPool2d(2),
+                    nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                    nn.ReLU(),
+                    nn.MaxPool2d(2),
+                )
+                self.positional = nn.Parameter(
+                    # Conv/pool stack maps width 160 -> 40.
+                    importlib.import_module("torch").zeros(1, 40, 64)
+                )
+                encoder_layer = nn.TransformerEncoderLayer(
+                    d_model=64,
+                    nhead=4,
+                    dim_feedforward=128,
+                    dropout=0.0,
+                    batch_first=True,
+                )
+                self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=2)
+                self.out = nn.Linear(64, output_classes)
+
+            def forward(self, x: Any) -> Any:
+                features = self.conv(x).mean(dim=2)
+                sequence = features.permute(0, 2, 1)
+                sequence = sequence + self.positional[:, : sequence.shape[1], :]
+                encoded = self.encoder(sequence)
+                return self.out(encoded).permute(1, 0, 2)
+
+        return _TransformerCtcModel()
+
+
 def build_and_evaluate_poker_legends_number_char_recognizers(
     manifest_path: str | Path,
     *,
@@ -444,7 +702,12 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
     mlp_min_confidence: float = DEFAULT_MLP_MIN_CONFIDENCE,
     cnn_min_confidence: float = DEFAULT_CNN_MIN_CONFIDENCE,
     cnn_epochs: int = DEFAULT_CNN_EPOCHS,
+    ctc_min_confidence: float = DEFAULT_CTC_MIN_CONFIDENCE,
+    crnn_epochs: int = DEFAULT_CRNN_EPOCHS,
+    transformer_epochs: int = DEFAULT_TRANSFORMER_EPOCHS,
     enable_cnn: bool = True,
+    enable_ctc: bool = False,
+    enable_tesseract: bool = True,
 ) -> dict[str, object]:
     manifest_file = Path(manifest_path)
     output = Path(output_dir)
@@ -461,7 +724,9 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         test_frame_modulo=test_frame_modulo,
     )
     glyph_samples: list[NumberGlyphSample] = []
+    sequence_samples: list[NumberSequenceSample] = []
     row_glyphs: dict[tuple[str, NumberTextTarget], tuple[FloatImage, ...]] = {}
+    row_sequence_images: dict[tuple[str, NumberTextTarget], FloatImage] = {}
     segmentation_by_row: dict[
         tuple[str, NumberTextTarget], tuple[str, tuple[NumberCharBox, ...]]
     ] = {}
@@ -472,6 +737,18 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             if expected is None:
                 continue
             mask = _text_mask(crop, target=target)
+            sequence_image = _normalize_sequence_image(mask)
+            row_sequence_images[(row.row_id, target)] = sequence_image
+            sequence_samples.append(
+                NumberSequenceSample(
+                    target=target,
+                    frame_id=row.frame_id,
+                    row_id=row.row_id,
+                    crop_path=str(row.crop_path),
+                    text=expected,
+                    image=sequence_image,
+                )
+            )
             boxes = _segment_number_characters_from_mask(mask)
             segmentation_status = "match" if len(boxes) == len(expected) else "mismatch"
             segmentation_by_row[(row.row_id, target)] = (segmentation_status, tuple(boxes))
@@ -503,6 +780,9 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
 
     train_frame_ids = {row.frame_id for row in source_rows if row.split == "train"}
     train_samples = [sample for sample in glyph_samples if sample.frame_id in train_frame_ids]
+    train_sequence_samples = [
+        sample for sample in sequence_samples if sample.frame_id in train_frame_ids
+    ]
     template = NumberTemplateRecognizer(
         train_samples,
         glyph_root=output,
@@ -523,13 +803,34 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         if enable_cnn
         else None
     )
+    crnn = (
+        NumberTorchCtcRecognizer(
+            train_sequence_samples,
+            architecture="crnn_ctc",
+            min_confidence=ctc_min_confidence,
+            epochs=crnn_epochs,
+        )
+        if enable_ctc
+        else None
+    )
+    transformer = (
+        NumberTorchCtcRecognizer(
+            train_sequence_samples,
+            architecture="transformer_ctc",
+            min_confidence=ctc_min_confidence,
+            epochs=transformer_epochs,
+            seed=DEFAULT_CTC_SEED + 1,
+        )
+        if enable_ctc
+        else None
+    )
 
     evaluation_rows: list[_EvaluationRow] = []
     for row in source_rows:
         if row.split != "test":
             continue
         target_evaluations: list[_TargetEvaluation] = []
-        tesseract_text = _tesseract_text(row.crop_path)
+        tesseract_text = _tesseract_text(row.crop_path) if enable_tesseract else None
         for target in NUMBER_TEXT_TARGETS:
             expected = row.expected.for_target(target)
             if expected is None:
@@ -552,14 +853,29 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                 cnn_prediction = _unavailable_prediction("cnn", "disabled")
             else:
                 cnn_prediction = cnn.recognize(glyphs)
+            sequence_image = row_sequence_images[(row.row_id, target)]
+            crnn_prediction = (
+                crnn.recognize(sequence_image)
+                if crnn is not None
+                else _unavailable_prediction("crnn_ctc", "disabled")
+            )
+            transformer_prediction = (
+                transformer.recognize(sequence_image)
+                if transformer is not None
+                else _unavailable_prediction("transformer_ctc", "disabled")
+            )
             template_cnn_prediction = _template_cnn_consensus_prediction(
                 template_prediction,
                 cnn_prediction,
             )
-            tesseract_prediction = _tesseract_prediction_from_text(
-                tesseract_text,
-                target=target,
-                is_stack=_is_stack_row(row),
+            tesseract_prediction = (
+                _tesseract_prediction_from_text(
+                    tesseract_text,
+                    target=target,
+                    is_stack=_is_stack_row(row),
+                )
+                if tesseract_text is not None
+                else _unavailable_prediction("tesseract", "disabled")
             )
             target_evaluations.append(
                 _TargetEvaluation(
@@ -570,6 +886,8 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                     template=template_prediction,
                     opencv_mlp=mlp_prediction,
                     cnn=cnn_prediction,
+                    crnn_ctc=crnn_prediction,
+                    transformer_ctc=transformer_prediction,
                     template_cnn=template_cnn_prediction,
                     tesseract=tesseract_prediction,
                 )
@@ -601,6 +919,22 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             cnn_epochs=cnn_epochs,
             cnn_min_confidence=cnn_min_confidence,
         )
+        target_summary["crnn_ctc"] = _ctc_summary_for_target(
+            target_summary,
+            key="crnn_ctc",
+            recognizer=crnn,
+            enable_ctc=enable_ctc,
+            epochs=crnn_epochs,
+            min_confidence=ctc_min_confidence,
+        )
+        target_summary["transformer_ctc"] = _ctc_summary_for_target(
+            target_summary,
+            key="transformer_ctc",
+            recognizer=transformer,
+            enable_ctc=enable_ctc,
+            epochs=transformer_epochs,
+            min_confidence=ctc_min_confidence,
+        )
 
     summary: dict[str, object] = {
         "schema_version": 1,
@@ -612,12 +946,19 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "mlp_min_confidence": mlp_min_confidence,
         "cnn_min_confidence": cnn_min_confidence,
         "cnn_epochs": cnn_epochs,
+        "ctc_min_confidence": ctc_min_confidence,
+        "crnn_epochs": crnn_epochs,
+        "transformer_epochs": transformer_epochs,
         "enable_cnn": enable_cnn,
+        "enable_ctc": enable_ctc,
+        "enable_tesseract": enable_tesseract,
         "rows": len(source_rows),
         "train_rows": len([row for row in source_rows if row.split == "train"]),
         "test_rows": len(evaluation_rows),
         "glyph_samples": len(glyph_samples),
         "train_glyph_samples": len(train_samples),
+        "sequence_samples": len(sequence_samples),
+        "train_sequence_samples": len(train_sequence_samples),
         "target_glyph_samples": dict(
             sorted(Counter(sample.target for sample in glyph_samples).items())
         ),
@@ -631,6 +972,8 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "template_cnn": target_summaries["base"]["template_cnn"],
         "tesseract": target_summaries["base"]["tesseract"],
         "cnn": cnn_summary,
+        "crnn_ctc": target_summaries["base"]["crnn_ctc"],
+        "transformer_ctc": target_summaries["base"]["transformer_ctc"],
         "evaluation_rows": [
             _evaluation_row_to_dict(row, output, preview_crop_dir) for row in evaluation_rows
         ],
@@ -707,7 +1050,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mlp-min-confidence", type=float, default=DEFAULT_MLP_MIN_CONFIDENCE)
     parser.add_argument("--cnn-min-confidence", type=float, default=DEFAULT_CNN_MIN_CONFIDENCE)
     parser.add_argument("--cnn-epochs", type=int, default=DEFAULT_CNN_EPOCHS)
+    parser.add_argument("--ctc-min-confidence", type=float, default=DEFAULT_CTC_MIN_CONFIDENCE)
+    parser.add_argument("--crnn-epochs", type=int, default=DEFAULT_CRNN_EPOCHS)
+    parser.add_argument("--transformer-epochs", type=int, default=DEFAULT_TRANSFORMER_EPOCHS)
     parser.add_argument("--disable-cnn", action="store_true")
+    parser.add_argument("--enable-ctc", action="store_true")
+    parser.add_argument("--disable-tesseract", action="store_true")
     return parser
 
 
@@ -723,7 +1071,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         mlp_min_confidence=args.mlp_min_confidence,
         cnn_min_confidence=args.cnn_min_confidence,
         cnn_epochs=args.cnn_epochs,
+        ctc_min_confidence=args.ctc_min_confidence,
+        crnn_epochs=args.crnn_epochs,
+        transformer_epochs=args.transformer_epochs,
         enable_cnn=not args.disable_cnn,
+        enable_ctc=args.enable_ctc,
+        enable_tesseract=not args.disable_tesseract,
     )
     print(json.dumps(_stdout_summary(summary), indent=2, sort_keys=True))
 
@@ -856,6 +1209,29 @@ def _normalize_glyph(mask: GrayImage, box: NumberCharBox) -> FloatImage:
     resized = cv2.resize(crop, (width, height), interpolation=cv2.INTER_AREA)
     x = (DEFAULT_GLYPH_WIDTH - width) // 2
     y = (DEFAULT_GLYPH_HEIGHT - height) // 2
+    canvas[y : y + height, x : x + width] = resized
+    return cast(FloatImage, canvas.astype(np.float32) / 255.0)
+
+
+def _normalize_sequence_image(mask: GrayImage) -> FloatImage:
+    canvas = np.zeros((DEFAULT_SEQUENCE_HEIGHT, DEFAULT_SEQUENCE_WIDTH), dtype=np.uint8)
+    ys, xs = np.where(mask > 0)
+    if len(xs) == 0 or len(ys) == 0:
+        return cast(FloatImage, canvas.astype(np.float32) / 255.0)
+    x1 = max(0, int(xs.min()) - 2)
+    x2 = min(mask.shape[1], int(xs.max()) + 3)
+    y1 = max(0, int(ys.min()) - 2)
+    y2 = min(mask.shape[0], int(ys.max()) + 3)
+    crop = mask[y1:y2, x1:x2]
+    scale = min(
+        (DEFAULT_SEQUENCE_WIDTH - 4) / max(1, crop.shape[1]),
+        (DEFAULT_SEQUENCE_HEIGHT - 4) / max(1, crop.shape[0]),
+    )
+    width = max(1, int(round(crop.shape[1] * scale)))
+    height = max(1, int(round(crop.shape[0] * scale)))
+    resized = cv2.resize(crop, (width, height), interpolation=cv2.INTER_AREA)
+    x = 2
+    y = (DEFAULT_SEQUENCE_HEIGHT - height) // 2
     canvas[y : y + height, x : x + width] = resized
     return cast(FloatImage, canvas.astype(np.float32) / 255.0)
 
@@ -1021,6 +1397,8 @@ def _target_summaries(
             "template": _method_summary(evaluations, "template"),
             "opencv_mlp": _method_summary(evaluations, "opencv_mlp"),
             "cnn": _method_summary(evaluations, "cnn"),
+            "crnn_ctc": _method_summary(evaluations, "crnn_ctc"),
+            "transformer_ctc": _method_summary(evaluations, "transformer_ctc"),
             "template_cnn": _method_summary(evaluations, "template_cnn"),
             "tesseract": _method_summary(evaluations, "tesseract"),
         }
@@ -1046,6 +1424,29 @@ def _cnn_summary_for_target(
         summary["status"] = "trained"
         summary["epochs"] = cnn_epochs
         summary["min_confidence"] = cnn_min_confidence
+    return summary
+
+
+def _ctc_summary_for_target(
+    target_summary: Mapping[str, object],
+    *,
+    key: SequenceArchitecture,
+    recognizer: NumberTorchCtcRecognizer | None,
+    enable_ctc: bool,
+    epochs: int,
+    min_confidence: float,
+) -> dict[str, object]:
+    summary = dict(cast(Mapping[str, object], target_summary[key]))
+    if not enable_ctc:
+        summary["status"] = "not_run"
+        summary["reason"] = "disabled"
+    elif recognizer is None or not recognizer.available:
+        summary["status"] = "not_run"
+        summary["reason"] = recognizer.reason if recognizer is not None else "disabled"
+    else:
+        summary["status"] = "trained"
+        summary["epochs"] = epochs
+        summary["min_confidence"] = min_confidence
     return summary
 
 
@@ -1095,6 +1496,10 @@ def _prediction_for_target_method(
         return row.opencv_mlp
     if method == "cnn":
         return row.cnn
+    if method == "crnn_ctc":
+        return row.crnn_ctc
+    if method == "transformer_ctc":
+        return row.transformer_ctc
     if method == "template_cnn":
         return row.template_cnn
     return row.tesseract
@@ -1161,6 +1566,8 @@ def _target_evaluation_to_dict(row: _TargetEvaluation) -> dict[str, object]:
         "template": row.template.to_dict(),
         "opencv_mlp": row.opencv_mlp.to_dict(),
         "cnn": row.cnn.to_dict(),
+        "crnn_ctc": row.crnn_ctc.to_dict(),
+        "transformer_ctc": row.transformer_ctc.to_dict(),
         "template_cnn": row.template_cnn.to_dict(),
         "tesseract": row.tesseract.to_dict(),
     }
@@ -1193,6 +1600,9 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
                 f"- Segmentation: {target_summary['segmentation']}",
                 f"- Template: {_compact_method_summary(target_summary['template'])}",
                 f"- CNN: {_compact_method_summary(target_summary['cnn'])}",
+                f"- CRNN+CTC: {_compact_method_summary(target_summary['crnn_ctc'])}",
+                f"- Transformer+CTC: "
+                f"{_compact_method_summary(target_summary['transformer_ctc'])}",
                 f"- Template+CNN consensus: "
                 f"{_compact_method_summary(target_summary['template_cnn'])}",
                 f"- OpenCV MLP: {_compact_method_summary(target_summary['opencv_mlp'])}",
@@ -1206,8 +1616,8 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
             "- `base` is the white available-stack text.",
             "- `overlay` is the cyan plus/current-bet text.",
             "- `display` is the combined visible stack string.",
-            "- Template, CNN, and OpenCV MLP are offline prototypes and are not connected "
-            "to runtime.",
+            "- Template, CNN, CRNN+CTC, Transformer+CTC, and OpenCV MLP are offline "
+            "prototypes and are not connected to runtime.",
             "- CNN uses PyTorch and trains on the generated train split only.",
             "- Accepted predictions are thresholded; accepted_wrong must stay at zero before "
             "any runtime use.",
@@ -1294,6 +1704,8 @@ def _target_summary_html(summary: Mapping[str, object]) -> str:
             "<li>"
             f"<strong>{html.escape(target)}</strong>: "
             f"seg={html.escape(str(target_summary['segmentation']))}; "
+            f"CRNN={html.escape(_compact_method_summary(target_summary['crnn_ctc']))}; "
+            f"TxCTC={html.escape(_compact_method_summary(target_summary['transformer_ctc']))}; "
             f"CNN={html.escape(_compact_method_summary(target_summary['cnn']))}; "
             f"T+CNN={html.escape(_compact_method_summary(target_summary['template_cnn']))}; "
             f"Template={html.escape(_compact_method_summary(target_summary['template']))}; "
@@ -1323,6 +1735,9 @@ def _target_review_md(value: object) -> str:
     return "<br>".join(
         [
             f"seg: `{value.get('segmentation_status')}`",
+            f"crnn: {_review_prediction_md(cast(Mapping[str, object], value['crnn_ctc']))}",
+            "txctc: "
+            f"{_review_prediction_md(cast(Mapping[str, object], value['transformer_ctc']))}",
             f"cnn: {_review_prediction_md(cast(Mapping[str, object], value['cnn']))}",
             "t+cnn: "
             f"{_review_prediction_md(cast(Mapping[str, object], value['template_cnn']))}",
@@ -1338,6 +1753,10 @@ def _target_review_html(value: object) -> str:
     return (
         "<div><strong>seg</strong>: "
         f"<code>{html.escape(str(value.get('segmentation_status')))}</code></div>"
+        "<div><strong>crnn</strong>: "
+        f"{_review_prediction_html(cast(Mapping[str, object], value['crnn_ctc']))}</div>"
+        "<div><strong>txctc</strong>: "
+        f"{_review_prediction_html(cast(Mapping[str, object], value['transformer_ctc']))}</div>"
         "<div><strong>cnn</strong>: "
         f"{_review_prediction_html(cast(Mapping[str, object], value['cnn']))}</div>"
         "<div><strong>t+cnn</strong>: "
@@ -1389,6 +1808,8 @@ def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
         "segmentation": summary["segmentation"],
         "template": summary["template"],
         "cnn": summary["cnn"],
+        "crnn_ctc": summary["crnn_ctc"],
+        "transformer_ctc": summary["transformer_ctc"],
         "template_cnn": summary["template_cnn"],
         "opencv_mlp": summary["opencv_mlp"],
         "tesseract": summary["tesseract"],

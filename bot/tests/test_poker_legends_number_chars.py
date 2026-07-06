@@ -55,6 +55,9 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
         output_dir=tmp_path / "chars",
         test_frame_modulo=2,
         cnn_epochs=2,
+        crnn_epochs=1,
+        transformer_epochs=1,
+        enable_ctc=True,
     )
 
     assert summary["rows"] == 4
@@ -71,6 +74,8 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
     assert cast(dict[str, Any], base["opencv_mlp"])["evaluated"] == 2
     assert cast(dict[str, Any], base["cnn"])["status"] == "trained"
     assert cast(dict[str, Any], base["cnn"])["evaluated"] == 2
+    assert cast(dict[str, Any], base["crnn_ctc"])["status"] == "trained"
+    assert cast(dict[str, Any], base["transformer_ctc"])["status"] == "trained"
     assert cast(dict[str, Any], base["template_cnn"])["evaluated"] == 2
     assert (tmp_path / "chars" / "number_char_recognizer_summary.json").exists()
     assert (tmp_path / "chars" / "number_char_recognizer_report.md").exists()

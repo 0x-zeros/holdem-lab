@@ -608,6 +608,16 @@
   display 273 行/57 test，seg 0.601，CNN/template/template+CNN exact 27/57、accepted 27/57、wrong 0。
   结论：component split 解决了“加号后数字完全没评估”的问题；完整 display 的主要瓶颈是分割覆盖，
   runtime 前仍应优先使用结构化 base+overlay observation，再由规则/seat committed 校验组合语义。
+- 阶段 4 Poker Legends number char recognizer prototype v4（CRNN/Transformer CTC 技术选型）：按
+  “绕过字符分割”的思路，新增两个显式 opt-in 离线序列 OCR baseline：`crnn_ctc` 与
+  `transformer_ctc`，都吃整段 target mask（32x160）并用 CTC 输出可变长字符串；默认不跑，避免日常
+  报告被序列训练拖慢。快速试验命令为 `--enable-ctc --disable-tesseract --crnn-epochs 12
+  --transformer-epochs 12`，报告在
+  `artifacts/poker-legends-videos/number_char_sequence_v1/number_char_recognizer_report.md`。结果不佳：
+  CRNN 在 base/display/overlay 全部 blank decode（0 accepted）；Transformer base/display raw exact
+  3/57、overlay 0/24，且 0 accepted。结论：CRNN/Transformer CTC 技术路线可以继续作为后续研究项，
+  但当前轻量实现和小数据规模下明显不如 segmentation+CNN/template；近期不应替代现有 component
+  CNN/template pipeline，除非先完成数据清洗、mask/box 可视化和更系统的序列模型调参。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
