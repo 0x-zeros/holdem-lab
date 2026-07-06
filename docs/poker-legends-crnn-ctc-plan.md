@@ -76,6 +76,41 @@ The harness must include:
 
 No blank-collapse result on the real dataset is meaningful until this harness passes.
 
+Implementation anchor:
+
+```bash
+uv run holdem-bot-run-poker-legends-ctc-sanity \
+  --out artifacts/poker-legends-videos/ctc_sanity_v1 \
+  --target base \
+  --target overlay \
+  --synthetic-count 1000 \
+  --epochs 120
+```
+
+The harness is offline-only. It writes `ctc_sanity_summary.json`, records the
+too-short `$1000` failure case, checks `(T, N, C)` CTC logit layout, checks
+`T >= required_ctc_length * 2`, and reports overfit exact/accepted metrics. A small
+smoke run may legitimately report `passed=false`; that is useful only to verify the
+command and artifact path. A real P0 pass requires the configured overfit run to
+reach near-100% exact with `accepted_wrong = 0`.
+
+For reviewed real crops:
+
+```bash
+uv run holdem-bot-run-poker-legends-ctc-sanity \
+  --manifest artifacts/.../number_crop_dataset_manifest.json \
+  --out artifacts/poker-legends-videos/ctc_sanity_real_v1 \
+  --target base \
+  --target overlay \
+  --real-count 20 \
+  --synthetic-count 1000 \
+  --epochs 120
+```
+
+The manifest passed here must already be reviewed clean / labeled-visible. The
+runner does not promote manifest truth into runtime OCR and does not authorize click
+planning.
+
 ### 1. Data Labels
 
 Before serious training, the dataset must distinguish:

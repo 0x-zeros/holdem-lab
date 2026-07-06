@@ -19,6 +19,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 from holdem_bot.vision import poker_legends_numbers
+from holdem_bot.vision.poker_legends_ctc import (
+    CtcAlphabet,
+    CtcTimeStepBudget,
+    ctc_time_step_budget,
+    validate_ctc_log_probs_shape,
+)
 
 RgbImage = NDArray[np.uint8]
 GrayImage = NDArray[np.uint8]
@@ -36,6 +42,7 @@ DEFAULT_CNN_EPOCHS = 60
 DEFAULT_CNN_BATCH_SIZE = 64
 DEFAULT_CNN_SEED = 1729
 DEFAULT_CTC_MIN_CONFIDENCE = 0.80
+DEFAULT_CTC_MIN_TIMESTEP_RATIO = 2.0
 DEFAULT_CRNN_EPOCHS = 12
 DEFAULT_TRANSFORMER_EPOCHS = 12
 DEFAULT_CTC_BATCH_SIZE = 32
@@ -477,13 +484,13 @@ class NumberTorchCtcRecognizer:
         self.epochs = max(1, epochs)
         self.batch_size = max(1, batch_size)
         self.seed = seed
-        self._labels = tuple(sorted({char for sample in samples for char in sample.text}))
-        self._label_to_index = {label: index + 1 for index, label in enumerate(self._labels)}
-        self._index_to_label = {index + 1: label for index, label in enumerate(self._labels)}
-        self._blank_index = 0
+        self._alphabet = CtcAlphabet.from_texts(sample.text for sample in samples)
+        self._labels = self._alphabet.labels
         self._torch: Any | None = None
         self._model: Any | None = None
         self._reason = "untrained"
+        self._input_time_steps: int | None = None
+        self._time_step_budgets: tuple[CtcTimeStepBudget, ...] = ()
         self._train(samples)
 
     @property
@@ -493,6 +500,31 @@ class NumberTorchCtcRecognizer:
     @property
     def reason(self) -> str:
         return self._reason
+
+    @property
+    def time_step_budget_summary(self) -> dict[str, object]:
+        if not self._time_step_budgets:
+            return {
+                "input_timesteps": self._input_time_steps,
+                "checked": 0,
+                "failed": 0,
+            }
+        ratios = [budget.ratio for budget in self._time_step_budgets if math.isfinite(budget.ratio)]
+        failed = [budget for budget in self._time_step_budgets if not budget.valid]
+        max_required = max(budget.required_timesteps for budget in self._time_step_budgets)
+        max_target_length = max(budget.target_length for budget in self._time_step_budgets)
+        return {
+            "input_timesteps": self._input_time_steps,
+            "min_ratio": DEFAULT_CTC_MIN_TIMESTEP_RATIO,
+            "checked": len(self._time_step_budgets),
+            "failed": len(failed),
+            "max_required_timesteps": max_required,
+            "max_target_length": max_target_length,
+            "min_observed_ratio": min(ratios) if ratios else None,
+            "failed_examples": [
+                budget.to_dict() for budget in sorted(failed, key=lambda item: item.ratio)[:5]
+            ],
+        }
 
     def recognize(self, image: FloatImage) -> StringPrediction:
         if image.size == 0:
@@ -551,7 +583,7 @@ class NumberTorchCtcRecognizer:
             return
         encoded_samples: list[tuple[FloatImage, list[int]]] = []
         for sample in samples:
-            encoded = [self._label_to_index[char] for char in sample.text]
+            encoded = list(self._alphabet.encode(sample.text))
             if encoded:
                 encoded_samples.append((sample.image, encoded))
         if len(encoded_samples) < 2:
@@ -565,10 +597,30 @@ class NumberTorchCtcRecognizer:
             else self._build_transformer_model(nn_module, len(self._labels) + 1)
         )
         optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001)
-        criterion = nn.CTCLoss(blank=self._blank_index, zero_infinity=True)
         images = np.stack([sample[0] for sample in encoded_samples]).astype(np.float32)
         targets = [sample[1] for sample in encoded_samples]
         x = torch.from_numpy(images[:, None, :, :])
+        with torch.inference_mode():
+            sample_logits = model(x[:1])
+        shape = validate_ctc_log_probs_shape(
+            tuple(int(value) for value in sample_logits.shape),
+            batch_size=1,
+            class_count=self._alphabet.class_count,
+        )
+        self._input_time_steps = shape.timesteps
+        self._time_step_budgets = tuple(
+            ctc_time_step_budget(
+                sample.text,
+                input_timesteps=shape.timesteps,
+                min_ratio=DEFAULT_CTC_MIN_TIMESTEP_RATIO,
+            )
+            for sample in samples
+            if sample.text
+        )
+        if any(not budget.valid for budget in self._time_step_budgets):
+            self._reason = "ctc_time_budget_failed"
+            return
+        criterion = nn.CTCLoss(blank=self._alphabet.blank_index, zero_infinity=False)
         model.train()
         for _epoch in range(self.epochs):
             order = torch.randperm(x.shape[0])
@@ -584,6 +636,11 @@ class NumberTorchCtcRecognizer:
                     dtype=torch.long,
                 )
                 logits = model(x[batch_index])
+                validate_ctc_log_probs_shape(
+                    tuple(int(value) for value in logits.shape),
+                    batch_size=len(batch_targets),
+                    class_count=self._alphabet.class_count,
+                )
                 log_probs = torch.log_softmax(logits, dim=2)
                 input_lengths = torch.full(
                     size=(len(batch_targets),),
@@ -606,22 +663,11 @@ class NumberTorchCtcRecognizer:
         steps = probabilities[:, 0, :]
         indices = np.argmax(steps, axis=1)
         top_probabilities = np.max(steps, axis=1)
-        labels: list[str] = []
-        confidences: list[float] = []
-        previous = self._blank_index
-        for index, confidence in zip(indices, top_probabilities, strict=True):
-            index_int = int(index)
-            if index_int == self._blank_index:
-                previous = index_int
-                continue
-            if index_int == previous:
-                continue
-            label = self._index_to_label.get(index_int)
-            if label is not None:
-                labels.append(label)
-                confidences.append(float(confidence))
-            previous = index_int
-        return "".join(labels), confidences
+        text, confidences = self._alphabet.greedy_decode(
+            [int(index) for index in indices],
+            [float(confidence) for confidence in top_probabilities],
+        )
+        return text, list(confidences)
 
     @staticmethod
     def _build_crnn_model(nn: Any, output_classes: int) -> Any:
@@ -1440,13 +1486,18 @@ def _ctc_summary_for_target(
     if not enable_ctc:
         summary["status"] = "not_run"
         summary["reason"] = "disabled"
-    elif recognizer is None or not recognizer.available:
+    elif recognizer is None:
         summary["status"] = "not_run"
-        summary["reason"] = recognizer.reason if recognizer is not None else "disabled"
+        summary["reason"] = "disabled"
+    elif not recognizer.available:
+        summary["status"] = "not_run"
+        summary["reason"] = recognizer.reason
+        summary["time_step_budget"] = recognizer.time_step_budget_summary
     else:
         summary["status"] = "trained"
         summary["epochs"] = epochs
         summary["min_confidence"] = min_confidence
+        summary["time_step_budget"] = recognizer.time_step_budget_summary
     return summary
 
 

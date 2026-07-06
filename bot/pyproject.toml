@@ -25,6 +25,7 @@ holdem-bot-evaluate-poker-legends-numbers = "holdem_bot.vision.poker_legends_num
 holdem-bot-build-poker-legends-number-crops = "holdem_bot.vision.poker_legends_numbers:crop_dataset_main"
 holdem-bot-evaluate-poker-legends-number-crops = "holdem_bot.vision.poker_legends_numbers:crop_ocr_main"
 holdem-bot-evaluate-poker-legends-number-chars = "holdem_bot.vision.poker_legends_number_chars:main"
+holdem-bot-run-poker-legends-ctc-sanity = "holdem_bot.vision.poker_legends_ctc_sanity:main"
 holdem-bot-build-poker-legends-card-part-templates = "holdem_bot.vision.poker_legends_card_parts:main"
 holdem-bot-build-poker-legends-card-templates = "holdem_bot.vision.poker_legends_cards:main"
 holdem-bot-build-poker-legends-button-templates = "holdem_bot.vision.poker_legends_buttons:main"

@@ -75,6 +75,16 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
     assert cast(dict[str, Any], base["cnn"])["status"] == "trained"
     assert cast(dict[str, Any], base["cnn"])["evaluated"] == 2
     assert cast(dict[str, Any], base["crnn_ctc"])["status"] == "trained"
+    assert cast(dict[str, Any], base["crnn_ctc"])["time_step_budget"] == {
+        "checked": 4,
+        "failed": 0,
+        "failed_examples": [],
+        "input_timesteps": 40,
+        "max_required_timesteps": 4,
+        "max_target_length": 4,
+        "min_observed_ratio": 10.0,
+        "min_ratio": 2.0,
+    }
     assert cast(dict[str, Any], base["transformer_ctc"])["status"] == "trained"
     assert cast(dict[str, Any], base["template_cnn"])["evaluated"] == 2
     assert (tmp_path / "chars" / "number_char_recognizer_summary.json").exists()
