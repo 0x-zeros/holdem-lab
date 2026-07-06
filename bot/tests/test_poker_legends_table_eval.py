@@ -646,6 +646,39 @@ def test_table_eval_reports_shadow_number_predictions(
         "raw:numbers.hero_stack:base_number:mismatch": 1,
         "raw:numbers.hero_stack:total_number:match": 1,
     }
+    assert summary["shadow_number_review_rows_count"] == 0
+    assert summary["shadow_number_review_by_flag"] == {}
+
+
+def test_shadow_number_review_flags_cover_mismatch_and_rejection() -> None:
+    row = {
+        "frame_id": "frame_001",
+        "shadow_number_predictions": [
+            {
+                "accepted": False,
+                "group": "texts",
+                "name": "hero_stack",
+                "raw": "$399+5",
+                "reason": "display_only_review",
+            }
+        ],
+        "accepted_shadow_number_predictions": [],
+        "shadow_number_truth_evaluations": [
+            {
+                "prediction_set": "raw",
+                "field_path": "numbers.hero_stack",
+                "expected": 399,
+                "predicted": 404,
+                "status": "mismatch",
+            }
+        ],
+    }
+
+    assert poker_legends_table_eval._shadow_number_review_flags(row) == [
+        "shadow_no_accepted_predictions",
+        "shadow_raw_truth_mismatch",
+        "shadow_rejected:display_only_review",
+    ]
 
 
 class FakeRecognizer:

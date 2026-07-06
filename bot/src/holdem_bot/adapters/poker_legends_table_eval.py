@@ -259,6 +259,7 @@ def evaluate_poker_legends_table_recognizer(
 
     review_queue = _review_queue_rows(rows)
     number_readiness_rows = _number_readiness_rows(rows)
+    shadow_number_review_rows = _shadow_number_review_rows(rows)
     summary: dict[str, object] = {
         "schema_version": 1,
         "frames": len(rows),
@@ -341,6 +342,11 @@ def evaluate_poker_legends_table_recognizer(
             rows,
             field_name="number_readiness_flags",
         ),
+        "shadow_number_review_rows_count": len(shadow_number_review_rows),
+        "shadow_number_review_by_flag": _rows_by_string_field(
+            shadow_number_review_rows,
+            field_name="shadow_number_review_flags",
+        ),
         "action_panel_flag_counts": dict(sorted(action_panel_flag_counts.items())),
         "blocking_action_panel_flag_counts": dict(
             sorted(blocking_action_panel_flag_counts.items())
@@ -380,6 +386,14 @@ def evaluate_poker_legends_table_recognizer(
     )
     (output / "table_recognizer_number_readiness_rows.json").write_text(
         json.dumps(number_readiness_rows, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_shadow_number_review_by_flag.json").write_text(
+        json.dumps(summary["shadow_number_review_by_flag"], indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_shadow_number_review_rows.json").write_text(
+        json.dumps(shadow_number_review_rows, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     _write_report(output / "table_recognizer_report.md", summary)
@@ -1065,6 +1079,58 @@ def _number_readiness_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[st
     return readiness_rows
 
 
+def _shadow_number_review_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    review_rows: list[dict[str, object]] = []
+    for row in rows:
+        flags = _shadow_number_review_flags(row)
+        if not flags:
+            continue
+        review_rows.append(
+            {
+                "frame_id": row.get("frame_id"),
+                "result": row.get("result"),
+                "truth_screen_kind": row.get("truth_screen_kind"),
+                "screen_kind": row.get("screen_kind"),
+                "truth_path": row.get("truth_path"),
+                "layout_annotation_path": row.get("layout_annotation_path"),
+                "shadow_number_review_flags": flags,
+                "shadow_number_predictions": _row_mappings(
+                    row.get("shadow_number_predictions")
+                ),
+                "accepted_shadow_number_predictions": _row_mappings(
+                    row.get("accepted_shadow_number_predictions")
+                ),
+                "shadow_number_truth_evaluations": _row_mappings(
+                    row.get("shadow_number_truth_evaluations")
+                ),
+                "shadow_number_component_truth_evaluations": _row_mappings(
+                    row.get("shadow_number_component_truth_evaluations")
+                ),
+            }
+        )
+    return review_rows
+
+
+def _shadow_number_review_flags(row: Mapping[str, object]) -> list[str]:
+    flags: list[str] = []
+    shadow_predictions = _row_mappings(row.get("shadow_number_predictions"))
+    accepted_predictions = _row_mappings(row.get("accepted_shadow_number_predictions"))
+    if shadow_predictions and not accepted_predictions:
+        flags.append("shadow_no_accepted_predictions")
+    for evaluation in _row_mappings(row.get("shadow_number_truth_evaluations")):
+        if evaluation.get("status") == "match":
+            continue
+        prediction_set = _optional_str(evaluation.get("prediction_set")) or "unknown"
+        flags.append(f"shadow_{prediction_set}_truth_mismatch")
+    for prediction in shadow_predictions:
+        if prediction.get("accepted") is True:
+            continue
+        reason = _optional_str(prediction.get("reason"))
+        if reason:
+            flags.append(f"shadow_rejected:{reason}")
+    return sorted(set(flags))
+
+
 def _review_queue_tag_counts(rows: list[dict[str, object]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in rows:
@@ -1335,6 +1401,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Accepted critical wrong count: {summary.get('accepted_critical_wrong_count', 0)}",
         f"- Review queue frames: {summary.get('review_queue_frames', 0)}",
         f"- Number readiness rows: {summary.get('number_readiness_rows_count', 0)}",
+        f"- Shadow number review rows: {summary.get('shadow_number_review_rows_count', 0)}",
         "",
         "## Recognition Mode Counts",
         "",
@@ -1411,6 +1478,14 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Accepted Shadow Number Prediction Confidence Counts",
         "",
         *_count_lines(summary.get("accepted_shadow_number_prediction_confidence_counts")),
+        "",
+        "## Shadow Number Review By Flag",
+        "",
+        *_frame_list_lines(summary.get("shadow_number_review_by_flag")),
+        "",
+        "## Shadow Number Review Details",
+        "",
+        *_shadow_number_review_detail_lines(summary.get("rows")),
         "",
         "## Number Readiness Details",
         "",
@@ -1607,6 +1682,39 @@ def _number_readiness_detail_lines(rows: Sequence[Mapping[str, object]]) -> list
             f"{_number_detail_summary(row.get('accepted_number_predictions'))} |"
         )
     return lines
+
+
+def _shadow_number_review_detail_lines(value: object) -> list[str]:
+    rows = _shadow_number_review_rows(_row_mappings(value))
+    if not rows:
+        return ["- none"]
+    lines = [
+        "| Frame | Shadow Flags | Shadow Numbers | Accepted Shadow Numbers | Truth Eval |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for row in rows:
+        lines.append(
+            "| "
+            f"`{row.get('frame_id')}` | "
+            f"{_inline_codes(row.get('shadow_number_review_flags'))} | "
+            f"{_number_detail_summary(row.get('shadow_number_predictions'))} | "
+            f"{_number_detail_summary(row.get('accepted_shadow_number_predictions'))} | "
+            f"{_shadow_truth_eval_summary(row.get('shadow_number_truth_evaluations'))} |"
+        )
+    return lines
+
+
+def _shadow_truth_eval_summary(value: object) -> str:
+    parts: list[str] = []
+    for evaluation in _row_mappings(value):
+        parts.append(
+            "`"
+            f"{evaluation.get('prediction_set')}:{evaluation.get('field_path')}:"
+            f"{evaluation.get('status')} expected={evaluation.get('expected')} "
+            f"predicted={evaluation.get('predicted')} raw={evaluation.get('raw')}"
+            "`"
+        )
+    return "<br>".join(parts) if parts else "none"
 
 
 def _number_truth_mismatch_lines(value: object) -> list[str]:

@@ -129,6 +129,21 @@ Shadow truth comparison for `hero_stack`:
 - accepted total-number component: 51/51 match; base-number matches only 30/51 because
   reviewed stack truth sometimes represents the displayed total (`base + overlay`).
 
+The table recognizer also writes focused review queues for shadow-number issues:
+
+- `table_recognizer_shadow_number_review_rows.json`
+- `table_recognizer_shadow_number_review_by_flag.json`
+
+Current queue on both truth-assisted and image-only reports:
+
+- 2 review rows out of 119 frames.
+- `session_002__keyframe_000047`: no accepted shadow prediction; raw predictions are
+  rejected by component disagreement and mismatch polluted reviewed truth (`$43,044`).
+- `session_002__keyframe_000369`: raw shadow sees `$399+5`, but it is tagged
+  `display_only_review` and deliberately not accepted into the shadow accepted set.
+  This is a coverage issue for future structured `base + overlay` promotion, not an
+  accepted-wrong issue.
+
 ### CRNN+CTC and Transformer+CTC Prototype
 
 Both sequence OCR variants were added as opt-in offline baselines.

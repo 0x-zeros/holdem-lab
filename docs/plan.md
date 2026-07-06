@@ -235,6 +235,16 @@
   replay dry-run 与 live HUD 连续帧路径：默认需要 2 帧当前窗口稳定后才把 `single_frame_valid` 升级为
   `temporally_stable_valid`，overlay clear / 新手牌边界会重新稳定，旧 stable state 不会授权当前行动。
   仍然只做 dry-run / overlay，不做真实点击。
+- 阶段 4 Poker Legends number OCR shadow reporting v1：在 CRNN/CTC 原型未收敛后，当前回到
+  CNN/template 组件路线提升覆盖。已把 component `base` / `overlay` / `display` 输出作为 table
+  recognizer 的 shadow evidence 接入报告，只写入 `shadow_number_predictions` /
+  `accepted_shadow_number_predictions` 和 artifact，不进入 `RecognizedTable`、`GameState`、
+  accepted critical field、AI 决策或点击授权。119 帧 reviewed manifest 上 truth-assisted 与
+  image-only report 均为 shadow raw 57、shadow accepted 51、accepted shadow truth mismatch 0；
+  新增 shadow-number review queue 只剩 2 行：`session_002__keyframe_000047` 为已知 truth/ROI 污染，
+  `session_002__keyframe_000369` 为 `$399+5` display-only coverage 问题。产物见
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
+  `.../table_recognizer_number_shadow_image_only_v1/`。
 - 阶段 3/4 AI heuristic v1：`holdem_ai.decide(state) -> Action` 入口保持不变，新增
   `explain_decision(state) -> PolicyDecision`，供 bot/dry-run 审计策略理由。策略评分从原先只看私牌
   扩展为可解释手牌评估：成牌类型、flush/straight/combo draw、估算 outs、pot odds、位置 bonus、
