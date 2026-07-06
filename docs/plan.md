@@ -564,6 +564,16 @@
   （accepted_unlabeled 28、mismatch_labeled 9）。结论：当前 Tesseract 仍只适合作离线 baseline；
   下一步应针对 stack overlay 样本补 human-reviewed 标签/专门字符 OCR，而不是把 accepted_unlabeled
   接入 runtime。
+- 阶段 4 Poker Legends number crop review refinement v1：第二轮人工复核确认 `mismatch_labeled`
+  的 ROI 本身可用，错误主要来自 Tesseract raw OCR（例如 `$1000` 被读成带额外前后缀/`m` 后缀）；
+  `accepted_unlabeled` 中一批 right-top stack 变体左侧裁掉 `$`，不应继续作为 accepted 样本。
+  因此 dataset 不再导出 `right_top_stack_trim_left_16`，stack overlay OCR 若缺 `$` 也不再通过
+  `_is_safe_stack_variant`。新真实数据集 `/tmp/poker-legends-number-crop-dataset-v7`：119 帧、
+  714 crops、431 labeled crops，字段分布为 `hero_stack` 357、`right_top_stack` 238、`pot` 119。
+  120-crop smoke `/tmp/poker-legends-number-crop-ocr-review-refined-sample-v1`：labeled 30、
+  raw accuracy 0.700、accepted labeled 19、accepted precision 1.000、accepted wrong 0、review queue
+  34（accepted_unlabeled 25、mismatch_labeled 9）。结论不变：ROI 层已能筛掉明显不安全变体；
+  剩余 `mismatch_labeled` 是 OCR 能力问题，应转向专门字符/template OCR，而不是继续放宽 Tesseract。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

@@ -193,7 +193,17 @@ def test_poker_legends_number_crop_dataset_defaults_skip_unstable_numeric_source
     assert "texts:hero_current_bet" not in field_counts
     assert field_counts["texts:hero_stack"] == 3
     assert field_counts["texts:pot"] == 1
-    assert field_counts["texts:right_top_stack"] == 3
+    assert field_counts["texts:right_top_stack"] == 2
+
+
+def test_right_top_stack_dataset_does_not_export_left_trim_variant() -> None:
+    specs = poker_legends_numbers._dataset_crop_specs_for_region(
+        poker_legends_numbers.ScreenRect(972, 300, 160, 58),
+        group="texts",
+        name="right_top_stack",
+    )
+
+    assert {spec.variant for spec in specs} == {"default", "right_top_stack_no_pad"}
 
 
 def test_poker_legends_number_crop_ocr_evaluator_reports_variant_stats(
@@ -410,6 +420,15 @@ def test_hero_current_bet_confidence_rejects_tiny_false_positives() -> None:
             numbers=(5,),
         )
         == 0.90
+    )
+
+
+def test_stack_variant_acceptance_requires_currency_for_overlay() -> None:
+    assert not poker_legends_numbers._is_safe_stack_variant(
+        number_prediction("560+100", 560, 0.82, "right_top_stack_no_pad")
+    )
+    assert poker_legends_numbers._is_safe_stack_variant(
+        number_prediction("$560+100", 560, 0.82, "right_top_stack_no_pad")
     )
 
 

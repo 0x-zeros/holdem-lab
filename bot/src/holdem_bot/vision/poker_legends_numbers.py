@@ -670,11 +670,6 @@ def _dataset_crop_specs_for_region(
         return (
             default,
             _CropSpec("right_top_stack_no_pad", rect, 0),
-            _CropSpec(
-                "right_top_stack_trim_left_16",
-                ScreenRect(rect.x + 16, rect.y, max(1, rect.width - 16), rect.height),
-                0,
-            ),
         )
     return (default,)
 
@@ -712,7 +707,14 @@ def _is_safe_stack_variant(prediction: PokerLegendsNumberPrediction) -> bool:
         return False
     if prediction.normalized_number < 0 or prediction.normalized_number > 10_000:
         return False
+    if _looks_like_missing_stack_currency(prediction.raw):
+        return False
     return not _looks_fragmented_numeric_ocr(prediction.raw)
+
+
+def _looks_like_missing_stack_currency(raw: str) -> bool:
+    normalized = _normalize_numeric_text(raw)
+    return "+" in normalized and "$" not in normalized
 
 
 def _looks_like_left_edge_stack_pollution(raw: str) -> bool:
