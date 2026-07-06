@@ -134,7 +134,7 @@ class PokerLegendsComponentNumberShadowRecognizer:
         cls,
         summary_path: str | Path,
         *,
-        method: str = "template_cnn",
+        method: str = "component_consensus",
     ) -> Self:
         summary = _read_json_object(Path(summary_path))
         predictions = [
@@ -181,7 +181,7 @@ def _shadow_prediction_from_component_row(
     if not isinstance(targets, Mapping):
         return None
     components = {
-        target: _shadow_component_dict(targets.get(target), method=method)
+        target: _shadow_component_dict_for_method(targets.get(target), method=method)
         for target in ("base", "overlay", "display")
         if isinstance(targets.get(target), Mapping)
     }
@@ -222,7 +222,34 @@ def _shadow_prediction_from_component_row(
     )
 
 
-def _shadow_component_dict(value: object, *, method: str) -> dict[str, object]:
+def _shadow_component_dict_for_method(value: object, *, method: str) -> dict[str, object]:
+    if method == "component_consensus":
+        return _shadow_component_consensus_dict(value)
+    return _shadow_component_dict(value, method=method, selected_method=method)
+
+
+def _shadow_component_consensus_dict(value: object) -> dict[str, object]:
+    primary = _shadow_component_dict(
+        value,
+        method="template_cnn",
+        selected_method="template_cnn",
+    )
+    if primary.get("accepted") is True:
+        return primary
+    template = _shadow_component_dict(value, method="template", selected_method="template")
+    if template.get("accepted") is True:
+        template["fallback_from"] = "template_cnn"
+        template["requires_display_agreement"] = True
+        return template
+    return primary
+
+
+def _shadow_component_dict(
+    value: object,
+    *,
+    method: str,
+    selected_method: str,
+) -> dict[str, object]:
     target_eval = cast(Mapping[str, object], value)
     raw_prediction = target_eval.get(method)
     prediction = raw_prediction if isinstance(raw_prediction, Mapping) else {}
@@ -234,6 +261,7 @@ def _shadow_component_dict(value: object, *, method: str) -> dict[str, object]:
         "confidence": prediction.get("confidence"),
         "accepted": prediction.get("accepted"),
         "reason": prediction.get("reason"),
+        "selected_method": selected_method,
     }
 
 
@@ -252,7 +280,22 @@ def _shadow_text_from_components(
     if is_stack and base_text is not None:
         raw = f"{base_text}{overlay_text or ''}"
         confidence = _min_component_confidence(base, overlay if overlay_text else None)
-        reason = "accepted" if overlay_text is not None else "accepted_base_only"
+        if _requires_display_agreement(base, overlay) and display_text != raw:
+            if display_text is not None:
+                return (
+                    display_text,
+                    _component_confidence(display),
+                    False,
+                    "component_fallback_display_mismatch",
+                )
+            return raw, confidence, False, "component_fallback_requires_display_agreement"
+        reason = (
+            "accepted_component_consensus"
+            if _uses_component_fallback(base, overlay)
+            else "accepted"
+            if overlay_text is not None
+            else "accepted_base_only"
+        )
         return raw, confidence, True, reason
     if not is_stack and display_text is not None:
         return display_text, _component_confidence(display), True, "accepted"
@@ -268,6 +311,17 @@ def _accepted_shadow_text(component: Mapping[str, object] | None) -> str | None:
         return None
     text = component.get("text")
     return text if isinstance(text, str) and text else None
+
+
+def _requires_display_agreement(*components: Mapping[str, object] | None) -> bool:
+    return any(
+        bool(component and component.get("requires_display_agreement"))
+        for component in components
+    )
+
+
+def _uses_component_fallback(*components: Mapping[str, object] | None) -> bool:
+    return any(component is not None and "fallback_from" in component for component in components)
 
 
 def _component_confidence(component: Mapping[str, object] | None) -> float:

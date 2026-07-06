@@ -240,9 +240,10 @@
   recognizer 的 shadow evidence 接入报告，只写入 `shadow_number_predictions` /
   `accepted_shadow_number_predictions` 和 artifact，不进入 `RecognizedTable`、`GameState`、
   accepted critical field、AI 决策或点击授权。119 帧 reviewed manifest 上 truth-assisted 与
-  image-only report 均为 shadow raw 57、shadow accepted 51、accepted shadow truth mismatch 0；
-  新增 shadow-number review queue 只剩 2 行：`session_002__keyframe_000047` 为已知 truth/ROI 污染，
-  `session_002__keyframe_000369` 为 `$399+5` display-only coverage 问题。产物见
+  image-only report 均为 shadow raw 57、shadow accepted 54、accepted shadow truth mismatch 0；
+  shadow-number review queue 只剩 1 行：`session_002__keyframe_000047` 为已知 truth/ROI 污染。
+  `$399+5` 已通过受约束 component consensus 修复：只有 template base fallback 与 accepted display
+  完全一致时才进入 shadow accepted。产物见
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
   `.../table_recognizer_number_shadow_image_only_v1/`。
 - 阶段 3/4 AI heuristic v1：`holdem_ai.decide(state) -> Action` 入口保持不变，新增

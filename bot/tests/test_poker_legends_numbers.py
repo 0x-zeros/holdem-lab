@@ -446,6 +446,151 @@ def test_component_number_shadow_recognizer_loads_template_cnn_summary(
     assert prediction.confidence == 0.91
 
 
+def test_component_number_shadow_consensus_uses_template_base_when_display_agrees(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "number_char_recognizer_summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "evaluation_rows": [
+                    {
+                        "frame_id": "frame_001",
+                        "field": "texts.hero_stack",
+                        "crop_variant": "default",
+                        "targets": {
+                            "base": {
+                                "expected": "$399",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": None,
+                                    "confidence": 0.18,
+                                    "accepted": False,
+                                    "reason": "disagreement",
+                                },
+                                "template": {
+                                    "text": "$399",
+                                    "confidence": 0.18,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                            "overlay": {
+                                "expected": "+5",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": "+5",
+                                    "confidence": 0.99,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                            "display": {
+                                "expected": "$399+5",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": "$399+5",
+                                    "confidence": 0.28,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recognizer = PokerLegendsComponentNumberShadowRecognizer.from_summary(summary_path)
+    prediction = recognizer.recognize("frame_001", text_names=("hero_stack",))[0]
+
+    assert prediction.method == "component_consensus"
+    assert prediction.raw == "$399+5"
+    assert prediction.base_number == 399
+    assert prediction.overlay_number == 5
+    assert prediction.total_number == 404
+    assert prediction.accepted is True
+    assert prediction.reason == "accepted_component_consensus"
+    components = dict(prediction.components or {})
+    assert dict(components["base"])["selected_method"] == "template"
+    assert dict(components["base"])["requires_display_agreement"] is True
+
+
+def test_component_number_shadow_consensus_rejects_template_base_without_display_agreement(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "number_char_recognizer_summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "evaluation_rows": [
+                    {
+                        "frame_id": "frame_001",
+                        "field": "texts.hero_stack",
+                        "crop_variant": "default",
+                        "targets": {
+                            "base": {
+                                "expected": "$399",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": None,
+                                    "confidence": 0.18,
+                                    "accepted": False,
+                                    "reason": "disagreement",
+                                },
+                                "template": {
+                                    "text": "$399",
+                                    "confidence": 0.18,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                            "overlay": {
+                                "expected": "+5",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": "+5",
+                                    "confidence": 0.99,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                            "display": {
+                                "expected": "$390+5",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": "$390+5",
+                                    "confidence": 0.28,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recognizer = PokerLegendsComponentNumberShadowRecognizer.from_summary(summary_path)
+    prediction = recognizer.recognize("frame_001", text_names=("hero_stack",))[0]
+
+    assert prediction.raw == "$390+5"
+    assert prediction.accepted is False
+    assert prediction.reason == "component_fallback_display_mismatch"
+
+
 def test_poker_legends_number_confidence_marks_fragmented_ocr_low() -> None:
     assert poker_legends_numbers._confidence("$1,250", (1250,)) == 0.90
     assert poker_legends_numbers._confidence("$990+10", (990, 10)) == 0.82

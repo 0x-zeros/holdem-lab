@@ -119,15 +119,18 @@ Key safety/coverage checks on the 119-frame reviewed manifest:
 
 | Mode | Authorization events | Unsafe authorization | Shadow raw | Shadow accepted |
 |---|---:|---:|---:|---:|
-| truth-assisted | 39 | 0 | 57 | 51 |
-| image-only replay | 0 | 0 | 57 | 51 |
+| truth-assisted | 39 | 0 | 57 | 54 |
+| image-only replay | 0 | 0 | 57 | 54 |
 
 Shadow truth comparison for `hero_stack`:
 
 - raw shadow: 54 matches / 3 mismatches against reviewed truth.
-- accepted shadow: 51 matches / 0 mismatches against reviewed truth.
-- accepted total-number component: 51/51 match; base-number matches only 30/51 because
+- accepted shadow: 54 matches / 0 mismatches against reviewed truth.
+- accepted total-number component: 54/54 match; base-number matches only 30/54 because
   reviewed stack truth sometimes represents the displayed total (`base + overlay`).
+- Shadow component consensus now allows a template base fallback only when accepted
+  display text exactly agrees with the assembled `base + overlay` text. This recovered
+  the reviewed `$399+5` case without adding accepted shadow mismatches.
 
 The table recognizer also writes focused review queues for shadow-number issues:
 
@@ -136,13 +139,9 @@ The table recognizer also writes focused review queues for shadow-number issues:
 
 Current queue on both truth-assisted and image-only reports:
 
-- 2 review rows out of 119 frames.
+- 1 review row out of 119 frames.
 - `session_002__keyframe_000047`: no accepted shadow prediction; raw predictions are
   rejected by component disagreement and mismatch polluted reviewed truth (`$43,044`).
-- `session_002__keyframe_000369`: raw shadow sees `$399+5`, but it is tagged
-  `display_only_review` and deliberately not accepted into the shadow accepted set.
-  This is a coverage issue for future structured `base + overlay` promotion, not an
-  accepted-wrong issue.
 
 ### CRNN+CTC and Transformer+CTC Prototype
 
