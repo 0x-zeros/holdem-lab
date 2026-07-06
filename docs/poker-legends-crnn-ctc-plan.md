@@ -124,6 +124,12 @@ Current implementation status:
 - Small clean synthetic sanity currently passes for both `base` and `overlay`:
   20/20 raw exact and `accepted_wrong = 0` using `--epochs 600 --batch-size 4
   --weight-decay 0.0`.
+- Medium clean synthetic sanity currently passes for both `base` and `overlay`:
+  100/100 raw exact and `accepted_wrong = 0` using `--epochs 600 --batch-size 8
+  --weight-decay 0.0`.
+- A faster `base` run with `--synthetic-count 100 --epochs 300 --batch-size 32`
+  only reached 50/100 raw exact. Do not use batch 32 as the current default for the
+  overfit gate.
 - The larger 1000-synthetic overfit gate is still pending. Earlier runs before the
   effective-input-length fix failed badly and must not be used to judge the final
   CRNN route.
