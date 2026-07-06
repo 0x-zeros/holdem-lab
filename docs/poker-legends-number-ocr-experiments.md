@@ -143,6 +143,16 @@ Current queue on both truth-assisted and image-only reports:
 - `session_002__keyframe_000047`: no accepted shadow prediction; raw predictions are
   rejected by component disagreement and mismatch polluted reviewed truth (`$43,044`).
 
+Image-only readiness diagnostics now include `shadow_number_readiness_flags`. Current
+result:
+
+- 6 image-only `hero_stack` readiness gaps are tagged `shadow_missing_hero_stack`.
+- None are currently tagged `shadow_covers_hero_stack_readiness_gap`.
+- The reason is coverage of the component summary artifact, not a runtime promotion
+  decision: `number_char_recognizer_summary.json` currently exposes test/evaluation
+  rows, and these six image-only readiness-gap frames are not present in that shadow
+  summary.
+
 ### CRNN+CTC and Transformer+CTC Prototype
 
 Both sequence OCR variants were added as opt-in offline baselines.

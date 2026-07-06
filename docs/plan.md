@@ -243,7 +243,10 @@
   image-only report 均为 shadow raw 57、shadow accepted 54、accepted shadow truth mismatch 0；
   shadow-number review queue 只剩 1 行：`session_002__keyframe_000047` 为已知 truth/ROI 污染。
   `$399+5` 已通过受约束 component consensus 修复：只有 template base fallback 与 accepted display
-  完全一致时才进入 shadow accepted。产物见
+  完全一致时才进入 shadow accepted。新增 image-only shadow readiness 诊断显示 6 个 hero_stack
+  readiness gap 仍为 `shadow_missing_hero_stack`，原因是当前 component summary 只暴露
+  test/evaluation rows，这些 gap 帧不在 shadow summary 中；后续要么导出全量 shadow summary，
+  要么对这些 gap 帧单独补 crop/label。产物见
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
   `.../table_recognizer_number_shadow_image_only_v1/`。
 - 阶段 3/4 AI heuristic v1：`holdem_ai.decide(state) -> Action` 入口保持不变，新增

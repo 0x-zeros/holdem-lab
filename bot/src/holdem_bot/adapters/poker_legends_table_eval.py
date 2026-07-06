@@ -64,6 +64,7 @@ def evaluate_poker_legends_table_recognizer(
     assembly_status_counts: dict[str, int] = {}
     table_readiness_flag_counts: dict[str, int] = {}
     number_readiness_flag_counts: dict[str, int] = {}
+    shadow_number_readiness_flag_counts: dict[str, int] = {}
     number_truth_comparison_counts: dict[str, int] = {}
     number_component_truth_comparison_counts: dict[str, int] = {}
     shadow_number_truth_comparison_counts: dict[str, int] = {}
@@ -201,6 +202,10 @@ def evaluate_poker_legends_table_recognizer(
             table_readiness_flag_counts[flag] = table_readiness_flag_counts.get(flag, 0) + 1
         for flag in _string_list(row.get("number_readiness_flags")):
             number_readiness_flag_counts[flag] = number_readiness_flag_counts.get(flag, 0) + 1
+        for flag in _string_list(row.get("shadow_number_readiness_flags")):
+            shadow_number_readiness_flag_counts[flag] = (
+                shadow_number_readiness_flag_counts.get(flag, 0) + 1
+            )
         for number_eval in _row_mappings(row.get("number_truth_evaluations")):
             key = _number_truth_comparison_key(number_eval)
             if key is None:
@@ -278,6 +283,9 @@ def evaluate_poker_legends_table_recognizer(
         "assembly_status_counts": dict(sorted(assembly_status_counts.items())),
         "table_readiness_flag_counts": dict(sorted(table_readiness_flag_counts.items())),
         "number_readiness_flag_counts": dict(sorted(number_readiness_flag_counts.items())),
+        "shadow_number_readiness_flag_counts": dict(
+            sorted(shadow_number_readiness_flag_counts.items())
+        ),
         "number_truth_comparison_counts": dict(sorted(number_truth_comparison_counts.items())),
         "number_component_truth_comparison_counts": dict(
             sorted(number_component_truth_comparison_counts.items())
@@ -341,6 +349,10 @@ def evaluate_poker_legends_table_recognizer(
         "number_readiness_by_flag": _rows_by_string_field(
             rows,
             field_name="number_readiness_flags",
+        ),
+        "shadow_number_readiness_by_flag": _rows_by_string_field(
+            rows,
+            field_name="shadow_number_readiness_flags",
         ),
         "shadow_number_review_rows_count": len(shadow_number_review_rows),
         "shadow_number_review_by_flag": _rows_by_string_field(
@@ -508,6 +520,11 @@ def _row_from_result(
         accepted_number_predictions=accepted_number_predictions,
         number_prediction_rejections=number_prediction_rejections,
     )
+    shadow_number_readiness_flags = _shadow_number_readiness_flags(
+        number_readiness_flags,
+        shadow_number_predictions=shadow_number_predictions,
+        accepted_shadow_number_predictions=accepted_shadow_number_predictions,
+    )
     number_truth_evaluations = _number_truth_evaluations(
         number_predictions=number_predictions,
         accepted_number_predictions=accepted_number_predictions,
@@ -559,6 +576,7 @@ def _row_from_result(
         else [],
         "table_readiness_flags": table_readiness_flags,
         "number_readiness_flags": number_readiness_flags,
+        "shadow_number_readiness_flags": shadow_number_readiness_flags,
         "confidence": result.confidence,
         "state": _state_summary(result.state),
         "recognized_table": _jsonable(table_dict),
@@ -758,6 +776,25 @@ def _number_readiness_flags(
             flags.append("readiness_low_confidence_hero_stack")
         else:
             flags.append("readiness_missing_hero_stack_ocr")
+    return flags
+
+
+def _shadow_number_readiness_flags(
+    number_readiness_flags: Sequence[str],
+    *,
+    shadow_number_predictions: object,
+    accepted_shadow_number_predictions: object,
+) -> list[str]:
+    flags: list[str] = []
+    accepted_shadow = _row_mappings(accepted_shadow_number_predictions)
+    raw_shadow = _row_mappings(shadow_number_predictions)
+    if any(flag.endswith("_hero_stack") for flag in number_readiness_flags):
+        if _has_number_prediction(accepted_shadow, group="texts", name="hero_stack"):
+            flags.append("shadow_covers_hero_stack_readiness_gap")
+        elif _has_number_prediction(raw_shadow, group="texts", name="hero_stack"):
+            flags.append("shadow_has_unaccepted_hero_stack")
+        else:
+            flags.append("shadow_missing_hero_stack")
     return flags
 
 
@@ -1070,9 +1107,18 @@ def _number_readiness_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[st
                 "layout_annotation_path": row.get("layout_annotation_path"),
                 "table_readiness_flags": _string_list(row.get("table_readiness_flags")),
                 "number_readiness_flags": flags,
+                "shadow_number_readiness_flags": _string_list(
+                    row.get("shadow_number_readiness_flags")
+                ),
                 "number_predictions": _row_mappings(row.get("number_predictions")),
                 "accepted_number_predictions": _row_mappings(
                     row.get("accepted_number_predictions")
+                ),
+                "shadow_number_predictions": _row_mappings(
+                    row.get("shadow_number_predictions")
+                ),
+                "accepted_shadow_number_predictions": _row_mappings(
+                    row.get("accepted_shadow_number_predictions")
                 ),
             }
         )
@@ -1423,9 +1469,17 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         *_count_lines(summary.get("number_readiness_flag_counts")),
         "",
+        "## Shadow Number Readiness Flag Counts",
+        "",
+        *_count_lines(summary.get("shadow_number_readiness_flag_counts")),
+        "",
         "## Number Readiness By Flag",
         "",
         *_frame_list_lines(summary.get("number_readiness_by_flag")),
+        "",
+        "## Shadow Number Readiness By Flag",
+        "",
+        *_frame_list_lines(summary.get("shadow_number_readiness_by_flag")),
         "",
         "## Number Truth Comparison Counts",
         "",
@@ -1669,17 +1723,20 @@ def _number_readiness_detail_lines(rows: Sequence[Mapping[str, object]]) -> list
     if not readiness_rows:
         return ["- none"]
     lines = [
-        "| Frame | Number Flags | Table Flags | Raw Numbers | Accepted Numbers |",
-        "| --- | --- | --- | --- | --- |",
+        "| Frame | Number Flags | Shadow Flags | Table Flags | Raw Numbers | "
+        "Accepted Numbers | Accepted Shadow Numbers |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in readiness_rows:
         lines.append(
             "| "
             f"`{row.get('frame_id')}` | "
             f"{_inline_codes(row.get('number_readiness_flags'))} | "
+            f"{_inline_codes(row.get('shadow_number_readiness_flags'))} | "
             f"{_inline_codes(row.get('table_readiness_flags'))} | "
             f"{_number_detail_summary(row.get('number_predictions'))} | "
-            f"{_number_detail_summary(row.get('accepted_number_predictions'))} |"
+            f"{_number_detail_summary(row.get('accepted_number_predictions'))} | "
+            f"{_number_detail_summary(row.get('accepted_shadow_number_predictions'))} |"
         )
     return lines
 

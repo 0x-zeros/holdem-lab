@@ -418,10 +418,11 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
     )
     assert number_readiness_rows == [
         {
-            "accepted_number_predictions": [],
-            "frame_id": "frame_001",
-            "layout_annotation_path": str(annotations / "frame_001.json"),
-            "number_predictions": [
+                "accepted_number_predictions": [],
+                "accepted_shadow_number_predictions": [],
+                "frame_id": "frame_001",
+                "layout_annotation_path": str(annotations / "frame_001.json"),
+                "number_predictions": [
                 {
                     "base_number": 1000,
                     "confidence": 0.65,
@@ -431,13 +432,15 @@ def test_table_eval_scans_actionable_frames_and_writes_report(
                     "overlay_number": None,
                     "total_number": 1000,
                 }
-            ],
-            "number_readiness_flags": ["readiness_low_confidence_opponent_stack"],
-            "result": "missing_table_metadata",
-            "screen_kind": "actionable_table",
-            "table_readiness_flags": ["readiness_not_enough_players"],
-            "truth_path": str(truth / "frame_001.json"),
-            "truth_screen_kind": "actionable_table",
+                ],
+                "number_readiness_flags": ["readiness_low_confidence_opponent_stack"],
+                "result": "missing_table_metadata",
+                "screen_kind": "actionable_table",
+                "shadow_number_predictions": [],
+                "shadow_number_readiness_flags": [],
+                "table_readiness_flags": ["readiness_not_enough_players"],
+                "truth_path": str(truth / "frame_001.json"),
+                "truth_screen_kind": "actionable_table",
         }
     ]
     image_only_report = (image_only_out / "table_recognizer_report.md").read_text(
@@ -648,6 +651,8 @@ def test_table_eval_reports_shadow_number_predictions(
     }
     assert summary["shadow_number_review_rows_count"] == 0
     assert summary["shadow_number_review_by_flag"] == {}
+    assert summary["shadow_number_readiness_flag_counts"] == {}
+    assert summary["shadow_number_readiness_by_flag"] == {}
 
 
 def test_shadow_number_review_flags_cover_mismatch_and_rejection() -> None:
@@ -679,6 +684,50 @@ def test_shadow_number_review_flags_cover_mismatch_and_rejection() -> None:
         "shadow_raw_truth_mismatch",
         "shadow_rejected:display_only_review",
     ]
+
+
+def test_shadow_number_readiness_flags_report_shadow_gap_coverage() -> None:
+    flags = poker_legends_table_eval._shadow_number_readiness_flags(
+        ["readiness_low_confidence_hero_stack"],
+        shadow_number_predictions=[
+            {
+                "group": "texts",
+                "name": "hero_stack",
+                "normalized_number": 399,
+            }
+        ],
+        accepted_shadow_number_predictions=[
+            {
+                "group": "texts",
+                "name": "hero_stack",
+                "normalized_number": 399,
+            }
+        ],
+    )
+
+    assert flags == ["shadow_covers_hero_stack_readiness_gap"]
+
+
+def test_shadow_number_readiness_flags_ignore_opponent_stack_gaps() -> None:
+    flags = poker_legends_table_eval._shadow_number_readiness_flags(
+        ["readiness_low_confidence_opponent_stack"],
+        shadow_number_predictions=[
+            {
+                "group": "texts",
+                "name": "hero_stack",
+                "normalized_number": 399,
+            }
+        ],
+        accepted_shadow_number_predictions=[
+            {
+                "group": "texts",
+                "name": "hero_stack",
+                "normalized_number": 399,
+            }
+        ],
+    )
+
+    assert flags == []
 
 
 class FakeRecognizer:
