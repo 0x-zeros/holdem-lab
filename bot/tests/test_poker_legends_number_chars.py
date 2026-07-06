@@ -8,6 +8,12 @@ from holdem_bot.vision import (
     build_and_evaluate_poker_legends_number_char_recognizers,
     segment_number_characters,
 )
+from holdem_bot.vision.poker_legends_number_chars import (
+    StringPrediction,
+    _segment_number_characters_from_mask,
+    _template_cnn_consensus_prediction,
+    _text_mask,
+)
 
 
 def test_segment_number_characters_on_synthetic_stack_crop() -> None:
@@ -17,6 +23,79 @@ def test_segment_number_characters_on_synthetic_stack_crop() -> None:
 
     assert len(boxes) == 7
     assert [box.width > 0 and box.height > 0 for box in boxes] == [True] * 7
+
+
+def test_overlay_segmentation_ignores_horizontal_rule_line() -> None:
+    crop = np.full((54, 220, 3), (24, 60, 110), dtype=np.uint8)
+    cv2.putText(
+        crop,
+        "+80",
+        (82, 38),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.0,
+        (35, 230, 220),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.line(crop, (0, 50), (180, 50), (35, 230, 220), 2, cv2.LINE_AA)
+
+    mask = _text_mask(crop, target="overlay")
+    boxes = _segment_number_characters_from_mask(mask, target="overlay")
+
+    assert len(boxes) == 3
+    assert max(box.width for box in boxes) < 32
+
+
+def test_template_cnn_relaxed_agreement_requires_target_contract() -> None:
+    template = StringPrediction(
+        method="template",
+        text="+80",
+        confidence=0.0,
+        accepted=False,
+        reason="distance",
+        char_distances=(0.0, 0.064, 0.0),
+    )
+    cnn = StringPrediction(
+        method="cnn",
+        text="+80",
+        confidence=0.72,
+        accepted=False,
+        reason="confidence",
+    )
+
+    prediction = _template_cnn_consensus_prediction(
+        template,
+        cnn,
+        target="overlay",
+        is_stack=True,
+    )
+
+    assert prediction.accepted
+    assert prediction.text == "+80"
+    invalid_template = StringPrediction(
+        method="template",
+        text="+",
+        confidence=1.0,
+        accepted=True,
+        reason="accepted",
+    )
+    invalid_cnn = StringPrediction(
+        method="cnn",
+        text="+",
+        confidence=1.0,
+        accepted=True,
+        reason="accepted",
+    )
+
+    invalid_prediction = _template_cnn_consensus_prediction(
+        invalid_template,
+        invalid_cnn,
+        target="overlay",
+        is_stack=True,
+    )
+
+    assert not invalid_prediction.accepted
+    assert invalid_prediction.reason == "target_contract"
 
 
 def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(

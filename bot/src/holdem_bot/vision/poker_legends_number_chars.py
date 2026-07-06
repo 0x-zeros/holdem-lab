@@ -39,6 +39,8 @@ DEFAULT_SEQUENCE_HEIGHT = 32
 DEFAULT_TEMPLATE_MAX_DISTANCE = 0.060
 DEFAULT_TEMPLATE_VOTE_DISTANCE_WINDOW = 0.006
 DEFAULT_TEMPLATE_VOTE_NEIGHBORS = 9
+DEFAULT_TEMPLATE_CNN_AGREEMENT_MAX_TEMPLATE_DISTANCE = 0.070
+DEFAULT_TEMPLATE_CNN_AGREEMENT_MIN_CNN_CONFIDENCE = 0.70
 DEFAULT_MLP_MIN_CONFIDENCE = 0.60
 DEFAULT_CNN_MIN_CONFIDENCE = 0.80
 DEFAULT_CNN_EPOCHS = 60
@@ -918,7 +920,7 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                     mask = _text_mask(crop, target=target)
                     sequence_image = _normalize_sequence_image(mask)
                     row_sequence_images[(row.row_id, target)] = sequence_image
-                    boxes = _segment_number_characters_from_mask(mask)
+                    boxes = _segment_number_characters_from_mask(mask, target=target)
                     segmentation_status = (
                         "negative_glyphs" if boxes else "negative_no_glyphs"
                     )
@@ -947,7 +949,7 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                     image=sequence_image,
                 )
             )
-            boxes = _segment_number_characters_from_mask(mask)
+            boxes = _segment_number_characters_from_mask(mask, target=target)
             segmentation_status = "match" if len(boxes) == len(expected) else "mismatch"
             segmentation_by_row[(row.row_id, target)] = (segmentation_status, tuple(boxes))
             if segmentation_status != "match":
@@ -1093,6 +1095,8 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                 template_cnn_prediction = _template_cnn_consensus_prediction(
                     template_prediction,
                     cnn_prediction,
+                    target=target,
+                    is_stack=_is_stack_row(row),
                 )
                 tesseract_prediction = (
                     _tesseract_prediction_from_text(
@@ -1170,6 +1174,8 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             template_cnn_prediction = _template_cnn_consensus_prediction(
                 template_prediction,
                 cnn_prediction,
+                target=target,
+                is_stack=_is_stack_row(row),
             )
             tesseract_prediction = (
                 _tesseract_prediction_from_text(
@@ -1333,7 +1339,11 @@ def segment_number_characters(image: RgbImage) -> tuple[NumberCharBox, ...]:
     return _segment_number_characters_from_mask(mask)
 
 
-def _segment_number_characters_from_mask(mask: GrayImage) -> tuple[NumberCharBox, ...]:
+def _segment_number_characters_from_mask(
+    mask: GrayImage,
+    *,
+    target: NumberTextTarget = "base",
+) -> tuple[NumberCharBox, ...]:
     columns = (mask > 0).any(axis=0)
     runs = _runs_from_projection(columns, max_gap=1)
     boxes: list[NumberCharBox] = []
@@ -1350,6 +1360,8 @@ def _segment_number_characters_from_mask(mask: GrayImage) -> tuple[NumberCharBox
         if area < 8 or width < 2 or height < 5:
             continue
         boxes.append(NumberCharBox(x=int(x1), y=y1, width=width, height=height, area=area))
+    if target == "overlay":
+        boxes = [box for box in boxes if box.width <= 32]
     return tuple(boxes)
 
 
@@ -1572,7 +1584,17 @@ def _text_mask(image: RgbImage, *, target: NumberTextTarget = "base") -> GrayIma
     else:
         selected = white | cyan
     mask = selected.astype(np.uint8) * 255
-    return cast(GrayImage, cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8)))
+    mask = cast(GrayImage, cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8)))
+    if target == "overlay":
+        mask = _remove_overlay_rule_lines(mask)
+    return mask
+
+
+def _remove_overlay_rule_lines(mask: GrayImage) -> GrayImage:
+    cleaned = mask.copy()
+    row_counts = (cleaned > 0).sum(axis=1)
+    cleaned[row_counts > 40, :] = 0
+    return cleaned
 
 
 def _normalize_glyph(mask: GrayImage, box: NumberCharBox) -> FloatImage:
@@ -1774,9 +1796,12 @@ def _unavailable_prediction(method: RecognitionMethod, reason: str) -> StringPre
 def _template_cnn_consensus_prediction(
     template: StringPrediction,
     cnn: StringPrediction,
+    *,
+    target: NumberTextTarget,
+    is_stack: bool,
 ) -> StringPrediction:
     confidence = min(template.confidence, cnn.confidence)
-    if not template.accepted:
+    if template.text is None:
         return StringPrediction(
             method="template_cnn",
             text=None,
@@ -1784,7 +1809,7 @@ def _template_cnn_consensus_prediction(
             accepted=False,
             reason=f"template_{template.reason}",
         )
-    if not cnn.accepted:
+    if cnn.text is None:
         return StringPrediction(
             method="template_cnn",
             text=None,
@@ -1800,12 +1825,52 @@ def _template_cnn_consensus_prediction(
             accepted=False,
             reason="disagreement",
         )
+    if not _target_contract_accepts_text(template.text, target=target, is_stack=is_stack):
+        return StringPrediction(
+            method="template_cnn",
+            text=template.text,
+            confidence=confidence,
+            accepted=False,
+            reason="target_contract",
+        )
+    if not template.accepted or not cnn.accepted:
+        if _template_cnn_relaxed_agreement_accepts(template, cnn):
+            return StringPrediction(
+                method="template_cnn",
+                text=template.text,
+                confidence=max(confidence, min(template.confidence, cnn.confidence)),
+                accepted=True,
+                reason="accepted_relaxed_agreement",
+            )
+        blocking = "template" if not template.accepted else "cnn"
+        prediction = template if blocking == "template" else cnn
+        return StringPrediction(
+            method="template_cnn",
+            text=None,
+            confidence=confidence,
+            accepted=False,
+            reason=f"{blocking}_{prediction.reason}",
+        )
     return StringPrediction(
         method="template_cnn",
         text=template.text,
         confidence=confidence,
         accepted=True,
         reason="accepted",
+    )
+
+
+def _template_cnn_relaxed_agreement_accepts(
+    template: StringPrediction,
+    cnn: StringPrediction,
+) -> bool:
+    if template.text is None or cnn.text is None or template.text != cnn.text:
+        return False
+    if not template.char_distances:
+        return False
+    return (
+        max(template.char_distances) <= DEFAULT_TEMPLATE_CNN_AGREEMENT_MAX_TEMPLATE_DISTANCE
+        and cnn.confidence >= DEFAULT_TEMPLATE_CNN_AGREEMENT_MIN_CNN_CONFIDENCE
     )
 
 
