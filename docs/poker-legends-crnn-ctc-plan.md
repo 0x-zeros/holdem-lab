@@ -4,6 +4,13 @@ This plan defines the next serious OCR experiment for Poker Legends stack number
 It is a design and experiment plan only. It does not authorize runtime use, click
 planning, or live automation.
 
+## Current Verdict
+
+Proceed only to **P0-strengthened offline experiment implementation**. Do not treat
+the next training run as a definitive CRNN+CTC benefit test until the falsification
+harness, frozen split, time-step budget checks, validation-only thresholding, and
+hard-negative gate are in place.
+
 ## Decision
 
 For the next serious sequence OCR experiment, choose **CRNN+CTC** over Transformer
@@ -51,6 +58,24 @@ contract.
 
 ## Required Pre-Work
 
+### 0. CTC Falsification Harness
+
+Before any real CRNN+CTC result can be interpreted, the implementation must prove
+that the CTC pipeline itself is sane. This is a hard P0 gate.
+
+The harness must include:
+
+- overfit 20 clean real crops to near-100% exact
+- overfit 1000 clean synthetic crops to near-100% exact
+- include repeated-character cases such as `$1000`, `+1000`, `$43,044`, and `+55`
+- include a deliberately too-short input case that fails loudly
+- unit-test blank index, alphabet index, target encoding, target length, log-softmax
+  shape, and `(T, N, C)` layout
+- report CTC input time steps `T`, target length, required CTC length, and
+  `T / required`
+
+No blank-collapse result on the real dataset is meaningful until this harness passes.
+
 ### 1. Data Labels
 
 Before serious training, the dataset must distinguish:
@@ -89,6 +114,13 @@ Recommended splits:
 - train: 70%
 - validation: 15%
 - test: 15%
+
+The split must be frozen before any glyph/background extraction. Synthetic data may
+only use glyphs and backgrounds from the train split. Validation and test crops must
+not leak into synthetic generation.
+
+Thresholds, beam width, parser settings, grammar settings, and calibration parameters
+may be tuned only on validation. Test is for final reporting only.
 
 The test split should include hard negatives and edge cases:
 
@@ -151,6 +183,16 @@ CTC loss
 greedy decode for baseline
 ```
 
+The model must preserve enough horizontal time steps. For every sample:
+
+```text
+T >= required_ctc_length * 2
+```
+
+`required_ctc_length` must account for repeated adjacent characters, since CTC needs
+blank-separated repeats. Examples such as `1000`, `$43,044`, and `+1000` are explicit
+budget tests. `zero_infinity=True` must not be used to hide impossible alignments.
+
 Alphabet:
 
 ```text
@@ -167,12 +209,20 @@ confidence easier to interpret.
 Track these metrics every epoch:
 
 - train CTC loss
+- validation CTC loss
 - validation exact match
+- validation character error rate / edit distance
 - validation accepted precision
 - validation accepted coverage
 - blank decode rate
+- mean blank posterior
+- nonblank occupancy
 - average decoded length
+- per-length exact
+- per-character confusion
+- sequence top1/top2 margin, if beam search is enabled
 - high-confidence wrong count
+- calibration / reliability table for accepted thresholds
 
 Training should stop only after one of these is true:
 
@@ -190,7 +240,7 @@ For offline evaluation:
 
 - raw prediction: greedy CTC decode
 - char confidence: probability at accepted nonblank timesteps
-- string confidence: min char confidence or calibrated aggregate
+- string confidence: min char confidence, sequence NLL, or calibrated aggregate
 - accepted prediction: confidence above threshold and passes format parser
 
 Required accepted formats:
@@ -207,6 +257,10 @@ accepted_wrong = 0
 ```
 
 Coverage is secondary.
+
+Greedy confidence is only a baseline. If CTC is promising, add a grammar-constrained
+beam search and report top1/top2 margin. Accepted predictions must pass both text
+canonicalization and numeric round-trip checks.
 
 ## Evaluation
 
@@ -230,6 +284,8 @@ Report per target:
 - blank rate
 - ROI-invalid rejection behavior
 - no-visible-number rejection behavior
+- hard-negative accepted count
+- zero-event upper bound or confidence interval for accepted wrong
 
 The most important result is not raw accuracy. It is:
 
@@ -257,24 +313,45 @@ CRNN+CTC should not proceed toward runtime if:
 - performance only improves by using polluted labels
 - it fails to beat current component CNN/template on accepted coverage at zero wrong
 
+The reviewed test set must be large enough to make zero accepted wrong meaningful.
+Until then, reports must show the zero-event upper bound instead of treating `0 wrong`
+as proof of safety.
+
 ## Experiment Slices
+
+### Slice 0: CTC Falsification Harness
+
+- Implement CTC encoding/decoding unit tests.
+- Add time-step budget checks.
+- Add clean real overfit and synthetic overfit sanity tests.
+- Add repeated-character cases and too-short-input failure tests.
+
+Output:
+
+- sanity report
+- overfit curves
+- decoded examples
+- pass/fail status
 
 ### Slice 1: Dataset Audit
 
 - Add explicit row status labels.
 - Exclude `roi_invalid` and `no_visible_number` from positive training.
 - Generate a review report focused on label/ROI quality.
+- Freeze train/validation/test split by source/session/frame.
 
 Output:
 
 - cleaned manifest
 - audit summary
 - review HTML
+- frozen split file
 
 ### Slice 2: Synthetic Generator
 
 - Build synthetic `base` and `overlay` crops from extracted glyphs and backgrounds.
 - Keep synthetic and real rows separately tagged.
+- Ensure synthetic assets are generated only from train split inputs.
 
 Output:
 
@@ -287,6 +364,14 @@ Output:
 - Train `base` and `overlay` models.
 - Save curves and epoch-level metrics.
 - Report blank rate and decoded samples.
+- Run input ablations:
+  - base: grayscale, mask, grayscale+mask
+  - overlay: RGB/grayscale, cyan mask, RGB+mask
+- Run training schedule ablations:
+  - real-only
+  - synthetic-only
+  - synthetic pretrain + real finetune
+  - mixed from scratch
 
 Output:
 
@@ -299,12 +384,44 @@ Output:
 - Compare CRNN+CTC against CNN/template on the same cleaned test set.
 - Produce side-by-side review HTML.
 - Include segmentation-mismatch rows as a special slice.
+- Include hard negatives and require accepted=0 for `roi_invalid`,
+  `no_visible_number`, and `ambiguous_or_animation`.
 
 Output:
 
 - comparison report
 - review HTML
 - recommendation: continue / tune / stop
+
+## Review-Driven P0/P1/P2 Checklist
+
+### P0
+
+- CTC sanity harness passes before real metrics are interpreted.
+- Input width/stride budget is asserted per sample.
+- Splits are frozen before glyph/background extraction.
+- Synthetic generator cannot use validation/test assets.
+- Canonical text and numeric parser round-trip are defined.
+- Accepted thresholds are validation-only; test is not used for tuning.
+- Hard negatives are part of formal evaluation and require accepted=0.
+- Current CNN/template baselines are rerun on the same cleaned split.
+
+### P1
+
+- Add input ablations for base and overlay.
+- Add synthetic training schedule ablations.
+- Add grammar-constrained beam search.
+- Add sequence confidence calibration and margin reporting.
+- Add CRNN+CTC plus CNN/template agreement mode.
+- Add per-slice dashboards for weak overlay, comma values, zero values, long values,
+  tight crops, segmentation-mismatch rows, and invalid ROI rows.
+
+### P2
+
+- Run EasyOCR / PaddleOCR / docTR / TrOCR only as offline benchmarks or sanity checks.
+- Pin package/model versions and model hashes for any external model.
+- Disable runtime auto-downloads.
+- Keep external model outputs out of accepted critical fields.
 
 ## Open Questions
 
