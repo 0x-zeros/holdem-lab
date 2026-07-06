@@ -597,6 +597,17 @@
   accepted wrong 0。结论：Tesseract 继续只作弱 baseline，OpenCV MLP 放弃；后续若要接 runtime，
   应优先让 CNN 或 template+CNN 共识进入 observation-only/contract 评估，且必须继续以
   accepted-critical-wrong=0 和更大的 hard negative set 为门槛，不因模板 coverage 较高而单独放行。
+- 阶段 4 Poker Legends number char recognizer prototype v3（stack component split）：根据人工复核
+  反馈，v2 的“只识别白色 base”会系统性漏掉 `+105` 这类 cyan overlay，因此离线评估改为同一 crop
+  同时输出三个目标：`base`（白色可用筹码）、`overlay`（cyan 加号/current-bet）、`display`（完整显示）。
+  HTML 也改为每行一张 crop，分 base/overlay/display 三块展示 CNN、template+CNN、template、Tesseract
+  与 segmentation，便于继续人工 review。当前报告在
+  `artifacts/poker-legends-videos/number_char_components_v2/number_char_recognizer_report.md`：
+  base 273 行/57 test，seg 0.886，CNN exact 54/57、accepted 51/57、wrong 0；
+  overlay 153 行/24 test，seg 0.895，CNN/template/template+CNN exact 22/24、accepted 22/24、wrong 0；
+  display 273 行/57 test，seg 0.601，CNN/template/template+CNN exact 27/57、accepted 27/57、wrong 0。
+  结论：component split 解决了“加号后数字完全没评估”的问题；完整 display 的主要瓶颈是分割覆盖，
+  runtime 前仍应优先使用结构化 base+overlay observation，再由规则/seat committed 校验组合语义。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。

@@ -59,13 +59,19 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
 
     assert summary["rows"] == 4
     assert summary["test_rows"] == 2
-    assert summary["glyph_samples"] == 16
-    assert cast(dict[str, Any], summary["segmentation"])["counts"] == {"match": 4}
-    assert cast(dict[str, Any], summary["template"])["evaluated"] == 2
-    assert cast(dict[str, Any], summary["opencv_mlp"])["evaluated"] == 2
-    assert cast(dict[str, Any], summary["cnn"])["status"] == "trained"
-    assert cast(dict[str, Any], summary["cnn"])["evaluated"] == 2
-    assert cast(dict[str, Any], summary["template_cnn"])["evaluated"] == 2
+    assert summary["glyph_samples"] == 32
+    targets = cast(dict[str, Any], summary["targets"])
+    base = cast(dict[str, Any], targets["base"])
+    display = cast(dict[str, Any], targets["display"])
+    overlay = cast(dict[str, Any], targets["overlay"])
+    assert cast(dict[str, Any], base["segmentation"])["counts"] == {"match": 4}
+    assert cast(dict[str, Any], display["segmentation"])["counts"] == {"match": 4}
+    assert overlay["rows"] == 0
+    assert cast(dict[str, Any], base["template"])["evaluated"] == 2
+    assert cast(dict[str, Any], base["opencv_mlp"])["evaluated"] == 2
+    assert cast(dict[str, Any], base["cnn"])["status"] == "trained"
+    assert cast(dict[str, Any], base["cnn"])["evaluated"] == 2
+    assert cast(dict[str, Any], base["template_cnn"])["evaluated"] == 2
     assert (tmp_path / "chars" / "number_char_recognizer_summary.json").exists()
     assert (tmp_path / "chars" / "number_char_recognizer_report.md").exists()
     assert (tmp_path / "chars" / "number_char_recognizer_review.html").exists()

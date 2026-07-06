@@ -40,6 +40,8 @@ NUMBER_CHAR_RECOGNIZER_REVIEW_HTML = "number_char_recognizer_review.html"
 NUMBER_CHAR_RECOGNIZER_REVIEW_MD = "number_char_recognizer_review.md"
 ALLOWED_CHARS = frozenset("$0123456789+,.KM")
 RecognitionMethod = Literal["template", "opencv_mlp", "cnn", "template_cnn", "tesseract"]
+NumberTextTarget = Literal["base", "overlay", "display"]
+NUMBER_TEXT_TARGETS: tuple[NumberTextTarget, ...] = ("base", "overlay", "display")
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +59,7 @@ class NumberCharBox:
 @dataclass(frozen=True, slots=True)
 class NumberGlyphSample:
     label: str
+    target: NumberTextTarget
     frame_id: str
     row_id: str
     crop_path: str
@@ -70,6 +73,23 @@ class NumberGlyphSample:
 
 
 @dataclass(frozen=True, slots=True)
+class NumberCharTargets:
+    base: str | None
+    overlay: str | None
+    display: str | None
+
+    def for_target(self, target: NumberTextTarget) -> str | None:
+        if target == "base":
+            return self.base
+        if target == "overlay":
+            return self.overlay
+        return self.display
+
+    def to_dict(self) -> dict[str, str | None]:
+        return {"base": self.base, "overlay": self.overlay, "display": self.display}
+
+
+@dataclass(frozen=True, slots=True)
 class NumberCharRow:
     row_id: str
     frame_id: str
@@ -77,7 +97,7 @@ class NumberCharRow:
     name: str
     crop_variant: str
     crop_path: Path
-    expected_text: str
+    expected: NumberCharTargets
     split: str
 
 
@@ -104,8 +124,9 @@ class _TemplateGlyph:
 
 
 @dataclass(frozen=True, slots=True)
-class _EvaluationRow:
-    source: NumberCharRow
+class _TargetEvaluation:
+    target: NumberTextTarget
+    expected_text: str
     segmentation_boxes: tuple[NumberCharBox, ...]
     segmentation_status: str
     template: StringPrediction
@@ -113,6 +134,12 @@ class _EvaluationRow:
     cnn: StringPrediction
     template_cnn: StringPrediction
     tesseract: StringPrediction
+
+
+@dataclass(frozen=True, slots=True)
+class _EvaluationRow:
+    source: NumberCharRow
+    targets: tuple[_TargetEvaluation, ...]
 
 
 class NumberTemplateRecognizer:
@@ -434,36 +461,45 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         test_frame_modulo=test_frame_modulo,
     )
     glyph_samples: list[NumberGlyphSample] = []
-    row_glyphs: dict[str, tuple[FloatImage, ...]] = {}
-    segmentation_by_row: dict[str, tuple[str, tuple[NumberCharBox, ...]]] = {}
+    row_glyphs: dict[tuple[str, NumberTextTarget], tuple[FloatImage, ...]] = {}
+    segmentation_by_row: dict[
+        tuple[str, NumberTextTarget], tuple[str, tuple[NumberCharBox, ...]]
+    ] = {}
     for row in source_rows:
         crop = _load_rgb_image(row.crop_path)
-        boxes = segment_number_characters(crop)
-        segmentation_status = "match" if len(boxes) == len(row.expected_text) else "mismatch"
-        segmentation_by_row[row.row_id] = (segmentation_status, tuple(boxes))
-        if segmentation_status != "match":
-            continue
-        glyphs = tuple(_normalize_glyph(_text_mask(crop), box) for box in boxes)
-        row_glyphs[row.row_id] = glyphs
-        for index, (label, glyph) in enumerate(zip(row.expected_text, glyphs, strict=True)):
-            glyph_path = (
-                Path("number_char_glyphs")
-                / label_to_path_component(label)
-                / f"{row.row_id}__{index:02d}.png"
-            )
-            target = output / glyph_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _write_glyph(target, glyph)
-            glyph_samples.append(
-                NumberGlyphSample(
-                    label=label,
-                    frame_id=row.frame_id,
-                    row_id=row.row_id,
-                    crop_path=str(row.crop_path),
-                    glyph_path=str(glyph_path),
-                    box=boxes[index],
+        for target in NUMBER_TEXT_TARGETS:
+            expected = row.expected.for_target(target)
+            if expected is None:
+                continue
+            mask = _text_mask(crop, target=target)
+            boxes = _segment_number_characters_from_mask(mask)
+            segmentation_status = "match" if len(boxes) == len(expected) else "mismatch"
+            segmentation_by_row[(row.row_id, target)] = (segmentation_status, tuple(boxes))
+            if segmentation_status != "match":
+                continue
+            glyphs = tuple(_normalize_glyph(mask, box) for box in boxes)
+            row_glyphs[(row.row_id, target)] = glyphs
+            for index, (label, glyph) in enumerate(zip(expected, glyphs, strict=True)):
+                glyph_path = (
+                    Path("number_char_glyphs")
+                    / target
+                    / label_to_path_component(label)
+                    / f"{row.row_id}__{index:02d}.png"
                 )
-            )
+                glyph_target = output / glyph_path
+                glyph_target.parent.mkdir(parents=True, exist_ok=True)
+                _write_glyph(glyph_target, glyph)
+                glyph_samples.append(
+                    NumberGlyphSample(
+                        label=label,
+                        target=target,
+                        frame_id=row.frame_id,
+                        row_id=row.row_id,
+                        crop_path=str(row.crop_path),
+                        glyph_path=str(glyph_path),
+                        box=boxes[index],
+                    )
+                )
 
     train_frame_ids = {row.frame_id for row in source_rows if row.split == "train"}
     train_samples = [sample for sample in glyph_samples if sample.frame_id in train_frame_ids]
@@ -492,52 +528,79 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
     for row in source_rows:
         if row.split != "test":
             continue
-        segmentation_status, boxes = segmentation_by_row[row.row_id]
-        glyphs = row_glyphs.get(row.row_id, ())
-        template_prediction = (
-            template.recognize(glyphs)
-            if segmentation_status == "match"
-            else _segmentation_failed_prediction("template", segmentation_status)
-        )
-        mlp_prediction = (
-            mlp.recognize(glyphs)
-            if segmentation_status == "match"
-            else _segmentation_failed_prediction("opencv_mlp", segmentation_status)
-        )
-        if segmentation_status != "match":
-            cnn_prediction = _segmentation_failed_prediction("cnn", segmentation_status)
-        elif cnn is None:
-            cnn_prediction = _unavailable_prediction("cnn", "disabled")
-        else:
-            cnn_prediction = cnn.recognize(glyphs)
-        template_cnn_prediction = _template_cnn_consensus_prediction(
-            template_prediction,
-            cnn_prediction,
-        )
-        tesseract_prediction = _tesseract_prediction(row.crop_path)
+        target_evaluations: list[_TargetEvaluation] = []
+        tesseract_text = _tesseract_text(row.crop_path)
+        for target in NUMBER_TEXT_TARGETS:
+            expected = row.expected.for_target(target)
+            if expected is None:
+                continue
+            segmentation_status, boxes = segmentation_by_row[(row.row_id, target)]
+            glyphs = row_glyphs.get((row.row_id, target), ())
+            template_prediction = (
+                template.recognize(glyphs)
+                if segmentation_status == "match"
+                else _segmentation_failed_prediction("template", segmentation_status)
+            )
+            mlp_prediction = (
+                mlp.recognize(glyphs)
+                if segmentation_status == "match"
+                else _segmentation_failed_prediction("opencv_mlp", segmentation_status)
+            )
+            if segmentation_status != "match":
+                cnn_prediction = _segmentation_failed_prediction("cnn", segmentation_status)
+            elif cnn is None:
+                cnn_prediction = _unavailable_prediction("cnn", "disabled")
+            else:
+                cnn_prediction = cnn.recognize(glyphs)
+            template_cnn_prediction = _template_cnn_consensus_prediction(
+                template_prediction,
+                cnn_prediction,
+            )
+            tesseract_prediction = _tesseract_prediction_from_text(
+                tesseract_text,
+                target=target,
+                is_stack=_is_stack_row(row),
+            )
+            target_evaluations.append(
+                _TargetEvaluation(
+                    target=target,
+                    expected_text=expected,
+                    segmentation_boxes=boxes,
+                    segmentation_status=segmentation_status,
+                    template=template_prediction,
+                    opencv_mlp=mlp_prediction,
+                    cnn=cnn_prediction,
+                    template_cnn=template_cnn_prediction,
+                    tesseract=tesseract_prediction,
+                )
+            )
         evaluation_rows.append(
             _EvaluationRow(
                 source=row,
-                segmentation_boxes=boxes,
-                segmentation_status=segmentation_status,
-                template=template_prediction,
-                opencv_mlp=mlp_prediction,
-                cnn=cnn_prediction,
-                template_cnn=template_cnn_prediction,
-                tesseract=tesseract_prediction,
+                targets=tuple(target_evaluations),
             )
         )
-    cnn_summary = _method_summary(evaluation_rows, "cnn")
-    if not enable_cnn:
-        cnn_summary["status"] = "not_run"
-        cnn_summary["reason"] = "disabled"
-    elif cnn is None or not cnn.available:
-        cnn_summary["status"] = "not_run"
-        cnn_summary["reason"] = cnn.reason if cnn is not None else "disabled"
-    else:
-        cnn_summary["status"] = "trained"
-        cnn_summary["epochs"] = cnn_epochs
-        cnn_summary["min_confidence"] = cnn_min_confidence
+    target_summaries = _target_summaries(
+        source_rows,
+        evaluation_rows,
+        segmentation_by_row,
+        glyph_samples,
+    )
+    cnn_summary = _cnn_summary_for_target(
+        target_summaries["base"],
+        cnn=cnn,
+        enable_cnn=enable_cnn,
+        cnn_epochs=cnn_epochs,
+        cnn_min_confidence=cnn_min_confidence,
+    )
+    for target_summary in target_summaries.values():
+        target_summary["cnn"] = _cnn_summary_for_target(
+            target_summary,
+            cnn=cnn,
+            enable_cnn=enable_cnn,
+            cnn_epochs=cnn_epochs,
+            cnn_min_confidence=cnn_min_confidence,
+        )
 
     summary: dict[str, object] = {
         "schema_version": 1,
@@ -555,14 +618,18 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "test_rows": len(evaluation_rows),
         "glyph_samples": len(glyph_samples),
         "train_glyph_samples": len(train_samples),
+        "target_glyph_samples": dict(
+            sorted(Counter(sample.target for sample in glyph_samples).items())
+        ),
         "glyph_label_counts": dict(
             sorted(Counter(sample.label for sample in glyph_samples).items())
         ),
-        "segmentation": _segmentation_summary(source_rows, segmentation_by_row),
-        "template": _method_summary(evaluation_rows, "template"),
-        "opencv_mlp": _method_summary(evaluation_rows, "opencv_mlp"),
-        "template_cnn": _method_summary(evaluation_rows, "template_cnn"),
-        "tesseract": _method_summary(evaluation_rows, "tesseract"),
+        "targets": target_summaries,
+        "segmentation": target_summaries["base"]["segmentation"],
+        "template": target_summaries["base"]["template"],
+        "opencv_mlp": target_summaries["base"]["opencv_mlp"],
+        "template_cnn": target_summaries["base"]["template_cnn"],
+        "tesseract": target_summaries["base"]["tesseract"],
         "cnn": cnn_summary,
         "evaluation_rows": [
             _evaluation_row_to_dict(row, output, preview_crop_dir) for row in evaluation_rows
@@ -588,6 +655,10 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
 
 def segment_number_characters(image: RgbImage) -> tuple[NumberCharBox, ...]:
     mask = _text_mask(image)
+    return _segment_number_characters_from_mask(mask)
+
+
+def _segment_number_characters_from_mask(mask: GrayImage) -> tuple[NumberCharBox, ...]:
     columns = (mask > 0).any(axis=0)
     runs = _runs_from_projection(columns, max_gap=1)
     boxes: list[NumberCharBox] = []
@@ -684,8 +755,8 @@ def _load_rows(
     frame_index = {frame_id: index for index, frame_id in enumerate(frame_ids)}
     modulo = max(2, test_frame_modulo)
     for index, row in enumerate(selected):
-        expected = _expected_text(row)
-        if expected is None:
+        expected = _expected_targets(row)
+        if expected.display is None and expected.base is None and expected.overlay is None:
             continue
         frame_id = str(row.get("frame_id") or "")
         split = "test" if frame_index.get(frame_id, 0) % modulo == 0 else "train"
@@ -698,35 +769,76 @@ def _load_rows(
                 name=str(row.get("name") or ""),
                 crop_variant=str(row.get("crop_variant") or "default"),
                 crop_path=crop_path,
-                expected_text=expected,
+                expected=expected,
                 split=split,
             )
         )
     return tuple(rows)
 
 
-def _expected_text(row: Mapping[str, object]) -> str | None:
+def _expected_targets(row: Mapping[str, object]) -> NumberCharTargets:
     role = str(row.get("role") or "")
+    raw = row.get("truth_canonical_text")
+    raw_text = _normalize_compare_text(raw) if isinstance(raw, str) else ""
     if role in {"hero_stack", "seat_stack"}:
         normalized_number = _optional_int(row.get("truth_normalized_number"))
+        display = _stack_display_text(raw_text)
+        overlay = _stack_overlay_text(display)
+        base = _stack_base_text(display)
         if normalized_number is not None:
-            return f"${normalized_number:,}"
-    raw = row.get("truth_canonical_text")
-    if not isinstance(raw, str):
-        return None
-    text = _normalize_compare_text(raw)
+            base = f"${normalized_number:,}"
+            display = f"{base}{overlay}" if overlay is not None else base
+        return NumberCharTargets(base=base, overlay=overlay, display=display)
+    text = raw_text or None
+    return NumberCharTargets(base=None, overlay=None, display=text)
+
+
+def _stack_display_text(text: str) -> str | None:
     if not text:
         return None
-    if role in {"hero_stack", "seat_stack"} and not text.startswith("$"):
+    if not text.startswith("$"):
         text = f"${text}"
     if any(char not in ALLOWED_CHARS for char in text):
         return None
     return text
 
 
-def _text_mask(image: RgbImage) -> GrayImage:
+def _stack_base_text(text: str | None) -> str | None:
+    if text is None:
+        return None
+    base = text.split("+", 1)[0]
+    if not base:
+        return None
+    if not base.startswith("$"):
+        base = f"${base}"
+    return base
+
+
+def _stack_overlay_text(text: str | None) -> str | None:
+    if text is None or "+" not in text:
+        return None
+    overlay = text.split("+", 1)[1]
+    if not overlay:
+        return None
+    return f"+{overlay}"
+
+
+def _text_mask(image: RgbImage, *, target: NumberTextTarget = "base") -> GrayImage:
+    hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
     white = (image[:, :, 0] > 165) & (image[:, :, 1] > 165) & (image[:, :, 2] > 165)
-    mask = white.astype(np.uint8) * 255
+    cyan = (
+        (image[:, :, 0] < 140)
+        & (image[:, :, 1] > 130)
+        & (image[:, :, 2] > 110)
+        & (hsv[:, :, 1] > 45)
+    )
+    if target == "base":
+        selected = white
+    elif target == "overlay":
+        selected = cyan
+    else:
+        selected = white | cyan
+    mask = selected.astype(np.uint8) * 255
     return cast(GrayImage, cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8)))
 
 
@@ -772,13 +884,26 @@ def _runs_from_projection(values: NDArray[np.bool_], *, max_gap: int) -> list[tu
     return runs
 
 
-def _tesseract_prediction(crop_path: Path) -> StringPrediction:
+def _tesseract_text(crop_path: Path) -> str:
     image = _load_rgb_image(crop_path)
     raw = poker_legends_numbers._best_numeric_text(  # pyright: ignore[reportPrivateUsage]
         image,
         whitelist=poker_legends_numbers._NUMERIC_WHITELIST,  # pyright: ignore[reportPrivateUsage]
     )
-    text = _normalize_compare_text(raw)
+    return _normalize_compare_text(raw)
+
+
+def _tesseract_prediction_from_text(
+    raw_text: str,
+    *,
+    target: NumberTextTarget,
+    is_stack: bool,
+) -> StringPrediction:
+    text = _target_text_from_display_text(
+        raw_text,
+        target=target,
+        is_stack=is_stack,
+    )
     return StringPrediction(
         method="tesseract",
         text=text or None,
@@ -786,6 +911,28 @@ def _tesseract_prediction(crop_path: Path) -> StringPrediction:
         accepted=bool(text),
         reason="raw_text" if text else "missing",
     )
+
+
+def _target_text_from_display_text(
+    text: str,
+    *,
+    target: NumberTextTarget,
+    is_stack: bool,
+) -> str | None:
+    if not text:
+        return None
+    if not is_stack:
+        return text if target == "display" else None
+    display = _stack_display_text(text)
+    if target == "base":
+        return _stack_base_text(display)
+    if target == "overlay":
+        return _stack_overlay_text(display)
+    return display
+
+
+def _is_stack_row(row: NumberCharRow) -> bool:
+    return row.name.endswith("stack")
 
 
 def _segmentation_failed_prediction(
@@ -849,7 +996,63 @@ def _template_cnn_consensus_prediction(
     )
 
 
-def _method_summary(rows: Sequence[_EvaluationRow], method: RecognitionMethod) -> dict[str, object]:
+def _target_summaries(
+    source_rows: Sequence[NumberCharRow],
+    evaluation_rows: Sequence[_EvaluationRow],
+    segmentation_by_row: Mapping[
+        tuple[str, NumberTextTarget], tuple[str, tuple[NumberCharBox, ...]]
+    ],
+    glyph_samples: Sequence[NumberGlyphSample],
+) -> dict[str, dict[str, object]]:
+    summaries: dict[str, dict[str, object]] = {}
+    for target in NUMBER_TEXT_TARGETS:
+        evaluations = [
+            target_evaluation
+            for row in evaluation_rows
+            for target_evaluation in row.targets
+            if target_evaluation.target == target
+        ]
+        target_rows = [row for row in source_rows if row.expected.for_target(target) is not None]
+        summaries[target] = {
+            "rows": len(target_rows),
+            "test_rows": len(evaluations),
+            "glyph_samples": len([sample for sample in glyph_samples if sample.target == target]),
+            "segmentation": _segmentation_summary(source_rows, target, segmentation_by_row),
+            "template": _method_summary(evaluations, "template"),
+            "opencv_mlp": _method_summary(evaluations, "opencv_mlp"),
+            "cnn": _method_summary(evaluations, "cnn"),
+            "template_cnn": _method_summary(evaluations, "template_cnn"),
+            "tesseract": _method_summary(evaluations, "tesseract"),
+        }
+    return summaries
+
+
+def _cnn_summary_for_target(
+    target_summary: Mapping[str, object],
+    *,
+    cnn: NumberTorchCnnRecognizer | None,
+    enable_cnn: bool,
+    cnn_epochs: int,
+    cnn_min_confidence: float,
+) -> dict[str, object]:
+    summary = dict(cast(Mapping[str, object], target_summary["cnn"]))
+    if not enable_cnn:
+        summary["status"] = "not_run"
+        summary["reason"] = "disabled"
+    elif cnn is None or not cnn.available:
+        summary["status"] = "not_run"
+        summary["reason"] = cnn.reason if cnn is not None else "disabled"
+    else:
+        summary["status"] = "trained"
+        summary["epochs"] = cnn_epochs
+        summary["min_confidence"] = cnn_min_confidence
+    return summary
+
+
+def _method_summary(
+    rows: Sequence[_TargetEvaluation],
+    method: RecognitionMethod,
+) -> dict[str, object]:
     evaluated = len(rows)
     exact = 0
     accepted = 0
@@ -857,10 +1060,10 @@ def _method_summary(rows: Sequence[_EvaluationRow], method: RecognitionMethod) -
     accepted_wrong = 0
     missing = 0
     for row in rows:
-        prediction = _prediction_for_method(row, method)
+        prediction = _prediction_for_target_method(row, method)
         if prediction.text is None:
             missing += 1
-        is_exact = prediction.text == row.source.expected_text
+        is_exact = prediction.text == row.expected_text
         if is_exact:
             exact += 1
         if prediction.accepted:
@@ -882,7 +1085,10 @@ def _method_summary(rows: Sequence[_EvaluationRow], method: RecognitionMethod) -
     }
 
 
-def _prediction_for_method(row: _EvaluationRow, method: RecognitionMethod) -> StringPrediction:
+def _prediction_for_target_method(
+    row: _TargetEvaluation,
+    method: RecognitionMethod,
+) -> StringPrediction:
     if method == "template":
         return row.template
     if method == "opencv_mlp":
@@ -896,18 +1102,29 @@ def _prediction_for_method(row: _EvaluationRow, method: RecognitionMethod) -> St
 
 def _segmentation_summary(
     rows: Sequence[NumberCharRow],
-    segmentation_by_row: Mapping[str, tuple[str, tuple[NumberCharBox, ...]]],
+    target: NumberTextTarget,
+    segmentation_by_row: Mapping[
+        tuple[str, NumberTextTarget], tuple[str, tuple[NumberCharBox, ...]]
+    ],
 ) -> dict[str, object]:
-    counts = Counter(status for status, _boxes in segmentation_by_row.values())
-    test_counts = Counter(
-        segmentation_by_row[row.row_id][0]
+    counts = Counter(
+        status
         for row in rows
-        if row.split == "test" and row.row_id in segmentation_by_row
+        if row.expected.for_target(target) is not None
+        for status, _boxes in [segmentation_by_row[(row.row_id, target)]]
     )
+    test_counts = Counter(
+        segmentation_by_row[(row.row_id, target)][0]
+        for row in rows
+        if row.split == "test"
+        and row.expected.for_target(target) is not None
+        and (row.row_id, target) in segmentation_by_row
+    )
+    target_rows = len([row for row in rows if row.expected.for_target(target) is not None])
     return {
         "counts": dict(sorted(counts.items())),
         "test_counts": dict(sorted(test_counts.items())),
-        "success_rate": counts["match"] / len(rows) if rows else None,
+        "success_rate": counts["match"] / target_rows if target_rows else None,
     }
 
 
@@ -918,6 +1135,10 @@ def _evaluation_row_to_dict(
 ) -> dict[str, object]:
     preview_path = preview_crop_dir / f"{row.source.row_id}__{row.source.crop_path.name}"
     shutil.copy2(row.source.crop_path, preview_path)
+    targets = {
+        target_evaluation.target: _target_evaluation_to_dict(target_evaluation)
+        for target_evaluation in row.targets
+    }
     return {
         "row_id": row.source.row_id,
         "frame_id": row.source.frame_id,
@@ -925,8 +1146,16 @@ def _evaluation_row_to_dict(
         "crop_variant": row.source.crop_variant,
         "crop_path": str(row.source.crop_path),
         "preview_crop": str(preview_path.relative_to(output_root)),
-        "expected": row.source.expected_text,
+        "expected": row.source.expected.to_dict(),
         "split": row.source.split,
+        "targets": targets,
+    }
+
+
+def _target_evaluation_to_dict(row: _TargetEvaluation) -> dict[str, object]:
+    return {
+        "target": row.target,
+        "expected": row.expected_text,
         "segmentation_status": row.segmentation_status,
         "segmentation_boxes": [box.to_dict() for box in row.segmentation_boxes],
         "template": row.template.to_dict(),
@@ -938,6 +1167,7 @@ def _evaluation_row_to_dict(
 
 
 def _write_report(path: Path, summary: Mapping[str, object]) -> None:
+    target_summaries = cast(Mapping[str, object], summary["targets"])
     lines = [
         "# Poker Legends Number Character Recognizers",
         "",
@@ -949,21 +1179,40 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Test rows: {summary['test_rows']}",
         f"- Glyph samples: {summary['glyph_samples']}",
         f"- Train glyph samples: {summary['train_glyph_samples']}",
-        f"- Segmentation: {summary['segmentation']}",
         "",
-        "## Methods",
-        f"- Template: {_compact_method_summary(summary['template'])}",
-        f"- CNN: {_compact_method_summary(summary['cnn'])}",
-        f"- Template+CNN consensus: {_compact_method_summary(summary['template_cnn'])}",
-        f"- OpenCV MLP: {_compact_method_summary(summary['opencv_mlp'])}",
-        f"- Tesseract: {_compact_method_summary(summary['tesseract'])}",
-        "",
-        "## Notes",
-        "- Template, CNN, and OpenCV MLP are offline prototypes and are not connected to runtime.",
-        "- CNN uses PyTorch and trains on the generated train split only.",
-        "- Accepted predictions are thresholded; accepted_wrong must stay at zero before "
-        "any runtime use.",
+        "## Targets",
     ]
+    for target in NUMBER_TEXT_TARGETS:
+        target_summary = cast(Mapping[str, object], target_summaries[target])
+        lines.extend(
+            [
+                f"### {target}",
+                f"- Rows: {target_summary['rows']}",
+                f"- Test rows: {target_summary['test_rows']}",
+                f"- Glyph samples: {target_summary['glyph_samples']}",
+                f"- Segmentation: {target_summary['segmentation']}",
+                f"- Template: {_compact_method_summary(target_summary['template'])}",
+                f"- CNN: {_compact_method_summary(target_summary['cnn'])}",
+                f"- Template+CNN consensus: "
+                f"{_compact_method_summary(target_summary['template_cnn'])}",
+                f"- OpenCV MLP: {_compact_method_summary(target_summary['opencv_mlp'])}",
+                f"- Tesseract: {_compact_method_summary(target_summary['tesseract'])}",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## Notes",
+            "- `base` is the white available-stack text.",
+            "- `overlay` is the cyan plus/current-bet text.",
+            "- `display` is the combined visible stack string.",
+            "- Template, CNN, and OpenCV MLP are offline prototypes and are not connected "
+            "to runtime.",
+            "- CNN uses PyTorch and trains on the generated train split only.",
+            "- Accepted predictions are thresholded; accepted_wrong must stay at zero before "
+            "any runtime use.",
+        ]
+    )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -977,32 +1226,24 @@ def _write_review_files(
         "",
         "## Rows",
         "",
-        "| # | Crop | Expected | Template | CNN | Template+CNN | MLP | Tesseract | Segmentation |",
-        "|---:|---|---|---|---|---|---|---|---|",
+        "| # | Crop | Expected | Base | Overlay | Display |",
+        "|---:|---|---|---|---|---|",
     ]
     html_rows: list[str] = []
     for index, row in enumerate(rows, start=1):
         crop = str(row["preview_crop"])
-        expected = str(row["expected"])
-        template = cast(Mapping[str, object], row["template"])
-        cnn = cast(Mapping[str, object], row["cnn"])
-        template_cnn = cast(Mapping[str, object], row["template_cnn"])
-        mlp = cast(Mapping[str, object], row["opencv_mlp"])
-        tesseract = cast(Mapping[str, object], row["tesseract"])
-        segmentation = str(row["segmentation_status"])
+        expected = cast(Mapping[str, object], row["expected"])
+        targets = cast(Mapping[str, object], row["targets"])
         md_lines.append(
             "| "
             + " | ".join(
                 [
                     str(index),
                     f'<img src="{crop}" width="180">',
-                    f"`{expected}`",
-                    _review_prediction_md(template),
-                    _review_prediction_md(cnn),
-                    _review_prediction_md(template_cnn),
-                    _review_prediction_md(mlp),
-                    _review_prediction_md(tesseract),
-                    f"`{segmentation}`",
+                    _expected_targets_md(expected),
+                    _target_review_md(targets.get("base")),
+                    _target_review_md(targets.get("overlay")),
+                    _target_review_md(targets.get("display")),
                 ]
             )
             + " |"
@@ -1011,13 +1252,10 @@ def _write_review_files(
             "<tr>"
             f"<td>{index}</td>"
             f'<td><img src="{html.escape(crop)}" alt="crop {index}"></td>'
-            f"<td><code>{html.escape(expected)}</code></td>"
-            f"<td>{_review_prediction_html(template)}</td>"
-            f"<td>{_review_prediction_html(cnn)}</td>"
-            f"<td>{_review_prediction_html(template_cnn)}</td>"
-            f"<td>{_review_prediction_html(mlp)}</td>"
-            f"<td>{_review_prediction_html(tesseract)}</td>"
-            f"<td><code>{html.escape(segmentation)}</code></td>"
+            f"<td>{_expected_targets_html(expected)}</td>"
+            f"<td>{_target_review_html(targets.get('base'))}</td>"
+            f"<td>{_target_review_html(targets.get('overlay'))}</td>"
+            f"<td>{_target_review_html(targets.get('display'))}</td>"
             "</tr>"
         )
     (output / NUMBER_CHAR_RECOGNIZER_REVIEW_MD).write_text(
@@ -1039,18 +1277,76 @@ code {{ white-space: pre-wrap; }}
 </style></head><body>
 <h1>Poker Legends Number Character Recognizer Review</h1>
 <p>Offline comparison for <code>{html.escape(str(summary["field_name"]))}</code>.</p>
-<ul>
-<li>Template: {html.escape(_compact_method_summary(summary["template"]))}</li>
-<li>CNN: {html.escape(_compact_method_summary(summary["cnn"]))}</li>
-<li>Template+CNN consensus: {html.escape(_compact_method_summary(summary["template_cnn"]))}</li>
-<li>OpenCV MLP: {html.escape(_compact_method_summary(summary["opencv_mlp"]))}</li>
-<li>Tesseract: {html.escape(_compact_method_summary(summary["tesseract"]))}</li>
-</ul>
-<table><thead><tr><th>#</th><th>Crop</th><th>Expected</th><th>Template</th><th>CNN</th><th>Template+CNN</th><th>MLP</th><th>Tesseract</th><th>Segmentation</th></tr></thead>
+{_target_summary_html(summary)}
+<table><thead><tr><th>#</th><th>Crop</th><th>Expected</th><th>Base</th><th>Overlay</th><th>Display</th></tr></thead>
 <tbody>{''.join(html_rows)}</tbody></table>
 </body></html>
 """
     (output / NUMBER_CHAR_RECOGNIZER_REVIEW_HTML).write_text(html_doc, encoding="utf-8")
+
+
+def _target_summary_html(summary: Mapping[str, object]) -> str:
+    target_summaries = cast(Mapping[str, object], summary["targets"])
+    items: list[str] = []
+    for target in NUMBER_TEXT_TARGETS:
+        target_summary = cast(Mapping[str, object], target_summaries[target])
+        items.append(
+            "<li>"
+            f"<strong>{html.escape(target)}</strong>: "
+            f"seg={html.escape(str(target_summary['segmentation']))}; "
+            f"CNN={html.escape(_compact_method_summary(target_summary['cnn']))}; "
+            f"T+CNN={html.escape(_compact_method_summary(target_summary['template_cnn']))}; "
+            f"Template={html.escape(_compact_method_summary(target_summary['template']))}; "
+            f"Tesseract={html.escape(_compact_method_summary(target_summary['tesseract']))}"
+            "</li>"
+        )
+    return "<ul>" + "".join(items) + "</ul>"
+
+
+def _expected_targets_md(expected: Mapping[str, object]) -> str:
+    return "<br>".join(
+        f"{target}: `{expected.get(target)}`" for target in NUMBER_TEXT_TARGETS
+    )
+
+
+def _expected_targets_html(expected: Mapping[str, object]) -> str:
+    return "".join(
+        f"<div><strong>{html.escape(target)}</strong>: "
+        f"<code>{html.escape(str(expected.get(target)))}</code></div>"
+        for target in NUMBER_TEXT_TARGETS
+    )
+
+
+def _target_review_md(value: object) -> str:
+    if not isinstance(value, Mapping):
+        return "`n/a`"
+    return "<br>".join(
+        [
+            f"seg: `{value.get('segmentation_status')}`",
+            f"cnn: {_review_prediction_md(cast(Mapping[str, object], value['cnn']))}",
+            "t+cnn: "
+            f"{_review_prediction_md(cast(Mapping[str, object], value['template_cnn']))}",
+            f"tpl: {_review_prediction_md(cast(Mapping[str, object], value['template']))}",
+            f"ocr: {_review_prediction_md(cast(Mapping[str, object], value['tesseract']))}",
+        ]
+    )
+
+
+def _target_review_html(value: object) -> str:
+    if not isinstance(value, Mapping):
+        return "<span class=\"muted\">n/a</span>"
+    return (
+        "<div><strong>seg</strong>: "
+        f"<code>{html.escape(str(value.get('segmentation_status')))}</code></div>"
+        "<div><strong>cnn</strong>: "
+        f"{_review_prediction_html(cast(Mapping[str, object], value['cnn']))}</div>"
+        "<div><strong>t+cnn</strong>: "
+        f"{_review_prediction_html(cast(Mapping[str, object], value['template_cnn']))}</div>"
+        "<div><strong>tpl</strong>: "
+        f"{_review_prediction_html(cast(Mapping[str, object], value['template']))}</div>"
+        "<div><strong>ocr</strong>: "
+        f"{_review_prediction_html(cast(Mapping[str, object], value['tesseract']))}</div>"
+    )
 
 
 def _review_prediction_md(prediction: Mapping[str, object]) -> str:
