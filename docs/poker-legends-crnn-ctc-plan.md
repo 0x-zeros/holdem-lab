@@ -133,6 +133,28 @@ Current implementation status:
 - The larger 1000-synthetic overfit gate is still pending. Earlier runs before the
   effective-input-length fix failed badly and must not be used to judge the final
   CRNN route.
+- Real reviewed-crop experiment v1:
+  `artifacts/poker-legends-videos/number_real_manifest_hero_stack_v3/` filters the
+  v7 number crop dataset into 273 labeled-visible `hero_stack` positives, 6 explicit
+  `no_visible_number` hard negatives, and excludes 78 unlabeled unknown rows. Splits
+  are assigned by positive frame only so hard negatives do not shift positive train/test
+  distribution.
+- Same-split `hero_stack` base baseline:
+  `artifacts/poker-legends-videos/number_real_hero_stack_base_baseline_v1/` reports
+  57 test positives with 54 segmentation matches and 3 mismatches. CNN at 60 epochs:
+  51/57 accepted, accepted precision 1.000, accepted wrong 0. Template alone accepts
+  54/57 but has 6 accepted wrong. Tesseract accepts 57/57 but has 16 accepted wrong.
+- Same-split CRNN quick check:
+  `artifacts/poker-legends-videos/number_real_hero_stack_base_crnn_strip_quick_v2/`
+  trains base-only CRNN+CTC for 20 epochs with `--ctc-strip-fixed-prefix`, batch 8,
+  lr 0.001, weight decay 0.0. Time-step budget passes, but CRNN decodes blank on all
+  57 test rows: raw exact 0, accepted 0, accepted wrong 0. A previous non-stripped
+  quick run decoded mostly `$`, also with 0 accepted.
+- Current real-crop conclusion: the CNN/template path remains the credible baseline.
+  CRNN+CTC is not rejected as a route, but it should not be long-run blindly; the next
+  CRNN work should first add faster training instrumentation, epoch-level validation,
+  and likely synthetic pretraining / lighter architecture before claiming real-crop
+  benefit.
 
 ### 1. Data Labels
 

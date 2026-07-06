@@ -22,6 +22,7 @@ from holdem_bot.vision import poker_legends_numbers
 from holdem_bot.vision.poker_legends_ctc import (
     CtcAlphabet,
     CtcTimeStepBudget,
+    ctc_required_timesteps,
     ctc_time_step_budget,
     validate_ctc_log_probs_shape,
 )
@@ -43,6 +44,7 @@ DEFAULT_CNN_BATCH_SIZE = 64
 DEFAULT_CNN_SEED = 1729
 DEFAULT_CTC_MIN_CONFIDENCE = 0.80
 DEFAULT_CTC_MIN_TIMESTEP_RATIO = 2.0
+DEFAULT_CTC_MIN_EFFECTIVE_TIMESTEPS = 24
 DEFAULT_CRNN_EPOCHS = 12
 DEFAULT_TRANSFORMER_EPOCHS = 12
 DEFAULT_CTC_BATCH_SIZE = 32
@@ -631,8 +633,12 @@ class NumberTorchCtcRecognizer:
         )
         self._input_time_steps = shape.timesteps
         effective_input_lengths = [
-            _effective_sequence_timesteps(image, full_timesteps=shape.timesteps)
-            for image in images
+            _effective_sequence_timesteps_for_text(
+                image,
+                texts[index],
+                full_timesteps=shape.timesteps,
+            )
+            for index, image in enumerate(images)
         ]
         self._time_step_budgets = tuple(
             ctc_time_step_budget(
@@ -786,11 +792,49 @@ def apply_number_text_target_contract(
     )
 
 
+def _ctc_training_text(
+    text: str,
+    *,
+    target: NumberTextTarget,
+    strip_fixed_prefix: bool,
+) -> str:
+    if not strip_fixed_prefix:
+        return text
+    if target == "base" and text.startswith("$"):
+        return text[1:]
+    if target == "overlay" and text.startswith("+"):
+        return text[1:]
+    return text
+
+
+def _restore_ctc_fixed_prefix(
+    prediction: StringPrediction,
+    *,
+    target: NumberTextTarget,
+    strip_fixed_prefix: bool,
+) -> StringPrediction:
+    if not strip_fixed_prefix or prediction.text is None:
+        return prediction
+    prefix = "$" if target == "base" else "+" if target == "overlay" else ""
+    if not prefix or prediction.text.startswith(prefix):
+        return prediction
+    return StringPrediction(
+        method=prediction.method,
+        text=f"{prefix}{prediction.text}",
+        confidence=prediction.confidence,
+        accepted=prediction.accepted,
+        reason=prediction.reason,
+        char_distances=prediction.char_distances,
+        char_confidences=prediction.char_confidences,
+    )
+
+
 def build_and_evaluate_poker_legends_number_char_recognizers(
     manifest_path: str | Path,
     *,
     output_dir: str | Path,
     field_name: str = "hero_stack",
+    targets: Sequence[NumberTextTarget] = NUMBER_TEXT_TARGETS,
     max_crops: int | None = None,
     test_frame_modulo: int = DEFAULT_TEST_FRAME_MODULO,
     template_max_distance: float = DEFAULT_TEMPLATE_MAX_DISTANCE,
@@ -800,11 +844,20 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
     ctc_min_confidence: float = DEFAULT_CTC_MIN_CONFIDENCE,
     crnn_epochs: int = DEFAULT_CRNN_EPOCHS,
     transformer_epochs: int = DEFAULT_TRANSFORMER_EPOCHS,
+    ctc_batch_size: int = DEFAULT_CTC_BATCH_SIZE,
+    ctc_learning_rate: float = DEFAULT_CTC_LEARNING_RATE,
+    ctc_weight_decay: float = DEFAULT_CTC_WEIGHT_DECAY,
+    ctc_seed: int = DEFAULT_CTC_SEED,
+    ctc_strip_fixed_prefix: bool = False,
     enable_cnn: bool = True,
     enable_ctc: bool = False,
+    enable_transformer_ctc: bool = True,
     enable_tesseract: bool = True,
 ) -> dict[str, object]:
     manifest_file = Path(manifest_path)
+    active_targets = tuple(targets)
+    if not active_targets:
+        raise ValueError("at least one number text target is required")
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     glyph_dir = output / "number_char_glyphs"
@@ -827,7 +880,7 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
     ] = {}
     for row in source_rows:
         crop = _load_rgb_image(row.crop_path)
-        for target in NUMBER_TEXT_TARGETS:
+        for target in active_targets:
             expected = row.expected.for_target(target)
             if expected is None:
                 continue
@@ -840,7 +893,11 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                     frame_id=row.frame_id,
                     row_id=row.row_id,
                     crop_path=str(row.crop_path),
-                    text=expected,
+                    text=_ctc_training_text(
+                        expected,
+                        target=target,
+                        strip_fixed_prefix=ctc_strip_fixed_prefix,
+                    ),
                     image=sequence_image,
                 )
             )
@@ -904,6 +961,10 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             architecture="crnn_ctc",
             min_confidence=ctc_min_confidence,
             epochs=crnn_epochs,
+            batch_size=ctc_batch_size,
+            seed=ctc_seed,
+            learning_rate=ctc_learning_rate,
+            weight_decay=ctc_weight_decay,
         )
         if enable_ctc
         else None
@@ -914,9 +975,12 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             architecture="transformer_ctc",
             min_confidence=ctc_min_confidence,
             epochs=transformer_epochs,
-            seed=DEFAULT_CTC_SEED + 1,
+            batch_size=ctc_batch_size,
+            seed=ctc_seed + 1,
+            learning_rate=ctc_learning_rate,
+            weight_decay=ctc_weight_decay,
         )
-        if enable_ctc
+        if enable_ctc and enable_transformer_ctc
         else None
     )
 
@@ -926,7 +990,7 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             continue
         target_evaluations: list[_TargetEvaluation] = []
         tesseract_text = _tesseract_text(row.crop_path) if enable_tesseract else None
-        for target in NUMBER_TEXT_TARGETS:
+        for target in active_targets:
             expected = row.expected.for_target(target)
             if expected is None:
                 continue
@@ -951,7 +1015,11 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             sequence_image = row_sequence_images[(row.row_id, target)]
             crnn_prediction = (
                 apply_number_text_target_contract(
-                    crnn.recognize(sequence_image),
+                    _restore_ctc_fixed_prefix(
+                        crnn.recognize(sequence_image),
+                        target=target,
+                        strip_fixed_prefix=ctc_strip_fixed_prefix,
+                    ),
                     target=target,
                     is_stack=_is_stack_row(row),
                 )
@@ -960,7 +1028,11 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             )
             transformer_prediction = (
                 apply_number_text_target_contract(
-                    transformer.recognize(sequence_image),
+                    _restore_ctc_fixed_prefix(
+                        transformer.recognize(sequence_image),
+                        target=target,
+                        strip_fixed_prefix=ctc_strip_fixed_prefix,
+                    ),
                     target=target,
                     is_stack=_is_stack_row(row),
                 )
@@ -1001,14 +1073,16 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                 targets=tuple(target_evaluations),
             )
         )
+    primary_target = active_targets[0]
     target_summaries = _target_summaries(
         source_rows,
         evaluation_rows,
         segmentation_by_row,
         glyph_samples,
+        targets=active_targets,
     )
     cnn_summary = _cnn_summary_for_target(
-        target_summaries["base"],
+        target_summaries[primary_target],
         cnn=cnn,
         enable_cnn=enable_cnn,
         cnn_epochs=cnn_epochs,
@@ -1043,6 +1117,8 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "schema_version": 1,
         "manifest": str(manifest_file),
         "field_name": field_name,
+        "primary_target": primary_target,
+        "active_targets": list(active_targets),
         "max_crops": max_crops,
         "test_frame_modulo": test_frame_modulo,
         "template_max_distance": template_max_distance,
@@ -1052,8 +1128,14 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "ctc_min_confidence": ctc_min_confidence,
         "crnn_epochs": crnn_epochs,
         "transformer_epochs": transformer_epochs,
+        "ctc_batch_size": ctc_batch_size,
+        "ctc_learning_rate": ctc_learning_rate,
+        "ctc_weight_decay": ctc_weight_decay,
+        "ctc_seed": ctc_seed,
+        "ctc_strip_fixed_prefix": ctc_strip_fixed_prefix,
         "enable_cnn": enable_cnn,
         "enable_ctc": enable_ctc,
+        "enable_transformer_ctc": enable_transformer_ctc,
         "enable_tesseract": enable_tesseract,
         "rows": len(source_rows),
         "train_rows": len([row for row in source_rows if row.split == "train"]),
@@ -1069,14 +1151,14 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
             sorted(Counter(sample.label for sample in glyph_samples).items())
         ),
         "targets": target_summaries,
-        "segmentation": target_summaries["base"]["segmentation"],
-        "template": target_summaries["base"]["template"],
-        "opencv_mlp": target_summaries["base"]["opencv_mlp"],
-        "template_cnn": target_summaries["base"]["template_cnn"],
-        "tesseract": target_summaries["base"]["tesseract"],
+        "segmentation": target_summaries[primary_target]["segmentation"],
+        "template": target_summaries[primary_target]["template"],
+        "opencv_mlp": target_summaries[primary_target]["opencv_mlp"],
+        "template_cnn": target_summaries[primary_target]["template_cnn"],
+        "tesseract": target_summaries[primary_target]["tesseract"],
         "cnn": cnn_summary,
-        "crnn_ctc": target_summaries["base"]["crnn_ctc"],
-        "transformer_ctc": target_summaries["base"]["transformer_ctc"],
+        "crnn_ctc": target_summaries[primary_target]["crnn_ctc"],
+        "transformer_ctc": target_summaries[primary_target]["transformer_ctc"],
         "evaluation_rows": [
             _evaluation_row_to_dict(row, output, preview_crop_dir) for row in evaluation_rows
         ],
@@ -1143,6 +1225,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("manifest", help="number_crop_dataset_manifest.json")
     parser.add_argument("--out", required=True)
     parser.add_argument("--field-name", default="hero_stack")
+    parser.add_argument(
+        "--target",
+        action="append",
+        choices=NUMBER_TEXT_TARGETS,
+        dest="targets",
+        help="Text target to evaluate; repeatable. Defaults to base, overlay, and display.",
+    )
     parser.add_argument("--max-crops", type=int)
     parser.add_argument("--test-frame-modulo", type=int, default=DEFAULT_TEST_FRAME_MODULO)
     parser.add_argument(
@@ -1156,8 +1245,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ctc-min-confidence", type=float, default=DEFAULT_CTC_MIN_CONFIDENCE)
     parser.add_argument("--crnn-epochs", type=int, default=DEFAULT_CRNN_EPOCHS)
     parser.add_argument("--transformer-epochs", type=int, default=DEFAULT_TRANSFORMER_EPOCHS)
+    parser.add_argument("--ctc-batch-size", type=int, default=DEFAULT_CTC_BATCH_SIZE)
+    parser.add_argument("--ctc-learning-rate", type=float, default=DEFAULT_CTC_LEARNING_RATE)
+    parser.add_argument("--ctc-weight-decay", type=float, default=DEFAULT_CTC_WEIGHT_DECAY)
+    parser.add_argument("--ctc-seed", type=int, default=DEFAULT_CTC_SEED)
+    parser.add_argument("--ctc-strip-fixed-prefix", action="store_true")
     parser.add_argument("--disable-cnn", action="store_true")
     parser.add_argument("--enable-ctc", action="store_true")
+    parser.add_argument("--disable-transformer-ctc", action="store_true")
     parser.add_argument("--disable-tesseract", action="store_true")
     return parser
 
@@ -1168,6 +1263,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         args.manifest,
         output_dir=args.out,
         field_name=args.field_name,
+        targets=tuple(args.targets) if args.targets else NUMBER_TEXT_TARGETS,
         max_crops=args.max_crops,
         test_frame_modulo=args.test_frame_modulo,
         template_max_distance=args.template_max_distance,
@@ -1177,8 +1273,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         ctc_min_confidence=args.ctc_min_confidence,
         crnn_epochs=args.crnn_epochs,
         transformer_epochs=args.transformer_epochs,
+        ctc_batch_size=args.ctc_batch_size,
+        ctc_learning_rate=args.ctc_learning_rate,
+        ctc_weight_decay=args.ctc_weight_decay,
+        ctc_seed=args.ctc_seed,
+        ctc_strip_fixed_prefix=args.ctc_strip_fixed_prefix,
         enable_cnn=not args.disable_cnn,
         enable_ctc=args.enable_ctc,
+        enable_transformer_ctc=not args.disable_transformer_ctc,
         enable_tesseract=not args.disable_tesseract,
     )
     print(json.dumps(_stdout_summary(summary), indent=2, sort_keys=True))
@@ -1215,7 +1317,14 @@ def _load_rows(
         if expected.display is None and expected.base is None and expected.overlay is None:
             continue
         frame_id = str(row.get("frame_id") or "")
-        split = "test" if frame_index.get(frame_id, 0) % modulo == 0 else "train"
+        manifest_split = str(row.get("split") or "")
+        split = (
+            manifest_split
+            if manifest_split in {"train", "validation", "test"}
+            else "test"
+            if frame_index.get(frame_id, 0) % modulo == 0
+            else "train"
+        )
         crop_path = _resolve_crop_path(manifest_path.parent, row.get("crop_path"))
         rows.append(
             NumberCharRow(
@@ -1339,7 +1448,12 @@ def _normalize_sequence_image(mask: GrayImage) -> FloatImage:
     return cast(FloatImage, canvas.astype(np.float32) / 255.0)
 
 
-def _effective_sequence_timesteps(image: FloatImage, *, full_timesteps: int) -> int:
+def _effective_sequence_timesteps(
+    image: FloatImage,
+    *,
+    full_timesteps: int,
+    min_timesteps: int = DEFAULT_CTC_MIN_EFFECTIVE_TIMESTEPS,
+) -> int:
     columns = (image > 0.01).any(axis=0)
     nonzero = np.where(columns)[0]
     if len(nonzero) == 0:
@@ -1348,7 +1462,21 @@ def _effective_sequence_timesteps(image: FloatImage, *, full_timesteps: int) -> 
     image_width = int(image.shape[1])
     effective_width = min(image_width, int(nonzero.max()) + 3)
     scaled = math.ceil(effective_width * full_timesteps / max(1, image_width))
-    return max(1, min(full_timesteps, scaled))
+    return max(1, min(full_timesteps, max(scaled, min_timesteps)))
+
+
+def _effective_sequence_timesteps_for_text(
+    image: FloatImage,
+    text: str,
+    *,
+    full_timesteps: int,
+) -> int:
+    required = math.ceil(ctc_required_timesteps(text) * DEFAULT_CTC_MIN_TIMESTEP_RATIO)
+    return _effective_sequence_timesteps(
+        image,
+        full_timesteps=full_timesteps,
+        min_timesteps=max(DEFAULT_CTC_MIN_EFFECTIVE_TIMESTEPS, required),
+    )
 
 
 def _runs_from_projection(values: NDArray[np.bool_], *, max_gap: int) -> list[tuple[int, int]]:
@@ -1520,9 +1648,11 @@ def _target_summaries(
         tuple[str, NumberTextTarget], tuple[str, tuple[NumberCharBox, ...]]
     ],
     glyph_samples: Sequence[NumberGlyphSample],
+    *,
+    targets: Sequence[NumberTextTarget],
 ) -> dict[str, dict[str, object]]:
     summaries: dict[str, dict[str, object]] = {}
-    for target in NUMBER_TEXT_TARGETS:
+    for target in targets:
         evaluations = [
             target_evaluation
             for row in evaluation_rows
@@ -1721,12 +1851,17 @@ def _target_evaluation_to_dict(row: _TargetEvaluation) -> dict[str, object]:
 
 def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     target_summaries = cast(Mapping[str, object], summary["targets"])
+    active_targets = tuple(
+        cast(Sequence[str], summary.get("active_targets") or NUMBER_TEXT_TARGETS)
+    )
     lines = [
         "# Poker Legends Number Character Recognizers",
         "",
         "## Summary",
         f"- Manifest: `{summary['manifest']}`",
         f"- Field: `{summary['field_name']}`",
+        f"- Targets: `{summary.get('active_targets')}`",
+        f"- CTC strip fixed prefix: `{summary.get('ctc_strip_fixed_prefix')}`",
         f"- Rows: {summary['rows']}",
         f"- Train rows: {summary['train_rows']}",
         f"- Test rows: {summary['test_rows']}",
@@ -1735,7 +1870,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         "## Targets",
     ]
-    for target in NUMBER_TEXT_TARGETS:
+    for target in active_targets:
         target_summary = cast(Mapping[str, object], target_summaries[target])
         lines.extend(
             [
@@ -1843,8 +1978,11 @@ code {{ white-space: pre-wrap; }}
 
 def _target_summary_html(summary: Mapping[str, object]) -> str:
     target_summaries = cast(Mapping[str, object], summary["targets"])
+    active_targets = tuple(
+        cast(Sequence[str], summary.get("active_targets") or NUMBER_TEXT_TARGETS)
+    )
     items: list[str] = []
-    for target in NUMBER_TEXT_TARGETS:
+    for target in active_targets:
         target_summary = cast(Mapping[str, object], target_summaries[target])
         items.append(
             "<li>"
