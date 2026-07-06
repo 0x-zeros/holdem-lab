@@ -80,9 +80,11 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
         "failed": 0,
         "failed_examples": [],
         "input_timesteps": 40,
+        "max_effective_input_timesteps": 17,
         "max_required_timesteps": 4,
         "max_target_length": 4,
-        "min_observed_ratio": 10.0,
+        "min_effective_input_timesteps": 17,
+        "min_observed_ratio": 4.25,
         "min_ratio": 2.0,
     }
     assert cast(dict[str, Any], base["transformer_ctc"])["status"] == "trained"

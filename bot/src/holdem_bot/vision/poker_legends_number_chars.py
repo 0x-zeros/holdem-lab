@@ -9,7 +9,7 @@ import json
 import math
 import shutil
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -47,6 +47,8 @@ DEFAULT_CRNN_EPOCHS = 12
 DEFAULT_TRANSFORMER_EPOCHS = 12
 DEFAULT_CTC_BATCH_SIZE = 32
 DEFAULT_CTC_SEED = 2027
+DEFAULT_CTC_LEARNING_RATE = 0.001
+DEFAULT_CTC_WEIGHT_DECAY = 0.0001
 DEFAULT_TEST_FRAME_MODULO = 5
 NUMBER_CHAR_RECOGNIZER_SUMMARY = "number_char_recognizer_summary.json"
 NUMBER_CHAR_RECOGNIZER_REPORT = "number_char_recognizer_report.md"
@@ -478,12 +480,18 @@ class NumberTorchCtcRecognizer:
         epochs: int = DEFAULT_CRNN_EPOCHS,
         batch_size: int = DEFAULT_CTC_BATCH_SIZE,
         seed: int = DEFAULT_CTC_SEED,
+        learning_rate: float = DEFAULT_CTC_LEARNING_RATE,
+        weight_decay: float = DEFAULT_CTC_WEIGHT_DECAY,
+        progress_callback: Callable[[int, int, float], None] | None = None,
     ) -> None:
         self.architecture = architecture
         self.min_confidence = min_confidence
         self.epochs = max(1, epochs)
         self.batch_size = max(1, batch_size)
         self.seed = seed
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self._progress_callback = progress_callback
         self._alphabet = CtcAlphabet.from_texts(sample.text for sample in samples)
         self._labels = self._alphabet.labels
         self._torch: Any | None = None
@@ -513,8 +521,11 @@ class NumberTorchCtcRecognizer:
         failed = [budget for budget in self._time_step_budgets if not budget.valid]
         max_required = max(budget.required_timesteps for budget in self._time_step_budgets)
         max_target_length = max(budget.target_length for budget in self._time_step_budgets)
+        input_timesteps = [budget.input_timesteps for budget in self._time_step_budgets]
         return {
             "input_timesteps": self._input_time_steps,
+            "min_effective_input_timesteps": min(input_timesteps),
+            "max_effective_input_timesteps": max(input_timesteps),
             "min_ratio": DEFAULT_CTC_MIN_TIMESTEP_RATIO,
             "checked": len(self._time_step_budgets),
             "failed": len(failed),
@@ -551,7 +562,13 @@ class NumberTorchCtcRecognizer:
         with torch.inference_mode():
             logits = model(torch.from_numpy(batch))
             probabilities = torch.softmax(logits, dim=2).detach().cpu().numpy()
-        text, confidences = self._decode_probabilities(cast(NDArray[np.float32], probabilities))
+        effective_timesteps = _effective_sequence_timesteps(
+            image,
+            full_timesteps=int(probabilities.shape[0]),
+        )
+        text, confidences = self._decode_probabilities(
+            cast(NDArray[np.float32], probabilities[:effective_timesteps])
+        )
         if not text:
             return StringPrediction(
                 method=self.architecture,
@@ -581,11 +598,11 @@ class NumberTorchCtcRecognizer:
         except ImportError:
             self._reason = "torch_unavailable"
             return
-        encoded_samples: list[tuple[FloatImage, list[int]]] = []
+        encoded_samples: list[tuple[FloatImage, list[int], str]] = []
         for sample in samples:
             encoded = list(self._alphabet.encode(sample.text))
             if encoded:
-                encoded_samples.append((sample.image, encoded))
+                encoded_samples.append((sample.image, encoded, sample.text))
         if len(encoded_samples) < 2:
             self._reason = "insufficient_training_data"
             return
@@ -596,9 +613,14 @@ class NumberTorchCtcRecognizer:
             if self.architecture == "crnn_ctc"
             else self._build_transformer_model(nn_module, len(self._labels) + 1)
         )
-        optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001)
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
+        )
         images = np.stack([sample[0] for sample in encoded_samples]).astype(np.float32)
         targets = [sample[1] for sample in encoded_samples]
+        texts = [sample[2] for sample in encoded_samples]
         x = torch.from_numpy(images[:, None, :, :])
         with torch.inference_mode():
             sample_logits = model(x[:1])
@@ -608,22 +630,26 @@ class NumberTorchCtcRecognizer:
             class_count=self._alphabet.class_count,
         )
         self._input_time_steps = shape.timesteps
+        effective_input_lengths = [
+            _effective_sequence_timesteps(image, full_timesteps=shape.timesteps)
+            for image in images
+        ]
         self._time_step_budgets = tuple(
             ctc_time_step_budget(
-                sample.text,
-                input_timesteps=shape.timesteps,
+                text,
+                input_timesteps=effective_input_lengths[index],
                 min_ratio=DEFAULT_CTC_MIN_TIMESTEP_RATIO,
             )
-            for sample in samples
-            if sample.text
+            for index, text in enumerate(texts)
         )
         if any(not budget.valid for budget in self._time_step_budgets):
             self._reason = "ctc_time_budget_failed"
             return
         criterion = nn.CTCLoss(blank=self._alphabet.blank_index, zero_infinity=False)
         model.train()
-        for _epoch in range(self.epochs):
+        for epoch in range(self.epochs):
             order = torch.randperm(x.shape[0])
+            last_loss = math.nan
             for start in range(0, x.shape[0], self.batch_size):
                 batch_index = order[start : start + self.batch_size]
                 batch_targets = [targets[int(index)] for index in batch_index]
@@ -642,15 +668,17 @@ class NumberTorchCtcRecognizer:
                     class_count=self._alphabet.class_count,
                 )
                 log_probs = torch.log_softmax(logits, dim=2)
-                input_lengths = torch.full(
-                    size=(len(batch_targets),),
-                    fill_value=int(log_probs.shape[0]),
+                input_lengths = torch.tensor(
+                    [effective_input_lengths[int(index)] for index in batch_index],
                     dtype=torch.long,
                 )
                 loss = criterion(log_probs, flat_targets, input_lengths, target_lengths)
+                last_loss = float(loss.detach().cpu().item())
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+            if self._progress_callback is not None:
+                self._progress_callback(epoch + 1, self.epochs, last_loss)
         model.eval()
         self._torch = torch
         self._model = model
@@ -735,6 +763,27 @@ class NumberTorchCtcRecognizer:
                 return self.out(encoded).permute(1, 0, 2)
 
         return _TransformerCtcModel()
+
+
+def apply_number_text_target_contract(
+    prediction: StringPrediction,
+    *,
+    target: NumberTextTarget,
+    is_stack: bool,
+) -> StringPrediction:
+    if prediction.text is None or not prediction.accepted:
+        return prediction
+    if _target_contract_accepts_text(prediction.text, target=target, is_stack=is_stack):
+        return prediction
+    return StringPrediction(
+        method=prediction.method,
+        text=prediction.text,
+        confidence=prediction.confidence,
+        accepted=False,
+        reason="format",
+        char_distances=prediction.char_distances,
+        char_confidences=prediction.char_confidences,
+    )
 
 
 def build_and_evaluate_poker_legends_number_char_recognizers(
@@ -901,12 +950,20 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                 cnn_prediction = cnn.recognize(glyphs)
             sequence_image = row_sequence_images[(row.row_id, target)]
             crnn_prediction = (
-                crnn.recognize(sequence_image)
+                apply_number_text_target_contract(
+                    crnn.recognize(sequence_image),
+                    target=target,
+                    is_stack=_is_stack_row(row),
+                )
                 if crnn is not None
                 else _unavailable_prediction("crnn_ctc", "disabled")
             )
             transformer_prediction = (
-                transformer.recognize(sequence_image)
+                apply_number_text_target_contract(
+                    transformer.recognize(sequence_image),
+                    target=target,
+                    is_stack=_is_stack_row(row),
+                )
                 if transformer is not None
                 else _unavailable_prediction("transformer_ctc", "disabled")
             )
@@ -1282,6 +1339,18 @@ def _normalize_sequence_image(mask: GrayImage) -> FloatImage:
     return cast(FloatImage, canvas.astype(np.float32) / 255.0)
 
 
+def _effective_sequence_timesteps(image: FloatImage, *, full_timesteps: int) -> int:
+    columns = (image > 0.01).any(axis=0)
+    nonzero = np.where(columns)[0]
+    if len(nonzero) == 0:
+        return full_timesteps
+    # Include a small right-side blank margin so CTC can terminate the last label.
+    image_width = int(image.shape[1])
+    effective_width = min(image_width, int(nonzero.max()) + 3)
+    scaled = math.ceil(effective_width * full_timesteps / max(1, image_width))
+    return max(1, min(full_timesteps, scaled))
+
+
 def _runs_from_projection(values: NDArray[np.bool_], *, max_gap: int) -> list[tuple[int, int]]:
     runs: list[tuple[int, int]] = []
     start: int | None = None
@@ -1351,6 +1420,32 @@ def _target_text_from_display_text(
     if target == "overlay":
         return _stack_overlay_text(display)
     return display
+
+
+def _target_contract_accepts_text(
+    text: str,
+    *,
+    target: NumberTextTarget,
+    is_stack: bool,
+) -> bool:
+    if not is_stack:
+        return bool(text) and all(char in ALLOWED_CHARS for char in text)
+    if target == "base":
+        return text.startswith("$") and _valid_numeric_body(text[1:])
+    if target == "overlay":
+        return text.startswith("+") and _valid_numeric_body(text[1:])
+    if not text.startswith("$"):
+        return False
+    base, separator, overlay = text.partition("+")
+    if not _valid_numeric_body(base[1:]):
+        return False
+    return not separator or _valid_numeric_body(overlay)
+
+
+def _valid_numeric_body(text: str) -> bool:
+    if not text:
+        return False
+    return any(char.isdigit() for char in text) and all(char in "0123456789,.KM" for char in text)
 
 
 def _is_stack_row(row: NumberCharRow) -> bool:

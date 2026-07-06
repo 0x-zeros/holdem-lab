@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import random
-from collections.abc import Mapping, Sequence
+import sys
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -27,6 +28,7 @@ from holdem_bot.vision.poker_legends_number_chars import (
     _load_rows,
     _normalize_sequence_image,
     _text_mask,
+    apply_number_text_target_contract,
 )
 
 CTC_SANITY_SUMMARY = "ctc_sanity_summary.json"
@@ -50,7 +52,10 @@ def run_poker_legends_ctc_sanity(
     real_count: int = 20,
     epochs: int = 120,
     batch_size: int = 32,
+    learning_rate: float = 0.001,
+    weight_decay: float = 0.0001,
     seed: int = 2028,
+    progress: bool = False,
 ) -> dict[str, object]:
     """Run offline CTC falsification checks and write a JSON summary."""
 
@@ -92,7 +97,10 @@ def run_poker_legends_ctc_sanity(
             dataset,
             epochs=epochs,
             batch_size=batch_size,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
             seed=seed + index,
+            progress=progress,
         )
         for index, dataset in enumerate(datasets)
     ]
@@ -105,6 +113,8 @@ def run_poker_legends_ctc_sanity(
         "real_count": real_count if manifest_path is not None else 0,
         "epochs": epochs,
         "batch_size": batch_size,
+        "learning_rate": learning_rate,
+        "weight_decay": weight_decay,
         "seed": seed,
         "too_short_case": _too_short_case_summary(),
         "datasets": dataset_summaries,
@@ -136,7 +146,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--real-count", type=int, default=20)
     parser.add_argument("--epochs", type=int, default=120)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--learning-rate", type=float, default=0.001)
+    parser.add_argument("--weight-decay", type=float, default=0.0001)
     parser.add_argument("--seed", type=int, default=2028)
+    parser.add_argument("--quiet", action="store_true")
     return parser
 
 
@@ -151,7 +164,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         real_count=args.real_count,
         epochs=args.epochs,
         batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
         seed=args.seed,
+        progress=not args.quiet,
     )
     print(json.dumps(_stdout_summary(summary), indent=2, sort_keys=True))
 
@@ -161,7 +177,10 @@ def _run_dataset_overfit(
     *,
     epochs: int,
     batch_size: int,
+    learning_rate: float,
+    weight_decay: float,
     seed: int,
+    progress: bool,
 ) -> dict[str, object]:
     if len(dataset.samples) < 2:
         return {
@@ -173,18 +192,30 @@ def _run_dataset_overfit(
             "passed": False,
             "note": dataset.note,
         }
+    progress_callback: Callable[[int, int, float], None] | None = None
+    if progress:
+        def progress_callback(epoch: int, total: int, loss: float) -> None:
+            _print_progress(dataset.name, epoch, total, loss)
+
     recognizer = NumberTorchCtcRecognizer(
         dataset.samples,
         architecture="crnn_ctc",
         epochs=epochs,
         batch_size=batch_size,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
         seed=seed,
+        progress_callback=progress_callback,
     )
     predictions = [
         {
             "row_id": sample.row_id,
             "expected": sample.text,
-            "prediction": recognizer.recognize(sample.image).to_dict(),
+            "prediction": apply_number_text_target_contract(
+                recognizer.recognize(sample.image),
+                target=dataset.target,
+                is_stack=True,
+            ).to_dict(),
         }
         for sample in dataset.samples
     ]
@@ -214,6 +245,8 @@ def _run_dataset_overfit(
         "sample_count": sample_count,
         "epochs": epochs,
         "batch_size": batch_size,
+        "learning_rate": learning_rate,
+        "weight_decay": weight_decay,
         "time_step_budget": recognizer.time_step_budget_summary,
         "raw_exact": exact,
         "raw_exact_rate": exact / sample_count if sample_count else 0.0,
@@ -351,6 +384,15 @@ def _too_short_case_summary() -> dict[str, object]:
         "failed_loudly": False,
         "error": None,
     }
+
+
+def _print_progress(dataset_name: str, epoch: int, total: int, loss: float) -> None:
+    if epoch == 1 or epoch == total or epoch % max(1, total // 10) == 0:
+        print(
+            f"[ctc-sanity] {dataset_name} epoch {epoch}/{total} loss={loss:.4f}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:

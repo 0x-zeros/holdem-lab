@@ -84,7 +84,9 @@ uv run holdem-bot-run-poker-legends-ctc-sanity \
   --target base \
   --target overlay \
   --synthetic-count 1000 \
-  --epochs 120
+  --epochs 600 \
+  --batch-size 4 \
+  --weight-decay 0.0
 ```
 
 The harness is offline-only. It writes `ctc_sanity_summary.json`, records the
@@ -110,6 +112,21 @@ uv run holdem-bot-run-poker-legends-ctc-sanity \
 The manifest passed here must already be reviewed clean / labeled-visible. The
 runner does not promote manifest truth into runtime OCR and does not authorize click
 planning.
+
+Current implementation status:
+
+- CTC blank/index/layout checks are implemented in `poker_legends_ctc.py`.
+- The CRNN trainer now uses per-sample effective `input_lengths` derived from the
+  non-empty sequence width; this prevents right-padding blank regions from dominating
+  short stack strings.
+- Accepted CTC output is additionally gated by target format, so incomplete strings
+  such as `$` are rejected even when raw confidence is high.
+- Small clean synthetic sanity currently passes for both `base` and `overlay`:
+  20/20 raw exact and `accepted_wrong = 0` using `--epochs 600 --batch-size 4
+  --weight-decay 0.0`.
+- The larger 1000-synthetic overfit gate is still pending. Earlier runs before the
+  effective-input-length fix failed badly and must not be used to judge the final
+  CRNN route.
 
 ### 1. Data Labels
 

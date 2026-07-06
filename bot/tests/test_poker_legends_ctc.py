@@ -9,6 +9,10 @@ from holdem_bot.vision.poker_legends_ctc import (
     validate_ctc_time_step_budget,
 )
 from holdem_bot.vision.poker_legends_ctc_sanity import run_poker_legends_ctc_sanity
+from holdem_bot.vision.poker_legends_number_chars import (
+    StringPrediction,
+    apply_number_text_target_contract,
+)
 
 
 def test_ctc_alphabet_keeps_blank_out_of_targets_and_decodes_repeats() -> None:
@@ -98,3 +102,23 @@ def test_ctc_sanity_runner_writes_offline_summary(tmp_path: Path) -> None:
     assert datasets[0]["name"] == "synthetic_base"
     assert datasets[0]["sample_count"] == 4
     assert datasets[0]["time_step_budget"]["failed"] == 0
+
+
+def test_ctc_target_contract_rejects_incomplete_stack_text() -> None:
+    prediction = StringPrediction(
+        method="crnn_ctc",
+        text="$",
+        confidence=0.95,
+        accepted=True,
+        reason="accepted",
+        char_confidences=(0.95,),
+    )
+
+    contracted = apply_number_text_target_contract(
+        prediction,
+        target="base",
+        is_stack=True,
+    )
+
+    assert not contracted.accepted
+    assert contracted.reason == "format"
