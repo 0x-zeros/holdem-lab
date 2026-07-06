@@ -574,6 +574,16 @@
   raw accuracy 0.700、accepted labeled 19、accepted precision 1.000、accepted wrong 0、review queue
   34（accepted_unlabeled 25、mismatch_labeled 9）。结论不变：ROI 层已能筛掉明显不安全变体；
   剩余 `mismatch_labeled` 是 OCR 能力问题，应转向专门字符/template OCR，而不是继续放宽 Tesseract。
+- 阶段 4 Poker Legends number char recognizer prototype v1：新增离线
+  `holdem-bot-evaluate-poker-legends-number-chars`，从 `number_crop_dataset_manifest.json` 构建
+  `hero_stack` 字符分割样本，并在同一批 test crops 上比较 template、OpenCV MLP 与 Tesseract；
+  当前环境没有 PyTorch/TensorFlow，因此真 CNN 暂未运行，报告中明确标为 `not_run`。在
+  `/tmp/poker-legends-number-char-prototype-v2`（真实 v7 manifest，273 行 hero_stack、216 train /
+  57 test、1034 glyph samples）上：template raw exact 24/57，保守 accepted 24/57、accepted
+  precision 1.000、accepted wrong 0、accepted coverage 0.421；Tesseract exact 22/57，但若全部接受则
+  accepted wrong 35、accepted precision 0.386；OpenCV MLP exact 4/57 且 0 accepted，不值得继续。
+  结论：字符 template 路线已经证明比 Tesseract 更适合作 fail-closed 高精度数字信号；下一步应
+  改善分割覆盖，并决定是否引入官方 PyPI 的 PyTorch 做真正 CNN，而不是继续 OpenCV MLP。
 - 历史提交：`ea3dace`（dev container + AGENTS.md）、`086682e`（scripts/dev）、`7eb9f48`、
   `0a79c5c`、`c93b1bd`、`d90410a`、`f6090e8`、`560386d`、`d903102`、`380f477`、
   `d20669b`、`cabe333`、`b40eef9`、`ba3befd`、`718cf1e`。尚未 push。
