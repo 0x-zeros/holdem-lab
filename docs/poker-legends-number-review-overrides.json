@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "description": "Manual review overrides for Poker Legends number OCR experiment manifests. These overrides are offline-only and do not authorize runtime OCR or clicks.",
+  "rows": [
+    {
+      "frame_id": "session_002__keyframe_000047",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "no_visible_number",
+      "reason": "Manual review: the hero_stack ROI variants show no usable number, despite upstream truth expecting $43,044."
+    }
+  ]
+}

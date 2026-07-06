@@ -37,6 +37,8 @@ DEFAULT_GLYPH_HEIGHT = 32
 DEFAULT_SEQUENCE_WIDTH = 160
 DEFAULT_SEQUENCE_HEIGHT = 32
 DEFAULT_TEMPLATE_MAX_DISTANCE = 0.060
+DEFAULT_TEMPLATE_VOTE_DISTANCE_WINDOW = 0.006
+DEFAULT_TEMPLATE_VOTE_NEIGHBORS = 9
 DEFAULT_MLP_MIN_CONFIDENCE = 0.60
 DEFAULT_CNN_MIN_CONFIDENCE = 0.80
 DEFAULT_CNN_EPOCHS = 60
@@ -136,6 +138,7 @@ class NumberCharRow:
     crop_path: Path
     expected: NumberCharTargets
     split: str
+    clean_status: str = "labeled_visible"
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +167,7 @@ class _TemplateGlyph:
 class _TargetEvaluation:
     target: NumberTextTarget
     expected_text: str
+    is_positive: bool
     segmentation_boxes: tuple[NumberCharBox, ...]
     segmentation_status: str
     template: StringPrediction
@@ -188,8 +192,12 @@ class NumberTemplateRecognizer:
         *,
         glyph_root: str | Path,
         max_distance: float = DEFAULT_TEMPLATE_MAX_DISTANCE,
+        vote_distance_window: float = DEFAULT_TEMPLATE_VOTE_DISTANCE_WINDOW,
+        vote_neighbors: int = DEFAULT_TEMPLATE_VOTE_NEIGHBORS,
     ) -> None:
         self.max_distance = max_distance
+        self.vote_distance_window = vote_distance_window
+        self.vote_neighbors = max(1, vote_neighbors)
         root = Path(glyph_root)
         self._glyphs = tuple(
             _TemplateGlyph(
@@ -248,14 +256,37 @@ class NumberTemplateRecognizer:
         *,
         exclude_frame_id: str | None,
     ) -> tuple[str, float] | None:
-        best: tuple[str, float] | None = None
+        matches: list[tuple[str, float]] = []
         for template in self._glyphs:
             if exclude_frame_id is not None and template.frame_id == exclude_frame_id:
                 continue
             distance = float(np.mean((glyph - template.image) ** 2))
-            if best is None or distance < best[1]:
-                best = (template.label, distance)
-        return best
+            matches.append((template.label, distance))
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item[1])
+        best_distance = matches[0][1]
+        close_matches = [
+            match
+            for match in matches[: self.vote_neighbors]
+            if match[1] <= best_distance + self.vote_distance_window
+        ]
+        label_counts = Counter(label for label, _distance in close_matches)
+        label_scores: dict[str, float] = {}
+        label_distances: dict[str, float] = {}
+        for label, distance in close_matches:
+            label_scores[label] = label_scores.get(label, 0.0) + 1.0 / (distance + 1e-9)
+            label_distances[label] = min(label_distances.get(label, math.inf), distance)
+        label = min(
+            label_counts,
+            key=lambda item: (
+                -label_counts[item],
+                -label_scores[item],
+                label_distances[item],
+                item,
+            ),
+        )
+        return label, label_distances[label]
 
 
 class NumberOpenCvMlpRecognizer:
@@ -883,6 +914,21 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         for target in active_targets:
             expected = row.expected.for_target(target)
             if expected is None:
+                if row.clean_status == "no_visible_number":
+                    mask = _text_mask(crop, target=target)
+                    sequence_image = _normalize_sequence_image(mask)
+                    row_sequence_images[(row.row_id, target)] = sequence_image
+                    boxes = _segment_number_characters_from_mask(mask)
+                    segmentation_status = (
+                        "negative_glyphs" if boxes else "negative_no_glyphs"
+                    )
+                    segmentation_by_row[(row.row_id, target)] = (
+                        segmentation_status,
+                        tuple(boxes),
+                    )
+                    row_glyphs[(row.row_id, target)] = tuple(
+                        _normalize_glyph(mask, box) for box in boxes
+                    )
                 continue
             mask = _text_mask(crop, target=target)
             sequence_image = _normalize_sequence_image(mask)
@@ -935,26 +981,39 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
     train_sequence_samples = [
         sample for sample in sequence_samples if sample.frame_id in train_frame_ids
     ]
-    template = NumberTemplateRecognizer(
-        train_samples,
-        glyph_root=output,
-        max_distance=template_max_distance,
-    )
-    mlp = NumberOpenCvMlpRecognizer(
-        train_samples,
-        glyph_root=output,
-        min_confidence=mlp_min_confidence,
-    )
-    cnn = (
-        NumberTorchCnnRecognizer(
-            train_samples,
+    train_samples_by_target = {
+        target: [sample for sample in train_samples if sample.target == target]
+        for target in active_targets
+    }
+    template_by_target = {
+        target: NumberTemplateRecognizer(
+            target_train_samples,
             glyph_root=output,
-            min_confidence=cnn_min_confidence,
-            epochs=cnn_epochs,
+            max_distance=template_max_distance,
         )
-        if enable_cnn
-        else None
-    )
+        for target, target_train_samples in train_samples_by_target.items()
+    }
+    mlp_by_target = {
+        target: NumberOpenCvMlpRecognizer(
+            target_train_samples,
+            glyph_root=output,
+            min_confidence=mlp_min_confidence,
+        )
+        for target, target_train_samples in train_samples_by_target.items()
+    }
+    cnn_by_target = {
+        target: (
+            NumberTorchCnnRecognizer(
+                target_train_samples,
+                glyph_root=output,
+                min_confidence=cnn_min_confidence,
+                epochs=cnn_epochs,
+            )
+            if enable_cnn
+            else None
+        )
+        for target, target_train_samples in train_samples_by_target.items()
+    }
     crnn = (
         NumberTorchCtcRecognizer(
             train_sequence_samples,
@@ -993,25 +1052,94 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         for target in active_targets:
             expected = row.expected.for_target(target)
             if expected is None:
+                if row.clean_status != "no_visible_number":
+                    continue
+                segmentation_status, boxes = segmentation_by_row[(row.row_id, target)]
+                glyphs = row_glyphs.get((row.row_id, target), ())
+                template_prediction = template_by_target[target].recognize(glyphs)
+                mlp_prediction = mlp_by_target[target].recognize(glyphs)
+                cnn = cnn_by_target[target]
+                if cnn is None:
+                    cnn_prediction = _unavailable_prediction("cnn", "disabled")
+                else:
+                    cnn_prediction = cnn.recognize(glyphs)
+                sequence_image = row_sequence_images[(row.row_id, target)]
+                crnn_prediction = (
+                    apply_number_text_target_contract(
+                        _restore_ctc_fixed_prefix(
+                            crnn.recognize(sequence_image),
+                            target=target,
+                            strip_fixed_prefix=ctc_strip_fixed_prefix,
+                        ),
+                        target=target,
+                        is_stack=_is_stack_row(row),
+                    )
+                    if crnn is not None
+                    else _unavailable_prediction("crnn_ctc", "disabled")
+                )
+                transformer_prediction = (
+                    apply_number_text_target_contract(
+                        _restore_ctc_fixed_prefix(
+                            transformer.recognize(sequence_image),
+                            target=target,
+                            strip_fixed_prefix=ctc_strip_fixed_prefix,
+                        ),
+                        target=target,
+                        is_stack=_is_stack_row(row),
+                    )
+                    if transformer is not None
+                    else _unavailable_prediction("transformer_ctc", "disabled")
+                )
+                template_cnn_prediction = _template_cnn_consensus_prediction(
+                    template_prediction,
+                    cnn_prediction,
+                )
+                tesseract_prediction = (
+                    _tesseract_prediction_from_text(
+                        tesseract_text,
+                        target=target,
+                        is_stack=_is_stack_row(row),
+                    )
+                    if tesseract_text is not None
+                    else _unavailable_prediction("tesseract", "disabled")
+                )
+                target_evaluations.append(
+                    _TargetEvaluation(
+                        target=target,
+                        expected_text="",
+                        is_positive=False,
+                        segmentation_boxes=boxes,
+                        segmentation_status=segmentation_status,
+                        template=template_prediction,
+                        opencv_mlp=mlp_prediction,
+                        cnn=cnn_prediction,
+                        crnn_ctc=crnn_prediction,
+                        transformer_ctc=transformer_prediction,
+                        template_cnn=template_cnn_prediction,
+                        tesseract=tesseract_prediction,
+                    )
+                )
                 continue
             segmentation_status, boxes = segmentation_by_row[(row.row_id, target)]
             glyphs = row_glyphs.get((row.row_id, target), ())
             template_prediction = (
-                template.recognize(glyphs)
+                template_by_target[target].recognize(glyphs)
                 if segmentation_status == "match"
                 else _segmentation_failed_prediction("template", segmentation_status)
             )
             mlp_prediction = (
-                mlp.recognize(glyphs)
+                mlp_by_target[target].recognize(glyphs)
                 if segmentation_status == "match"
                 else _segmentation_failed_prediction("opencv_mlp", segmentation_status)
             )
             if segmentation_status != "match":
                 cnn_prediction = _segmentation_failed_prediction("cnn", segmentation_status)
-            elif cnn is None:
-                cnn_prediction = _unavailable_prediction("cnn", "disabled")
             else:
-                cnn_prediction = cnn.recognize(glyphs)
+                cnn = cnn_by_target[target]
+                if cnn is None:
+                    cnn_prediction = _unavailable_prediction("cnn", "disabled")
+                else:
+                    cnn_prediction = cnn.recognize(glyphs)
             sequence_image = row_sequence_images[(row.row_id, target)]
             crnn_prediction = (
                 apply_number_text_target_contract(
@@ -1056,6 +1184,7 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                 _TargetEvaluation(
                     target=target,
                     expected_text=expected,
+                    is_positive=True,
                     segmentation_boxes=boxes,
                     segmentation_status=segmentation_status,
                     template=template_prediction,
@@ -1083,15 +1212,16 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
     )
     cnn_summary = _cnn_summary_for_target(
         target_summaries[primary_target],
-        cnn=cnn,
+        cnn=cnn_by_target[primary_target],
         enable_cnn=enable_cnn,
         cnn_epochs=cnn_epochs,
         cnn_min_confidence=cnn_min_confidence,
     )
-    for target_summary in target_summaries.values():
+    for target in active_targets:
+        target_summary = target_summaries[target]
         target_summary["cnn"] = _cnn_summary_for_target(
             target_summary,
-            cnn=cnn,
+            cnn=cnn_by_target[target],
             enable_cnn=enable_cnn,
             cnn_epochs=cnn_epochs,
             cnn_min_confidence=cnn_min_confidence,
@@ -1138,8 +1268,25 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "enable_transformer_ctc": enable_transformer_ctc,
         "enable_tesseract": enable_tesseract,
         "rows": len(source_rows),
+        "positive_rows": len(
+            [
+                row
+                for row in source_rows
+                if any(row.expected.for_target(target) is not None for target in active_targets)
+            ]
+        ),
+        "hard_negative_rows": len(
+            [row for row in source_rows if row.clean_status == "no_visible_number"]
+        ),
         "train_rows": len([row for row in source_rows if row.split == "train"]),
         "test_rows": len(evaluation_rows),
+        "hard_negative_test_rows": len(
+            [
+                row
+                for row in evaluation_rows
+                if row.source.clean_status == "no_visible_number"
+            ]
+        ),
         "glyph_samples": len(glyph_samples),
         "train_glyph_samples": len(train_samples),
         "sequence_samples": len(sequence_samples),
@@ -1301,8 +1448,13 @@ def _load_rows(
         for row in _mapping_sequence(manifest.get("rows"))
         if str(row.get("group") or "") == "texts"
         and str(row.get("name") or "") == field_name
-        and isinstance(row.get("truth_canonical_text"), str)
-        and str(row.get("truth_canonical_text") or "").strip()
+        and (
+            (
+                isinstance(row.get("truth_canonical_text"), str)
+                and str(row.get("truth_canonical_text") or "").strip()
+            )
+            or _row_clean_status(row) == "no_visible_number"
+        )
     ]
     if max_crops is not None:
         selected = selected[:max_crops]
@@ -1313,9 +1465,15 @@ def _load_rows(
     frame_index = {frame_id: index for index, frame_id in enumerate(frame_ids)}
     modulo = max(2, test_frame_modulo)
     for index, row in enumerate(selected):
-        expected = _expected_targets(row)
+        clean_status = _row_clean_status(row)
+        expected = (
+            NumberCharTargets(base=None, overlay=None, display=None)
+            if clean_status == "no_visible_number"
+            else _expected_targets(row)
+        )
         if expected.display is None and expected.base is None and expected.overlay is None:
-            continue
+            if clean_status != "no_visible_number":
+                continue
         frame_id = str(row.get("frame_id") or "")
         manifest_split = str(row.get("split") or "")
         split = (
@@ -1336,9 +1494,19 @@ def _load_rows(
                 crop_path=crop_path,
                 expected=expected,
                 split=split,
+                clean_status=clean_status,
             )
         )
     return tuple(rows)
+
+
+def _row_clean_status(row: Mapping[str, object]) -> str:
+    status = str(row.get("clean_status") or "")
+    if status:
+        return status
+    if row.get("truth_visible") is False:
+        return "no_visible_number"
+    return "labeled_visible"
 
 
 def _expected_targets(row: Mapping[str, object]) -> NumberCharTargets:
@@ -1659,19 +1827,36 @@ def _target_summaries(
             for target_evaluation in row.targets
             if target_evaluation.target == target
         ]
+        positive_evaluations = [
+            target_evaluation for target_evaluation in evaluations if target_evaluation.is_positive
+        ]
+        negative_evaluations = [
+            target_evaluation
+            for target_evaluation in evaluations
+            if not target_evaluation.is_positive
+        ]
         target_rows = [row for row in source_rows if row.expected.for_target(target) is not None]
+        negative_rows = [
+            row
+            for row in source_rows
+            if row.clean_status == "no_visible_number"
+            and row.expected.for_target(target) is None
+        ]
         summaries[target] = {
             "rows": len(target_rows),
-            "test_rows": len(evaluations),
+            "test_rows": len(positive_evaluations),
+            "hard_negative_rows": len(negative_rows),
+            "hard_negative_test_rows": len(negative_evaluations),
             "glyph_samples": len([sample for sample in glyph_samples if sample.target == target]),
             "segmentation": _segmentation_summary(source_rows, target, segmentation_by_row),
-            "template": _method_summary(evaluations, "template"),
-            "opencv_mlp": _method_summary(evaluations, "opencv_mlp"),
-            "cnn": _method_summary(evaluations, "cnn"),
-            "crnn_ctc": _method_summary(evaluations, "crnn_ctc"),
-            "transformer_ctc": _method_summary(evaluations, "transformer_ctc"),
-            "template_cnn": _method_summary(evaluations, "template_cnn"),
-            "tesseract": _method_summary(evaluations, "tesseract"),
+            "hard_negatives": _hard_negative_summaries(negative_evaluations),
+            "template": _method_summary(positive_evaluations, "template"),
+            "opencv_mlp": _method_summary(positive_evaluations, "opencv_mlp"),
+            "cnn": _method_summary(positive_evaluations, "cnn"),
+            "crnn_ctc": _method_summary(positive_evaluations, "crnn_ctc"),
+            "transformer_ctc": _method_summary(positive_evaluations, "transformer_ctc"),
+            "template_cnn": _method_summary(positive_evaluations, "template_cnn"),
+            "tesseract": _method_summary(positive_evaluations, "tesseract"),
         }
     return summaries
 
@@ -1762,6 +1947,45 @@ def _method_summary(
     }
 
 
+def _hard_negative_summaries(
+    rows: Sequence[_TargetEvaluation],
+) -> dict[str, dict[str, object]]:
+    methods: tuple[RecognitionMethod, ...] = (
+        "template",
+        "opencv_mlp",
+        "cnn",
+        "crnn_ctc",
+        "transformer_ctc",
+        "template_cnn",
+        "tesseract",
+    )
+    return {
+        method: _hard_negative_method_summary(rows, method)
+        for method in methods
+    }
+
+
+def _hard_negative_method_summary(
+    rows: Sequence[_TargetEvaluation],
+    method: RecognitionMethod,
+) -> dict[str, object]:
+    evaluated = len(rows)
+    false_accepts = 0
+    accepted_texts: Counter[str] = Counter()
+    for row in rows:
+        prediction = _prediction_for_target_method(row, method)
+        if not prediction.accepted:
+            continue
+        false_accepts += 1
+        accepted_texts[str(prediction.text or "")] += 1
+    return {
+        "evaluated": evaluated,
+        "false_accepts": false_accepts,
+        "false_accept_rate": false_accepts / evaluated if evaluated else None,
+        "accepted_texts": dict(sorted(accepted_texts.items())),
+    }
+
+
 def _prediction_for_target_method(
     row: _TargetEvaluation,
     method: RecognitionMethod,
@@ -1829,6 +2053,7 @@ def _evaluation_row_to_dict(
         "preview_crop": str(preview_path.relative_to(output_root)),
         "expected": row.source.expected.to_dict(),
         "split": row.source.split,
+        "clean_status": row.source.clean_status,
         "targets": targets,
     }
 
@@ -1837,6 +2062,7 @@ def _target_evaluation_to_dict(row: _TargetEvaluation) -> dict[str, object]:
     return {
         "target": row.target,
         "expected": row.expected_text,
+        "is_positive": row.is_positive,
         "segmentation_status": row.segmentation_status,
         "segmentation_boxes": [box.to_dict() for box in row.segmentation_boxes],
         "template": row.template.to_dict(),
@@ -1863,8 +2089,11 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Targets: `{summary.get('active_targets')}`",
         f"- CTC strip fixed prefix: `{summary.get('ctc_strip_fixed_prefix')}`",
         f"- Rows: {summary['rows']}",
+        f"- Positive rows: {summary['positive_rows']}",
+        f"- Hard-negative rows: {summary['hard_negative_rows']}",
         f"- Train rows: {summary['train_rows']}",
         f"- Test rows: {summary['test_rows']}",
+        f"- Hard-negative test rows: {summary['hard_negative_test_rows']}",
         f"- Glyph samples: {summary['glyph_samples']}",
         f"- Train glyph samples: {summary['train_glyph_samples']}",
         "",
@@ -1877,6 +2106,8 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
                 f"### {target}",
                 f"- Rows: {target_summary['rows']}",
                 f"- Test rows: {target_summary['test_rows']}",
+                f"- Hard-negative rows: {target_summary['hard_negative_rows']}",
+                f"- Hard-negative test rows: {target_summary['hard_negative_test_rows']}",
                 f"- Glyph samples: {target_summary['glyph_samples']}",
                 f"- Segmentation: {target_summary['segmentation']}",
                 f"- Template: {_compact_method_summary(target_summary['template'])}",
@@ -1888,6 +2119,8 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
                 f"{_compact_method_summary(target_summary['template_cnn'])}",
                 f"- OpenCV MLP: {_compact_method_summary(target_summary['opencv_mlp'])}",
                 f"- Tesseract: {_compact_method_summary(target_summary['tesseract'])}",
+                "- Hard negatives: "
+                f"{_compact_hard_negative_summary(target_summary['hard_negatives'])}",
                 "",
             ]
         )
@@ -1988,6 +2221,8 @@ def _target_summary_html(summary: Mapping[str, object]) -> str:
             "<li>"
             f"<strong>{html.escape(target)}</strong>: "
             f"seg={html.escape(str(target_summary['segmentation']))}; "
+            "hard_neg="
+            f"{html.escape(_compact_hard_negative_summary(target_summary['hard_negatives']))}; "
             f"CRNN={html.escape(_compact_method_summary(target_summary['crnn_ctc']))}; "
             f"TxCTC={html.escape(_compact_method_summary(target_summary['transformer_ctc']))}; "
             f"CNN={html.escape(_compact_method_summary(target_summary['cnn']))}; "
@@ -2018,6 +2253,7 @@ def _target_review_md(value: object) -> str:
         return "`n/a`"
     return "<br>".join(
         [
+            f"kind: `{'positive' if value.get('is_positive') else 'negative'}`",
             f"seg: `{value.get('segmentation_status')}`",
             f"crnn: {_review_prediction_md(cast(Mapping[str, object], value['crnn_ctc']))}",
             "txctc: "
@@ -2035,6 +2271,8 @@ def _target_review_html(value: object) -> str:
     if not isinstance(value, Mapping):
         return "<span class=\"muted\">n/a</span>"
     return (
+        "<div><strong>kind</strong>: "
+        f"<code>{'positive' if value.get('is_positive') else 'negative'}</code></div>"
         "<div><strong>seg</strong>: "
         f"<code>{html.escape(str(value.get('segmentation_status')))}</code></div>"
         "<div><strong>crnn</strong>: "
@@ -2083,11 +2321,26 @@ def _compact_method_summary(value: object) -> str:
     )
 
 
+def _compact_hard_negative_summary(value: object) -> str:
+    summary = cast(Mapping[str, object], value)
+    parts: list[str] = []
+    for method in ("cnn", "template_cnn", "template", "tesseract"):
+        method_summary = cast(Mapping[str, object], summary.get(method) or {})
+        parts.append(
+            f"{method}={method_summary.get('false_accepts', 0)}/"
+            f"{method_summary.get('evaluated', 0)}"
+        )
+    return ", ".join(parts)
+
+
 def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
     return {
         "rows": summary["rows"],
+        "positive_rows": summary["positive_rows"],
+        "hard_negative_rows": summary["hard_negative_rows"],
         "train_rows": summary["train_rows"],
         "test_rows": summary["test_rows"],
+        "hard_negative_test_rows": summary["hard_negative_test_rows"],
         "glyph_samples": summary["glyph_samples"],
         "segmentation": summary["segmentation"],
         "template": summary["template"],

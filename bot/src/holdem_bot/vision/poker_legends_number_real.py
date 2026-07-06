@@ -21,6 +21,7 @@ def build_poker_legends_number_real_experiment_manifest(
     crop_variants: Sequence[str] | None = None,
     test_frame_modulo: int = 5,
     include_hard_negatives: bool = True,
+    review_overrides_path: str | Path | None = None,
 ) -> dict[str, object]:
     """Build a clean, frozen manifest for offline real-crop OCR comparison.
 
@@ -34,6 +35,7 @@ def build_poker_legends_number_real_experiment_manifest(
     output.mkdir(parents=True, exist_ok=True)
     source_manifest = _read_json_object(source)
     source_rows = _mapping_sequence(source_manifest.get("rows"))
+    review_overrides = _load_review_overrides(review_overrides_path)
     fields = tuple(field_names)
     variants = tuple(crop_variants) if crop_variants is not None else None
     candidates = [
@@ -43,28 +45,30 @@ def build_poker_legends_number_real_experiment_manifest(
         and str(row.get("name") or "") in fields
         and (variants is None or str(row.get("crop_variant") or "") in variants)
     ]
+    positive_split_frame_ids = _positive_split_frame_ids(candidates)
     included: list[dict[str, object]] = []
     excluded_counts: Counter[str] = Counter()
+    override_counts: Counter[str] = Counter()
     for row in candidates:
-        status = _clean_status(row)
+        clean_row = dict(row)
+        override = _review_override_for_row(clean_row, review_overrides)
+        if override is not None:
+            _apply_review_override(clean_row, override)
+            override_counts[str(clean_row.get("clean_status") or "unknown")] += 1
+        status = _clean_status(clean_row)
         if status == "labeled_visible" or (
             include_hard_negatives and status == "no_visible_number"
         ):
-            clean_row = dict(row)
             clean_row["clean_status"] = status
-            clean_row["crop_path"] = str(_resolve_source_path(source.parent, row.get("crop_path")))
+            clean_row["crop_path"] = str(
+                _resolve_source_path(source.parent, clean_row.get("crop_path"))
+            )
             clean_row["source_manifest"] = str(source)
             included.append(clean_row)
             continue
         excluded_counts[status] += 1
 
-    frame_ids = []
-    for row in included:
-        if row.get("clean_status") != "labeled_visible":
-            continue
-        frame_id = str(row.get("frame_id") or "")
-        if frame_id and frame_id not in frame_ids:
-            frame_ids.append(frame_id)
+    frame_ids = positive_split_frame_ids
     split_by_frame = _split_by_frame(frame_ids, test_frame_modulo=test_frame_modulo)
     for index, row in enumerate(included):
         row["clean_row_id"] = f"{index:04d}"
@@ -78,6 +82,8 @@ def build_poker_legends_number_real_experiment_manifest(
         "crop_variants": list(variants) if variants is not None else None,
         "test_frame_modulo": max(2, test_frame_modulo),
         "include_hard_negatives": include_hard_negatives,
+        "review_overrides": str(review_overrides_path) if review_overrides_path else None,
+        "review_override_counts": dict(sorted(override_counts.items())),
         "source_rows": len(source_rows),
         "candidate_rows": len(candidates),
         "included_rows": len(included),
@@ -142,6 +148,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--test-frame-modulo", type=int, default=5)
     parser.add_argument("--exclude-hard-negatives", action="store_true")
+    parser.add_argument(
+        "--review-overrides",
+        help="Optional JSON file with reviewed crop status overrides.",
+    )
     return parser
 
 
@@ -154,11 +164,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         crop_variants=tuple(args.crop_variants) if args.crop_variants else None,
         test_frame_modulo=args.test_frame_modulo,
         include_hard_negatives=not args.exclude_hard_negatives,
+        review_overrides_path=args.review_overrides,
     )
     print(json.dumps(_stdout_summary(summary), indent=2, sort_keys=True))
 
 
 def _clean_status(row: Mapping[str, object]) -> str:
+    explicit = row.get("clean_status")
+    if explicit in {"labeled_visible", "no_visible_number", "roi_invalid"}:
+        return str(explicit)
     truth = row.get("truth_canonical_text")
     if isinstance(truth, str) and truth.strip():
         return "labeled_visible"
@@ -170,6 +184,64 @@ def _clean_status(row: Mapping[str, object]) -> str:
 def _resolve_source_path(root: Path, value: object) -> Path:
     path = Path(str(value))
     return path if path.is_absolute() else root / path
+
+
+def _positive_split_frame_ids(rows: Sequence[Mapping[str, object]]) -> list[str]:
+    frame_ids: list[str] = []
+    for row in rows:
+        if _clean_status(row) != "labeled_visible":
+            continue
+        frame_id = str(row.get("frame_id") or "")
+        if frame_id and frame_id not in frame_ids:
+            frame_ids.append(frame_id)
+    return frame_ids
+
+
+def _load_review_overrides(path: str | Path | None) -> tuple[Mapping[str, object], ...]:
+    if path is None:
+        return ()
+    data = _read_json_object(path)
+    return tuple(_mapping_sequence(data.get("rows")))
+
+
+def _review_override_for_row(
+    row: Mapping[str, object],
+    overrides: Sequence[Mapping[str, object]],
+) -> Mapping[str, object] | None:
+    for override in overrides:
+        if _override_matches(row, override):
+            return override
+    return None
+
+
+def _override_matches(row: Mapping[str, object], override: Mapping[str, object]) -> bool:
+    for key in ("frame_id", "group", "name", "role", "crop_variant"):
+        expected = override.get(key)
+        if expected is None or expected == "*":
+            continue
+        if str(row.get(key) or "") != str(expected):
+            return False
+    return True
+
+
+def _apply_review_override(row: dict[str, object], override: Mapping[str, object]) -> None:
+    status = str(override.get("clean_status") or "")
+    if status not in {"labeled_visible", "no_visible_number", "roi_invalid"}:
+        raise ValueError(f"unsupported review override status: {status!r}")
+    row["clean_status"] = status
+    row["review_override"] = {
+        key: value
+        for key, value in override.items()
+        if key not in {"frame_id", "group", "name", "role", "crop_variant"}
+    }
+    if status == "no_visible_number":
+        row["truth_canonical_text"] = None
+        row["truth_normalized_number"] = None
+        row["truth_visible"] = False
+    elif status == "roi_invalid":
+        row["truth_canonical_text"] = None
+        row["truth_normalized_number"] = None
+        row["truth_visible"] = None
 
 
 def _split_by_frame(frame_ids: Sequence[str], *, test_frame_modulo: int) -> dict[str, str]:
@@ -188,6 +260,8 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Source manifest: `{summary['source_manifest']}`",
         f"- Fields: `{summary['field_names']}`",
         f"- Crop variants: `{summary['crop_variants']}`",
+        f"- Review overrides: `{summary['review_overrides']}`",
+        f"- Review override counts: `{summary['review_override_counts']}`",
         f"- Candidate rows: {summary['candidate_rows']}",
         f"- Included rows: {summary['included_rows']}",
         f"- Positive rows: {summary['positive_rows']}",
@@ -215,6 +289,7 @@ def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
         "included_rows": summary["included_rows"],
         "positive_rows": summary["positive_rows"],
         "hard_negative_rows": summary["hard_negative_rows"],
+        "review_override_counts": summary["review_override_counts"],
         "excluded_status_counts": summary["excluded_status_counts"],
         "split_counts": summary["split_counts"],
         "report": REAL_EXPERIMENT_REPORT,

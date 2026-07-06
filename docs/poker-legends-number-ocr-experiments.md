@@ -7,11 +7,15 @@ recognizers are connected to runtime click or authorization paths.
 
 - Dataset: `/tmp/poker-legends-number-crop-dataset-v7`
 - Main field evaluated: `hero_stack`
-- Rows used by the latest component experiments: 273 rows, 216 train / 57 test
+- Rows used by the latest component experiments: 279 rows total, 270 positive rows
+  and 9 hard-negative rows; split is 222 train / 57 test, with 54 positive test rows
+  and 3 hard-negative test rows.
 - Current reviewed issue classes:
   - Some crops have valid base text but weak or noisy overlay text.
   - Some truth rows are polluted, for example rows 31-33 in the review HTML show no
-    usable number while truth still expects `$43,044`.
+    usable number while truth still expects `$43,044`. This is now captured in
+    `docs/poker-legends-number-review-overrides.json` as a no-visible-number override
+    for `session_002__keyframe_000047` hero-stack variants.
   - `display` should be treated as a derived value from `base + overlay`, not as the
     primary runtime OCR target.
 
@@ -40,24 +44,46 @@ glyph.
 
 Latest component report:
 
-- Report: `artifacts/poker-legends-videos/number_char_components_v2/number_char_recognizer_report.md`
-- HTML: `artifacts/poker-legends-videos/number_char_components_v2/number_char_recognizer_review.html`
+- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v2/number_char_recognizer_report.md`
+- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v2/number_char_recognizer_review.html`
 
 Key metrics:
 
 | Target | Model | Exact | Accepted | Accepted wrong |
 |---|---|---:|---:|---:|
-| base | CNN | 54/57 | 51/57 | 0 |
-| base | template+CNN | 48/57 | 48/57 | 0 |
-| overlay | CNN | 22/24 | 22/24 | 0 |
-| overlay | template+CNN | 22/24 | 22/24 | 0 |
-| display | CNN | 27/57 | 27/57 | 0 |
-| display | template+CNN | 27/57 | 27/57 | 0 |
+| base | CNN | 51/54 | 51/54 | 0 |
+| base | template KNN | 54/54 | 54/54 | 0 |
+| base | template+CNN | 51/54 | 51/54 | 0 |
+| overlay | CNN | 22/24 | 20/24 | 0 |
+| overlay | template+CNN | 20/24 | 20/24 | 0 |
+| display | CNN | 27/54 | 27/54 | 0 |
+| display | template+CNN | 27/54 | 27/54 | 0 |
+
+Hard-negative gate on the latest base split:
+
+| Target | Method | Hard-negative false accepts |
+|---|---|---:|
+| base | CNN | 0/3 |
+| base | template KNN | 0/3 |
+| base | template+CNN | 0/3 |
+| overlay | template+CNN | 0/3 |
+| display | template+CNN | 0/3 |
+| base | Tesseract | 3/3 |
 
 Interpretation:
 
 - Component split is valuable.
 - The current CNN/template path is the best working baseline.
+- Review overrides moved three polluted `$43,044` positive rows into hard-negative
+  evaluation. Positive base test rows are now 54, with 3 no-visible-number hard
+  negatives retained in the test artifact.
+- Template KNN voting fixed 0/9 nearest-neighbor tie failures that previously made
+  template misread `$990` and `$399` as `$900` / `$390`.
+- Template / CNN / MLP are now trained per target (`base`, `overlay`, `display`) so
+  overlay/display symbols cannot contaminate base hard-negative evaluation.
+- Template-only is not promoted to runtime authority from this small split; the safer
+  reporting baseline remains CNN or template+CNN, both at 51/54 accepted with
+  accepted wrong 0.
 - `display` coverage is low because combined segmentation is fragile.
 - Runtime should prefer structured `base` and `overlay` observations, then derive
   `display` through rules.
