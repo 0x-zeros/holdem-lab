@@ -150,6 +150,11 @@ Current implementation status:
   lr 0.001, weight decay 0.0. Time-step budget passes, but CRNN decodes blank on all
   57 test rows: raw exact 0, accepted 0, accepted wrong 0. A previous non-stripped
   quick run decoded mostly `$`, also with 0 accepted.
+- Training-cost note: real-crop 120-epoch attempts were interrupted because they were
+  too slow for tight iteration; even the base-only 20-epoch quick pass takes
+  approximately a few minutes on the current CPU environment and still collapses.
+  Treat longer CRNN runs as blocked until epoch-level validation, faster training
+  instrumentation, or synthetic pretraining is in place.
 - Current real-crop conclusion: the CNN/template path remains the credible baseline.
   CRNN+CTC is not rejected as a route, but it should not be long-run blindly; the next
   CRNN work should first add faster training instrumentation, epoch-level validation,
