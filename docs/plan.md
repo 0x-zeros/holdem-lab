@@ -813,6 +813,15 @@
   `readiness_low_confidence_hero_stack` 8；数字覆盖分布显示 41 个 image-only actionable-table row 均有
   raw `pot`/`hero_stack`/`right_top_stack`/`primary_left` 预测，accepted 分别为 pot 41、hero_stack 33、
   right_top_stack 14、primary_left 38；authorization events 0、unsafe authorization 0。
+- 阶段 4 Poker Legends component number shadow reporting v1：table recognizer 现在可通过
+  `--number-shadow-summary <number_char_recognizer_summary.json>` 读取离线 CNN/template component OCR
+  结果，并只写入 `shadow_number_predictions` / `accepted_shadow_number_predictions` 与 evaluator
+  shadow 对比统计；这些字段不进入 `RecognizedTable`、`GameState`、accepted critical fields、AI
+  decision 或点击授权。当前 119 帧 reviewed manifest 复跑：truth-assisted authorization events 39、
+  unsafe authorization 0，shadow raw `hero_stack` 57、accepted 51、accepted truth mismatch 0；image-only
+  replay authorization events 0、unsafe authorization 0，shadow raw/accepted 同为 57/51。产物在
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_image_only_v1/`。
 - 阶段 4 Poker Legends table evaluator number truth comparison v1：evaluator 现在把 replay 中的 raw/accepted
   text 数字预测与 reviewed truth text 做离线 exact-match 对照，并输出 mismatch examples；该指标只用于评估，
   不进入 recognizer/safety gate。当前 119 帧 image-only 复跑显示数字 OCR 仍不可作为安全 critical source：

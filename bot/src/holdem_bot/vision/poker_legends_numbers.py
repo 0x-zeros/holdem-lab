@@ -84,6 +84,219 @@ class PokerLegendsNumberPrediction:
 
 
 @dataclass(frozen=True, slots=True)
+class PokerLegendsNumberShadowPrediction:
+    frame_id: str
+    name: str
+    group: str
+    crop_variant: str
+    method: str
+    visible: bool
+    raw: str
+    numbers: tuple[int, ...]
+    first_number: int | None
+    sum_number: int | None
+    normalized_number: int | None
+    confidence: float
+    accepted: bool
+    reason: str
+    base_number: int | None = None
+    overlay_number: int | None = None
+    total_number: int | None = None
+    components: Mapping[str, object] | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        data = asdict(self)
+        data["components"] = dict(self.components or {})
+        return data
+
+
+class PokerLegendsComponentNumberShadowRecognizer:
+    """Offline component OCR predictions keyed by frame id.
+
+    This class intentionally does not implement the runtime number recognizer
+    protocol. Its output is shadow evidence for reports only; callers must not
+    feed it into GameState assembly or click authorization.
+    """
+
+    def __init__(
+        self,
+        predictions: Sequence[PokerLegendsNumberShadowPrediction],
+    ) -> None:
+        grouped: dict[str, list[PokerLegendsNumberShadowPrediction]] = {}
+        for prediction in predictions:
+            grouped.setdefault(prediction.frame_id, []).append(prediction)
+        self._predictions_by_frame = {
+            frame_id: tuple(items) for frame_id, items in grouped.items()
+        }
+
+    @classmethod
+    def from_summary(
+        cls,
+        summary_path: str | Path,
+        *,
+        method: str = "template_cnn",
+    ) -> Self:
+        summary = _read_json_object(Path(summary_path))
+        predictions = [
+            prediction
+            for row in _mapping_sequence(summary.get("evaluation_rows"))
+            if (
+                prediction := _shadow_prediction_from_component_row(
+                    row,
+                    method=method,
+                )
+            )
+            is not None
+        ]
+        return cls(predictions)
+
+    def recognize(
+        self,
+        frame_id: str,
+        *,
+        text_names: Sequence[str] = ("hero_stack",),
+    ) -> tuple[PokerLegendsNumberShadowPrediction, ...]:
+        selected = set(text_names)
+        return tuple(
+            prediction
+            for prediction in self._predictions_by_frame.get(frame_id, ())
+            if prediction.group != "texts" or prediction.name in selected
+        )
+
+
+def _shadow_prediction_from_component_row(
+    row: Mapping[str, object],
+    *,
+    method: str,
+) -> PokerLegendsNumberShadowPrediction | None:
+    frame_id = str(row.get("frame_id") or "")
+    field = str(row.get("field") or "")
+    if not frame_id or "." not in field:
+        return None
+    group, name = field.split(".", maxsplit=1)
+    if group != "texts":
+        return None
+    crop_variant = str(row.get("crop_variant") or "default")
+    targets = row.get("targets")
+    if not isinstance(targets, Mapping):
+        return None
+    components = {
+        target: _shadow_component_dict(targets.get(target), method=method)
+        for target in ("base", "overlay", "display")
+        if isinstance(targets.get(target), Mapping)
+    }
+    if not components:
+        return None
+    raw, confidence, accepted, reason = _shadow_text_from_components(
+        components,
+        name=name,
+    )
+    numbers = parse_poker_legends_chip_numbers(raw)
+    base, overlay, total = _number_components(raw, numbers=numbers)
+    normalized = _field_normalized_number(
+        group=group,
+        name=name,
+        normalized=_normalized_number(raw, numbers=numbers),
+        base=base,
+        overlay=overlay,
+    )
+    return PokerLegendsNumberShadowPrediction(
+        frame_id=frame_id,
+        name=name,
+        group=group,
+        crop_variant=crop_variant,
+        method=method,
+        visible=bool(raw),
+        raw=raw,
+        numbers=numbers,
+        first_number=numbers[0] if numbers else None,
+        sum_number=sum(numbers) if len(numbers) >= 2 else None,
+        normalized_number=normalized,
+        confidence=confidence,
+        accepted=accepted,
+        reason=reason,
+        base_number=base,
+        overlay_number=overlay,
+        total_number=total,
+        components=components,
+    )
+
+
+def _shadow_component_dict(value: object, *, method: str) -> dict[str, object]:
+    target_eval = cast(Mapping[str, object], value)
+    raw_prediction = target_eval.get(method)
+    prediction = raw_prediction if isinstance(raw_prediction, Mapping) else {}
+    return {
+        "expected": target_eval.get("expected"),
+        "is_positive": target_eval.get("is_positive"),
+        "segmentation_status": target_eval.get("segmentation_status"),
+        "text": prediction.get("text"),
+        "confidence": prediction.get("confidence"),
+        "accepted": prediction.get("accepted"),
+        "reason": prediction.get("reason"),
+    }
+
+
+def _shadow_text_from_components(
+    components: Mapping[str, Mapping[str, object]],
+    *,
+    name: str,
+) -> tuple[str, float, bool, str]:
+    base = components.get("base")
+    overlay = components.get("overlay")
+    display = components.get("display")
+    base_text = _accepted_shadow_text(base)
+    overlay_text = _accepted_shadow_text(overlay)
+    display_text = _accepted_shadow_text(display)
+    is_stack = _is_stack_field_name(name)
+    if is_stack and base_text is not None:
+        raw = f"{base_text}{overlay_text or ''}"
+        confidence = _min_component_confidence(base, overlay if overlay_text else None)
+        reason = "accepted" if overlay_text is not None else "accepted_base_only"
+        return raw, confidence, True, reason
+    if not is_stack and display_text is not None:
+        return display_text, _component_confidence(display), True, "accepted"
+    if display_text is not None:
+        return display_text, _component_confidence(display), False, "display_only_review"
+    if overlay_text is not None:
+        return overlay_text, _component_confidence(overlay), False, "overlay_only"
+    return "", 0.0, False, _first_shadow_rejection_reason(base, overlay, display)
+
+
+def _accepted_shadow_text(component: Mapping[str, object] | None) -> str | None:
+    if component is None or component.get("accepted") is not True:
+        return None
+    text = component.get("text")
+    return text if isinstance(text, str) and text else None
+
+
+def _component_confidence(component: Mapping[str, object] | None) -> float:
+    if component is None:
+        return 0.0
+    confidence = component.get("confidence")
+    if isinstance(confidence, int | float):
+        return float(confidence)
+    return 0.0
+
+
+def _min_component_confidence(*components: Mapping[str, object] | None) -> float:
+    values = [_component_confidence(component) for component in components if component]
+    return min(values) if values else 0.0
+
+
+def _first_shadow_rejection_reason(
+    *components: Mapping[str, object] | None,
+) -> str:
+    for component in components:
+        if component is None:
+            continue
+        reason = component.get("reason")
+        if isinstance(reason, str) and reason:
+            return reason
+    return "no_accepted_component"
+
+
+@dataclass(frozen=True, slots=True)
 class _CropSpec:
     variant: str
     rect: ScreenRect

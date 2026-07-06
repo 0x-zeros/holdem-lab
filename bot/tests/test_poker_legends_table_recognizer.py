@@ -13,7 +13,11 @@ from holdem_bot.recognize import (
     evaluate_accepted_critical_fields,
     summarize_recognition_safety,
 )
-from holdem_bot.vision import PokerLegendsCardConsensusPrediction, PokerLegendsNumberPrediction
+from holdem_bot.vision import (
+    PokerLegendsCardConsensusPrediction,
+    PokerLegendsNumberPrediction,
+    PokerLegendsNumberShadowPrediction,
+)
 from holdem_bot.vision.poker_legends_buttons import PokerLegendsButtonPrediction
 from holdem_common import Action, ActionType, Street
 
@@ -581,6 +585,67 @@ def test_poker_legends_table_recognizer_uses_number_ocr_fallbacks(
     assert result.state.to_call == 25
     assert result.state.player(0).stack == 900
     assert Action(ActionType.CALL, amount=25) in result.state.legal_actions
+
+
+def test_poker_legends_table_recognizer_reports_shadow_number_predictions_without_accepting(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"not-read-by-fakes")
+    recognizer = PokerLegendsTableRecognizer(
+        card_recognizer=FakeCardRecognizer(
+            (
+                card_prediction("hero_hole_cards", "hero_hole_0", "AS", 0.95),
+                card_prediction("hero_hole_cards", "hero_hole_1", "KH", 0.94),
+                card_prediction("board", "board_0", "2C", 0.93),
+                card_prediction("board", "board_1", "7D", 0.92),
+                card_prediction("board", "board_2", "TS", 0.91),
+            )
+        ),
+        button_recognizer=FakeButtonRecognizer(
+            (
+                button_prediction("primary_left", "check", 0.90),
+                button_prediction("primary_middle", "raise", 0.90),
+                button_prediction("primary_right", "fold", 0.90),
+            )
+        ),
+        number_shadow_recognizer=FakeNumberShadowRecognizer(
+            (
+                shadow_number_prediction(
+                    group="texts",
+                    name="hero_stack",
+                    raw="$290+710",
+                    base_number=290,
+                    overlay_number=710,
+                    total_number=1000,
+                    confidence=0.91,
+                ),
+            )
+        ),
+        controlled_seat=0,
+    )
+
+    result = recognizer.recognize(
+        CapturedFrame(
+            payload=image,
+            source="poker_legends_fixture",
+            metadata={
+                "poker_legends_annotation": actionable_truth(),
+                "poker_legends_layout_annotation": {"image": str(image), "regions": {}},
+            },
+        )
+    )
+
+    assert result.state is not None
+    assert result.state.player(0).stack == 900
+    assert "number_predictions" not in result.metadata
+    assert "accepted_number_predictions" not in result.metadata
+    assert result.metadata["shadow_number_predictions"][0]["raw"] == "$290+710"
+    assert result.metadata["accepted_shadow_number_predictions"][0]["total_number"] == 1000
+    assert all(
+        field.source != "number_component_template_cnn_shadow"
+        for field in result.accepted_critical_fields
+    )
 
 
 def test_poker_legends_table_recognizer_accepts_validated_hero_stack_overlay_ocr(
@@ -1476,6 +1541,25 @@ class FakeNumberRecognizer:
         return self.predictions
 
 
+class FakeNumberShadowRecognizer:
+    def __init__(self, predictions: tuple[PokerLegendsNumberShadowPrediction, ...]) -> None:
+        self.predictions = predictions
+
+    def recognize(
+        self,
+        frame_id: str,
+        *,
+        text_names: tuple[str, ...] = ("hero_stack",),
+    ) -> tuple[PokerLegendsNumberShadowPrediction, ...]:
+        selected = set(text_names)
+        return tuple(
+            prediction
+            for prediction in self.predictions
+            if prediction.frame_id == frame_id
+            and (prediction.group != "texts" or prediction.name in selected)
+        )
+
+
 def actionable_truth() -> dict[str, object]:
     return {
         "frame_id": "frame_001",
@@ -1590,4 +1674,37 @@ def number_prediction(
         sum_number=None,
         normalized_number=number,
         confidence=confidence,
+    )
+
+
+def shadow_number_prediction(
+    *,
+    group: str,
+    name: str,
+    raw: str,
+    base_number: int,
+    overlay_number: int | None,
+    total_number: int,
+    confidence: float,
+) -> PokerLegendsNumberShadowPrediction:
+    numbers = (base_number,) if overlay_number is None else (base_number, overlay_number)
+    return PokerLegendsNumberShadowPrediction(
+        frame_id="frame_001",
+        name=name,
+        group=group,
+        crop_variant="default",
+        method="template_cnn",
+        visible=True,
+        raw=raw,
+        numbers=numbers,
+        first_number=base_number,
+        sum_number=sum(numbers) if len(numbers) >= 2 else None,
+        normalized_number=base_number,
+        confidence=confidence,
+        accepted=True,
+        reason="accepted",
+        base_number=base_number,
+        overlay_number=overlay_number,
+        total_number=total_number,
+        components={},
     )

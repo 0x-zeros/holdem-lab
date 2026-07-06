@@ -99,6 +99,36 @@ Interpretation:
 - Runtime should prefer structured `base` and `overlay` observations, then derive
   `display` through rules.
 
+### Table Recognizer Shadow Reporting
+
+The component CNN/template output can now be loaded from
+`number_char_recognizer_summary.json` as table-recognizer shadow evidence. This is
+reported under `shadow_number_predictions` and
+`accepted_shadow_number_predictions`; it is not fed into `RecognizedTable`,
+`GameStateAssemblyResult`, accepted critical fields, policy decisions, or click
+authorization.
+
+Latest shadow reports:
+
+- Truth-assisted:
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/`
+- Image-only replay:
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_image_only_v1/`
+
+Key safety/coverage checks on the 119-frame reviewed manifest:
+
+| Mode | Authorization events | Unsafe authorization | Shadow raw | Shadow accepted |
+|---|---:|---:|---:|---:|
+| truth-assisted | 39 | 0 | 57 | 51 |
+| image-only replay | 0 | 0 | 57 | 51 |
+
+Shadow truth comparison for `hero_stack`:
+
+- raw shadow: 54 matches / 3 mismatches against reviewed truth.
+- accepted shadow: 51 matches / 0 mismatches against reviewed truth.
+- accepted total-number component: 51/51 match; base-number matches only 30/51 because
+  reviewed stack truth sometimes represents the displayed total (`base + overlay`).
+
 ### CRNN+CTC and Transformer+CTC Prototype
 
 Both sequence OCR variants were added as opt-in offline baselines.

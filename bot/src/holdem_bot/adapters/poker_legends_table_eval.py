@@ -31,6 +31,7 @@ def evaluate_poker_legends_table_recognizer(
     button_manifest: str | Path,
     output_dir: str | Path,
     card_template_manifest: str | Path | None = None,
+    number_shadow_summary: str | Path | None = None,
     controlled_seat: int = 0,
     actionable_only: bool = True,
     image_only_replay: bool = False,
@@ -41,6 +42,7 @@ def evaluate_poker_legends_table_recognizer(
         card_classifier_manifest=card_classifier_manifest,
         button_manifest=button_manifest,
         card_template_manifest=card_template_manifest,
+        number_shadow_summary=number_shadow_summary,
         controlled_seat=controlled_seat,
     )
     manifest_path = Path(dataset_manifest_path)
@@ -64,6 +66,8 @@ def evaluate_poker_legends_table_recognizer(
     number_readiness_flag_counts: dict[str, int] = {}
     number_truth_comparison_counts: dict[str, int] = {}
     number_component_truth_comparison_counts: dict[str, int] = {}
+    shadow_number_truth_comparison_counts: dict[str, int] = {}
+    shadow_number_component_truth_comparison_counts: dict[str, int] = {}
     false_actionable_examples: list[str] = []
     screen_false_actionable_examples: list[str] = []
     screen_missed_actionable_examples: list[str] = []
@@ -101,6 +105,7 @@ def evaluate_poker_legends_table_recognizer(
                 payload=image_path,
                 source="poker_legends_table_eval",
                 metadata=_frame_metadata(
+                    frame_id=frame_id,
                     image_path=image_path,
                     layout_annotation_path=annotation_path,
                     truth_path=truth_path,
@@ -215,6 +220,22 @@ def evaluate_poker_legends_table_recognizer(
             number_component_truth_comparison_counts[key] = (
                 number_component_truth_comparison_counts.get(key, 0) + 1
             )
+        for number_eval in _row_mappings(row.get("shadow_number_truth_evaluations")):
+            key = _number_truth_comparison_key(number_eval)
+            if key is None:
+                continue
+            shadow_number_truth_comparison_counts[key] = (
+                shadow_number_truth_comparison_counts.get(key, 0) + 1
+            )
+        for number_eval in _row_mappings(
+            row.get("shadow_number_component_truth_evaluations")
+        ):
+            key = _number_component_truth_comparison_key(number_eval)
+            if key is None:
+                continue
+            shadow_number_component_truth_comparison_counts[key] = (
+                shadow_number_component_truth_comparison_counts.get(key, 0) + 1
+            )
         for flag in _action_panel_flags(row.get("action_panels")):
             action_panel_flag_counts[flag] = action_panel_flag_counts.get(flag, 0) + 1
             if outcome != "state":
@@ -260,6 +281,12 @@ def evaluate_poker_legends_table_recognizer(
         "number_component_truth_comparison_counts": dict(
             sorted(number_component_truth_comparison_counts.items())
         ),
+        "shadow_number_truth_comparison_counts": dict(
+            sorted(shadow_number_truth_comparison_counts.items())
+        ),
+        "shadow_number_component_truth_comparison_counts": dict(
+            sorted(shadow_number_component_truth_comparison_counts.items())
+        ),
         "number_truth_mismatch_examples": number_truth_mismatch_examples,
         "number_prediction_slot_counts": _number_prediction_slot_counts(
             rows,
@@ -276,6 +303,24 @@ def evaluate_poker_legends_table_recognizer(
         "accepted_number_prediction_confidence_counts": _number_prediction_confidence_counts(
             rows,
             field_name="accepted_number_predictions",
+        ),
+        "shadow_number_prediction_slot_counts": _number_prediction_slot_counts(
+            rows,
+            field_name="shadow_number_predictions",
+        ),
+        "accepted_shadow_number_prediction_slot_counts": _number_prediction_slot_counts(
+            rows,
+            field_name="accepted_shadow_number_predictions",
+        ),
+        "shadow_number_prediction_confidence_counts": _number_prediction_confidence_counts(
+            rows,
+            field_name="shadow_number_predictions",
+        ),
+        "accepted_shadow_number_prediction_confidence_counts": (
+            _number_prediction_confidence_counts(
+                rows,
+                field_name="accepted_shadow_number_predictions",
+            )
         ),
         "authorization_events": authorization_events,
         "unsafe_authorization_events": unsafe_authorization_events,
@@ -343,6 +388,7 @@ def evaluate_poker_legends_table_recognizer(
 
 def _frame_metadata(
     *,
+    frame_id: str,
     image_path: Path,
     layout_annotation_path: Path,
     truth_path: Path,
@@ -351,6 +397,7 @@ def _frame_metadata(
     metadata: dict[str, object] = {
         "poker_legends_image_path": str(image_path),
         "poker_legends_layout_annotation_path": str(layout_annotation_path),
+        "poker_legends_shadow_frame_id": frame_id,
         "coordinate_space": "image",
     }
     if image_only_replay:
@@ -369,6 +416,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--card-classifier-manifest", required=True)
     parser.add_argument("--button-manifest", required=True)
     parser.add_argument("--card-template-manifest")
+    parser.add_argument(
+        "--number-shadow-summary",
+        help=(
+            "Optional number_char_recognizer_summary.json. Its component OCR "
+            "predictions are reported as shadow evidence only."
+        ),
+    )
     parser.add_argument("--out", required=True)
     parser.add_argument("--seat", type=int, default=0)
     parser.add_argument(
@@ -393,6 +447,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         card_classifier_manifest=args.card_classifier_manifest,
         button_manifest=args.button_manifest,
         card_template_manifest=args.card_template_manifest,
+        number_shadow_summary=args.number_shadow_summary,
         output_dir=args.out,
         controlled_seat=args.seat,
         actionable_only=not args.include_non_actionable,
@@ -428,6 +483,11 @@ def _row_from_result(
     number_predictions = result.metadata.get("number_predictions", [])
     accepted_number_predictions = result.metadata.get("accepted_number_predictions", [])
     number_prediction_rejections = result.metadata.get("number_prediction_rejections", [])
+    shadow_number_predictions = result.metadata.get("shadow_number_predictions", [])
+    accepted_shadow_number_predictions = result.metadata.get(
+        "accepted_shadow_number_predictions",
+        [],
+    )
     number_readiness_flags = _number_readiness_flags(
         table_readiness_flags,
         number_predictions=number_predictions,
@@ -442,6 +502,16 @@ def _row_from_result(
     number_component_truth_evaluations = _number_component_truth_evaluations(
         number_predictions=number_predictions,
         accepted_number_predictions=accepted_number_predictions,
+        truth=truth,
+    )
+    shadow_number_truth_evaluations = _number_truth_evaluations(
+        number_predictions=shadow_number_predictions,
+        accepted_number_predictions=accepted_shadow_number_predictions,
+        truth=truth,
+    )
+    shadow_number_component_truth_evaluations = _number_component_truth_evaluations(
+        number_predictions=shadow_number_predictions,
+        accepted_number_predictions=accepted_shadow_number_predictions,
         truth=truth,
     )
     return {
@@ -487,8 +557,12 @@ def _row_from_result(
         "number_predictions": number_predictions,
         "accepted_number_predictions": accepted_number_predictions,
         "number_prediction_rejections": number_prediction_rejections,
+        "shadow_number_predictions": shadow_number_predictions,
+        "accepted_shadow_number_predictions": accepted_shadow_number_predictions,
         "number_truth_evaluations": number_truth_evaluations,
         "number_component_truth_evaluations": number_component_truth_evaluations,
+        "shadow_number_truth_evaluations": shadow_number_truth_evaluations,
+        "shadow_number_component_truth_evaluations": shadow_number_component_truth_evaluations,
         "accepted_critical_fields": [
             field.to_dict() for field in result.accepted_critical_fields
         ],
@@ -1294,6 +1368,14 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "",
         *_count_lines(summary.get("number_component_truth_comparison_counts")),
         "",
+        "## Shadow Number Truth Comparison Counts",
+        "",
+        *_count_lines(summary.get("shadow_number_truth_comparison_counts")),
+        "",
+        "## Shadow Number Component Truth Comparison Counts",
+        "",
+        *_count_lines(summary.get("shadow_number_component_truth_comparison_counts")),
+        "",
         "## Number Truth Mismatch Examples",
         "",
         *_number_truth_mismatch_lines(summary.get("number_truth_mismatch_examples")),
@@ -1313,6 +1395,22 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Accepted Number Prediction Confidence Counts",
         "",
         *_count_lines(summary.get("accepted_number_prediction_confidence_counts")),
+        "",
+        "## Shadow Number Prediction Slot Counts",
+        "",
+        *_count_lines(summary.get("shadow_number_prediction_slot_counts")),
+        "",
+        "## Accepted Shadow Number Prediction Slot Counts",
+        "",
+        *_count_lines(summary.get("accepted_shadow_number_prediction_slot_counts")),
+        "",
+        "## Shadow Number Prediction Confidence Counts",
+        "",
+        *_count_lines(summary.get("shadow_number_prediction_confidence_counts")),
+        "",
+        "## Accepted Shadow Number Prediction Confidence Counts",
+        "",
+        *_count_lines(summary.get("accepted_shadow_number_prediction_confidence_counts")),
         "",
         "## Number Readiness Details",
         "",
@@ -1398,9 +1496,9 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
     if blockers:
         lines.append(
             "| Frame | Result | Review Tags | Issues | Action Panels | Truth Buttons | Buttons | "
-            "Truth Seats | Seats | Truth Texts | Accepted Numbers |"
+            "Truth Seats | Seats | Truth Texts | Accepted Numbers | Accepted Shadow Numbers |"
         )
-        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
         for row in blockers:
             table = row.get("recognized_table")
             table_dict = table if isinstance(table, Mapping) else {}
@@ -1418,7 +1516,8 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
                 f"{_truth_seat_summary(truth_dict.get('seats'))} | "
                 f"{_seat_summary(table_dict.get('seats'))} | "
                 f"{_truth_text_summary(truth_dict.get('texts'))} | "
-                f"{_number_summary(row.get('accepted_number_predictions'))} |"
+                f"{_number_summary(row.get('accepted_number_predictions'))} | "
+                f"{_number_summary(row.get('accepted_shadow_number_predictions'))} |"
             )
     else:
         lines.append("No blocking rows.")

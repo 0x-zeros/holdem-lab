@@ -5,6 +5,7 @@ from typing import Any, cast
 import cv2
 import numpy as np
 from holdem_bot.vision import (
+    PokerLegendsComponentNumberShadowRecognizer,
     PokerLegendsNumberRecognizer,
     build_poker_legends_number_crop_dataset,
     build_poker_legends_number_ocr_report,
@@ -374,6 +375,75 @@ def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:
         "overlay_number": None,
         "total_number": 1250,
     }
+
+
+def test_component_number_shadow_recognizer_loads_template_cnn_summary(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "number_char_recognizer_summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "evaluation_rows": [
+                    {
+                        "frame_id": "frame_001",
+                        "field": "texts.hero_stack",
+                        "crop_variant": "default",
+                        "targets": {
+                            "base": {
+                                "expected": "$290",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": "$290",
+                                    "confidence": 0.91,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                            "overlay": {
+                                "expected": "+710",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": "+710",
+                                    "confidence": 0.97,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                            "display": {
+                                "expected": "$290+710",
+                                "is_positive": True,
+                                "segmentation_status": "match",
+                                "template_cnn": {
+                                    "text": "$290+710",
+                                    "confidence": 0.88,
+                                    "accepted": True,
+                                    "reason": "accepted",
+                                },
+                            },
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recognizer = PokerLegendsComponentNumberShadowRecognizer.from_summary(summary_path)
+    predictions = recognizer.recognize("frame_001", text_names=("hero_stack",))
+
+    assert len(predictions) == 1
+    prediction = predictions[0]
+    assert prediction.raw == "$290+710"
+    assert prediction.normalized_number == 290
+    assert prediction.base_number == 290
+    assert prediction.overlay_number == 710
+    assert prediction.total_number == 1000
+    assert prediction.accepted is True
+    assert prediction.confidence == 0.91
 
 
 def test_poker_legends_number_confidence_marks_fragmented_ocr_low() -> None:

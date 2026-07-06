@@ -525,6 +525,129 @@ def test_number_truth_match_accepts_stack_overlay_base_or_total() -> None:
     assert not poker_legends_table_eval._number_prediction_matches_truth(prediction, 910)
 
 
+def test_table_eval_reports_shadow_number_predictions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    frames = tmp_path / "frames"
+    annotations = tmp_path / "annotations"
+    truth = tmp_path / "truth"
+    out = tmp_path / "out"
+    frames.mkdir()
+    annotations.mkdir()
+    truth.mkdir()
+    image = frames / "frame_001.png"
+    image.write_bytes(b"fake")
+    (annotations / "frame_001.json").write_text(
+        json.dumps({"image": str(image), "regions": {}}),
+        encoding="utf-8",
+    )
+    (truth / "frame_001.json").write_text(
+        json.dumps(
+            {
+                "frame_id": "frame_001",
+                "screen": {"kind": "actionable_table"},
+                "texts": [
+                    {
+                        "name": "hero_stack",
+                        "visible": True,
+                        "value": "$1,000",
+                        "normalized_number": 1000,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "annotation_dir": str(annotations),
+                "frames": [
+                    {
+                        "frame_id": "frame_001",
+                        "image": str(image),
+                        "truth_path": str(truth / "frame_001.json"),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeRecognizerFactory:
+        @classmethod
+        def from_manifests(cls, **kwargs):
+            assert kwargs["number_shadow_summary"] == "component-summary.json"
+            return ShadowNumberFakeRecognizer()
+
+    class ShadowNumberFakeRecognizer:
+        def recognize(self, frame: CapturedFrame) -> RecognitionResult:
+            assert Path(str(frame.payload)).stem == "frame_001"
+            return _blocked_result(
+                "frame_001",
+                shadow_number_predictions=(
+                    {
+                        "accepted": True,
+                        "base_number": 290,
+                        "confidence": 0.91,
+                        "group": "texts",
+                        "name": "hero_stack",
+                        "normalized_number": 290,
+                        "overlay_number": 710,
+                        "raw": "$290+710",
+                        "total_number": 1000,
+                    },
+                ),
+                accepted_shadow_number_predictions=(
+                    {
+                        "accepted": True,
+                        "base_number": 290,
+                        "confidence": 0.91,
+                        "group": "texts",
+                        "name": "hero_stack",
+                        "normalized_number": 290,
+                        "overlay_number": 710,
+                        "raw": "$290+710",
+                        "total_number": 1000,
+                    },
+                ),
+            )
+
+    monkeypatch.setattr(
+        poker_legends_table_eval,
+        "PokerLegendsTableRecognizer",
+        FakeRecognizerFactory,
+    )
+
+    summary = poker_legends_table_eval.evaluate_poker_legends_table_recognizer(
+        dataset_manifest_path=manifest,
+        card_part_manifest="unused-card-parts.json",
+        card_classifier_manifest="unused-card-classifier.json",
+        button_manifest="unused-buttons.json",
+        number_shadow_summary="component-summary.json",
+        output_dir=out,
+    )
+
+    assert summary["number_prediction_slot_counts"] == {}
+    assert summary["accepted_number_prediction_slot_counts"] == {}
+    assert summary["shadow_number_prediction_slot_counts"] == {"texts:hero_stack": 1}
+    assert summary["accepted_shadow_number_prediction_slot_counts"] == {
+        "texts:hero_stack": 1
+    }
+    assert summary["shadow_number_truth_comparison_counts"] == {
+        "accepted:numbers.hero_stack:match": 1,
+        "raw:numbers.hero_stack:match": 1,
+    }
+    assert summary["shadow_number_component_truth_comparison_counts"] == {
+        "accepted:numbers.hero_stack:base_number:mismatch": 1,
+        "accepted:numbers.hero_stack:total_number:match": 1,
+        "raw:numbers.hero_stack:base_number:mismatch": 1,
+        "raw:numbers.hero_stack:total_number:match": 1,
+    }
+
+
 class FakeRecognizer:
     def recognize(self, frame: CapturedFrame) -> RecognitionResult:
         mode = RecognitionMode(str(frame.metadata.get("recognition_mode", "truth_assisted_replay")))
@@ -641,6 +764,8 @@ def _blocked_result(
     recognized_table: dict[str, object] | None = None,
     number_predictions: tuple[dict[str, object], ...] = (),
     accepted_number_predictions: tuple[dict[str, object], ...] = (),
+    shadow_number_predictions: tuple[dict[str, object], ...] = (),
+    accepted_shadow_number_predictions: tuple[dict[str, object], ...] = (),
     temporal_tracker: dict[str, object] | None = None,
 ) -> RecognitionResult:
     evidence = FrameEvidence(session_id=None, frame_id=frame_id)
@@ -705,6 +830,8 @@ def _blocked_result(
         "assembly_result": assembly.to_dict(),
         "number_predictions": list(number_predictions),
         "accepted_number_predictions": list(accepted_number_predictions),
+        "shadow_number_predictions": list(shadow_number_predictions),
+        "accepted_shadow_number_predictions": list(accepted_shadow_number_predictions),
     }
     if temporal_tracker is not None:
         metadata["temporal_tracker"] = temporal_tracker

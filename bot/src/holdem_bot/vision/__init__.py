@@ -92,8 +92,10 @@ from holdem_bot.vision.poker_legends_number_chars import (
     segment_number_characters,
 )
 from holdem_bot.vision.poker_legends_numbers import (
+    PokerLegendsComponentNumberShadowRecognizer,
     PokerLegendsNumberPrediction,
     PokerLegendsNumberRecognizer,
+    PokerLegendsNumberShadowPrediction,
     build_poker_legends_number_crop_dataset,
     build_poker_legends_number_ocr_report,
     evaluate_poker_legends_number_crop_dataset,
@@ -242,6 +244,8 @@ __all__ = [
     "parse_poker_legends_chip_amount",
     "parse_poker_legends_chip_components",
     "parse_poker_legends_chip_numbers",
+    "PokerLegendsComponentNumberShadowRecognizer",
+    "PokerLegendsNumberShadowPrediction",
     "build_poker_legends_screen_scan",
     "build_poker_legends_session_timeline",
     "build_poker_legends_truth_overlay",

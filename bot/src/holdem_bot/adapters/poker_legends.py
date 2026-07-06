@@ -50,8 +50,10 @@ from holdem_bot.vision.poker_legends_card_consensus import (
     PokerLegendsCardConsensusRecognizer,
 )
 from holdem_bot.vision.poker_legends_numbers import (
+    PokerLegendsComponentNumberShadowRecognizer,
     PokerLegendsNumberPrediction,
     PokerLegendsNumberRecognizer,
+    PokerLegendsNumberShadowPrediction,
     parse_poker_legends_chip_amount,
 )
 from holdem_bot.vision.poker_legends_screen import detect_poker_legends_screen_state
@@ -127,6 +129,15 @@ class _NumberRecognizer(Protocol):
         text_names: tuple[str, ...] = ("pot", "hero_stack", "right_top_stack"),
         button_names: tuple[str, ...] = ("primary_left",),
     ) -> tuple[PokerLegendsNumberPrediction, ...]: ...
+
+
+class _NumberShadowRecognizer(Protocol):
+    def recognize(
+        self,
+        frame_id: str,
+        *,
+        text_names: tuple[str, ...] = ("hero_stack",),
+    ) -> tuple[PokerLegendsNumberShadowPrediction, ...]: ...
 
 
 class PokerLegendsScreenStateRecognizer(Recognizer):
@@ -299,6 +310,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         card_recognizer: _CardConsensusRecognizer,
         button_recognizer: _ButtonRecognizer,
         number_recognizer: _NumberRecognizer | None = None,
+        number_shadow_recognizer: _NumberShadowRecognizer | None = None,
         controlled_seat: int = 0,
         small_blind: int = 5,
         big_blind: int = 10,
@@ -315,6 +327,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         self.card_recognizer = card_recognizer
         self.button_recognizer = button_recognizer
         self.number_recognizer = number_recognizer
+        self.number_shadow_recognizer = number_shadow_recognizer
         self.controlled_seat = controlled_seat
         self.small_blind = small_blind
         self.big_blind = big_blind
@@ -330,6 +343,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
         card_classifier_manifest: str | Path,
         button_manifest: str | Path,
         card_template_manifest: str | Path | None = None,
+        number_shadow_summary: str | Path | None = None,
         controlled_seat: int = 0,
     ) -> PokerLegendsTableRecognizer:
         return cls(
@@ -340,6 +354,13 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             ),
             button_recognizer=PokerLegendsButtonRecognizer.from_manifest(button_manifest),
             number_recognizer=PokerLegendsNumberRecognizer(),
+            number_shadow_recognizer=(
+                PokerLegendsComponentNumberShadowRecognizer.from_summary(
+                    number_shadow_summary
+                )
+                if number_shadow_summary is not None
+                else None
+            ),
             controlled_seat=controlled_seat,
         )
 
@@ -533,6 +554,12 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             layout_annotation=layout_annotation,
             recognition_mode=mode,
             frame_evidence=frame_evidence,
+            shadow_frame_ids=_shadow_frame_ids_from_frame(
+                frame,
+                annotation=annotation,
+                image_path=image_path,
+                primary_frame_id=frame_id,
+            ),
         )
         if context.recognition_mode in IMAGE_ONLY_RECOGNITION_MODES and annotation is not None:
             violation = SourcePolicyViolation(
@@ -598,6 +625,16 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             metadata["image"] = str(context.image_path)
 
         if screen.kind is not ScreenKind.ACTIONABLE_TABLE:
+            shadow_number_predictions = self._shadow_number_predictions_for_context(context)
+            if shadow_number_predictions:
+                metadata["shadow_number_predictions"] = [
+                    prediction.to_dict() for prediction in shadow_number_predictions
+                ]
+                metadata["accepted_shadow_number_predictions"] = [
+                    prediction.to_dict()
+                    for prediction in shadow_number_predictions
+                    if prediction.accepted
+                ]
             assembly = _assembly_result_from_outcome(
                 state=None,
                 block_reason="screen_not_actionable",
@@ -707,6 +744,7 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                     )
             except Exception as exc:
                 metadata["number_recognizer_error"] = f"{type(exc).__name__}: {exc}"
+        shadow_number_predictions = self._shadow_number_predictions_for_context(context)
         accepted_number_predictions = tuple(
             prediction
             for prediction in number_predictions
@@ -769,6 +807,15 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
                 )
                 is not None
             ]
+        if shadow_number_predictions:
+            metadata["shadow_number_predictions"] = [
+                prediction.to_dict() for prediction in shadow_number_predictions
+            ]
+            metadata["accepted_shadow_number_predictions"] = [
+                prediction.to_dict()
+                for prediction in shadow_number_predictions
+                if prediction.accepted
+            ]
         if block_reason is not None:
             metadata["state_block_reason"] = block_reason
         accepted_fields = _accepted_critical_fields_for_state(
@@ -822,6 +869,46 @@ class PokerLegendsTableRecognizer(PokerLegendsScreenStateRecognizer):
             accepted_critical_fields=accepted_fields,
             source_policy_violations=policy_violations,
         )
+
+    def _shadow_number_predictions_for_context(
+        self,
+        context: _FrameContext,
+    ) -> tuple[PokerLegendsNumberShadowPrediction, ...]:
+        if self.number_shadow_recognizer is None:
+            return ()
+        fallback_text_names, _button_names = _number_roi_names_for_fallbacks(context.annotation)
+        text_names = tuple(
+            dict.fromkeys(
+                (
+                    "pot",
+                    "hero_stack",
+                    "right_top_stack",
+                    "hero_current_bet",
+                    *fallback_text_names,
+                )
+            )
+        )
+        try:
+            predictions: list[PokerLegendsNumberShadowPrediction] = []
+            seen: set[tuple[str, str, str, str]] = set()
+            for frame_id in context.shadow_frame_ids or (context.frame_id,):
+                for prediction in self.number_shadow_recognizer.recognize(
+                    frame_id,
+                    text_names=text_names,
+                ):
+                    key = (
+                        prediction.frame_id,
+                        prediction.group,
+                        prediction.name,
+                        prediction.crop_variant,
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    predictions.append(prediction)
+            return tuple(predictions)
+        except Exception:
+            return ()
 
     def _screen_state(self, frame: CapturedFrame, context: _FrameContext) -> ScreenState:
         if context.annotation is not None:
@@ -1026,12 +1113,14 @@ class _FrameContext:
         layout_annotation: Mapping[str, object] | None,
         recognition_mode: RecognitionMode,
         frame_evidence: FrameEvidence,
+        shadow_frame_ids: tuple[str, ...] = (),
     ) -> None:
         self.annotation = annotation
         self.image_path = image_path
         self.layout_annotation = layout_annotation
         self.recognition_mode = recognition_mode
         self.frame_evidence = frame_evidence
+        self.shadow_frame_ids = shadow_frame_ids
 
     @property
     def frame_id(self) -> str:
@@ -1724,6 +1813,29 @@ def _frame_id_from_inputs(
     if annotation is None:
         return image_path.stem if image_path is not None else "unknown"
     return str(annotation.get("frame_id") or "unknown")
+
+
+def _shadow_frame_ids_from_frame(
+    frame: CapturedFrame,
+    *,
+    annotation: Mapping[str, object] | None,
+    image_path: Path | None,
+    primary_frame_id: str,
+) -> tuple[str, ...]:
+    candidates: list[str] = []
+    for key in ("poker_legends_shadow_frame_id", "poker_legends_frame_id", "frame_id"):
+        value = frame.metadata.get(key)
+        if isinstance(value, str) and value:
+            candidates.append(value)
+    if primary_frame_id:
+        candidates.append(primary_frame_id)
+    if annotation is not None:
+        annotation_frame_id = annotation.get("frame_id")
+        if isinstance(annotation_frame_id, str) and annotation_frame_id:
+            candidates.append(annotation_frame_id)
+    if image_path is not None:
+        candidates.append(image_path.stem)
+    return tuple(dict.fromkeys(candidates))
 
 
 def _screen_source(context: _FrameContext) -> str:
