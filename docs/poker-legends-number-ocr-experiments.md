@@ -10,10 +10,9 @@ recognizers are connected to runtime click or authorization paths.
 - Crop dataset: 119 reviewed frames, 714 crops, 458 labeled crops, and 36 crop-level
   review overrides applied.
 - Rows used by the latest component experiments: 309 rows total, 300 positive rows
-  and 9 hard-negative rows; split is 246 train / 63 test. The current deterministic
-  split placed the 9 hard-negative rows outside the test split, so v6 component test
-  metrics are positive-crop metrics. Hard-negative safety still has to be judged from
-  full-shadow review queues and a future frozen stratified test set.
+  and 9 hard-negative rows; split is 246 train / 63 test. Automatic split is now
+  stratified by positive vs hard-negative frame sequence, so v7 includes 60 positive
+  test rows and 3 hard-negative test rows.
 - Current reviewed issue classes:
   - Some crops have valid base text but weak or noisy overlay text.
   - Some truth rows are polluted, for example rows 31-33 in the review HTML show no
@@ -52,21 +51,21 @@ glyph.
 
 Latest component report:
 
-- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v6/number_char_recognizer_report.md`
-- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v6/number_char_recognizer_review.html`
+- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v7/number_char_recognizer_report.md`
+- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v7/number_char_recognizer_review.html`
 
 Key metrics:
 
-| Target | Model | Exact | Accepted | Accepted wrong |
-|---|---|---:|---:|---:|
-| base | CNN | 57/63 | 57/63 | 0 |
-| base | template KNN | 57/63 | 57/63 | 0 |
-| base | template+CNN | 57/63 | 57/63 | 0 |
-| overlay | CNN | 27/30 | 27/30 | 0 |
-| overlay | template+CNN | 27/30 | 27/30 | 0 |
-| display | CNN | 30/63 | 30/63 | 0 |
-| display | template+CNN | 30/63 | 30/63 | 0 |
-| base | Tesseract | 38/63 | 63/63 | 25 |
+| Target | Model | Positive exact | Positive accepted | Accepted wrong | Hard-negative false accepts |
+|---|---|---:|---:|---:|---:|
+| base | CNN | 53/60 | 53/60 | 0 | 0/3 |
+| base | template KNN | 53/60 | 50/60 | 0 | 0/3 |
+| base | template+CNN | 53/60 | 53/60 | 0 | 0/3 |
+| overlay | CNN | 36/36 | 36/36 | 0 | 0/3 |
+| overlay | template+CNN | 36/36 | 36/36 | 0 | 0/3 |
+| display | CNN | 36/60 | 36/60 | 0 | 0/3 |
+| display | template+CNN | 36/60 | 36/60 | 0 | 0/3 |
+| base | Tesseract | 35/60 | 60/60 | 25 | 3/3 |
 
 Interpretation:
 
@@ -82,19 +81,21 @@ Interpretation:
   template misread `$990` and `$399` as `$900` / `$390`.
 - Template / CNN / MLP are now trained per target (`base`, `overlay`, `display`) so
   overlay/display symbols cannot contaminate base hard-negative evaluation.
-- Overlay mask cleanup removes horizontal cyan rule-line contamination. On v6 the
-  overlay target segments 165/174 overall and 27/30 on the current test split.
+- Overlay mask cleanup removes horizontal cyan rule-line contamination. On v7 the
+  overlay target segments 165/174 overall and 36/36 on the current positive test
+  split.
 - Template+CNN relaxed agreement accepts only same-text predictions that pass the
   target contract and stay near the normal template/CNN thresholds; this recovered
   the reviewed `+80` cases without adding accepted mismatches in the current
   promotion view.
 - Template-only is not promoted to runtime authority from this small split; the safer
-  base reporting baseline remains CNN or template+CNN, both at 57/63 accepted with
-  accepted wrong 0; overlay template+CNN is now 27/30 accepted with accepted wrong 0.
+  base reporting baseline remains CNN or template+CNN, both at 53/60 positive
+  accepted with accepted wrong 0 and 0/3 hard-negative false accepts; overlay
+  template+CNN is now 36/36 positive accepted with accepted wrong 0.
 - `display` coverage is low because combined segmentation is fragile.
 - Runtime should prefer structured `base` and `overlay` observations, then derive
   `display` through rules.
-- v6 uses the v8 reviewed-overrides dataset and writes full `shadow_evaluation_rows`:
+- v7 uses the v8 reviewed-overrides dataset and writes full `shadow_evaluation_rows`:
   309 shadow rows total, while `evaluation_rows` remains the 63-row test split used
   for metrics and review HTML.
 
@@ -114,9 +115,9 @@ Latest shadow reports:
 - Test-split image-only replay:
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_image_only_v1/`
 - Full-shadow truth-assisted:
-  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_v2/`
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_v3/`
 - Full-shadow image-only replay:
-  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_image_only_v2/`
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_image_only_v3/`
 
 Key safety/coverage checks on the 119-frame reviewed manifest:
 

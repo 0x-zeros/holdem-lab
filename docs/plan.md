@@ -235,7 +235,7 @@
   replay dry-run 与 live HUD 连续帧路径：默认需要 2 帧当前窗口稳定后才把 `single_frame_valid` 升级为
   `temporally_stable_valid`，overlay clear / 新手牌边界会重新稳定，旧 stable state 不会授权当前行动。
   仍然只做 dry-run / overlay，不做真实点击。
-- 阶段 4 Poker Legends number OCR shadow reporting v2：在 CRNN/CTC 原型未收敛后，当前回到
+- 阶段 4 Poker Legends number OCR shadow reporting v3：在 CRNN/CTC 原型未收敛后，当前回到
   CNN/template 组件路线提升覆盖。已把 component `base` / `overlay` / `display` 输出作为 table
   recognizer 的 shadow evidence 接入报告，只写入 `shadow_number_predictions` /
   `accepted_shadow_number_predictions` 和 artifact，不进入 `RecognizedTable`、`GameState`、
@@ -246,11 +246,12 @@
   shadow raw 57、shadow accepted 54、accepted shadow truth mismatch 0；shadow-number review queue
   只剩 1 行：`session_002__keyframe_000047` 为已知 truth/ROI 污染。
   `$399+5` 已通过受约束 component consensus 修复：只有 template base fallback 与 accepted display
-  完全一致时才进入 shadow accepted。新增 v6 component summary 基于 v8 dataset：309 rows（300
-  positive / 9 hard-negative）、246 train / 63 test；base CNN/template/template+CNN 均为 57/63
-  accepted、accepted wrong 0，overlay 为 27/30、accepted wrong 0，display 为 30/63、accepted wrong
-  0。当前 split 没有 hard-negative test row，因此这些组件指标只代表 positive crop 口径；hard-negative
-  风险仍看 full-shadow review queue 与后续冻结 stratified set。v6 额外导出 309 行 full
+  完全一致时才进入 shadow accepted。number char evaluator 的自动 split 已按 positive / hard-negative
+  frame 序列分层，避免 no-visible/ROI 污染样本全落到 train。新增 v7 component summary 基于 v8
+  dataset：309 rows（300 positive / 9 hard-negative）、246 train / 63 test（60 positive + 3
+  hard-negative）；base CNN 与 template+CNN 均为 53/60 positive accepted、accepted wrong 0、
+  hard-negative false accepts 0/3；overlay template+CNN 为 36/36 positive accepted、accepted wrong
+  0、hard-negative false accepts 0/3；display 仍只有 36/60，继续只作 review/派生参考。v7 额外导出 309 行 full
   `shadow_evaluation_rows`；image-only full-shadow report 显示 6 个 hero_stack readiness gap 全部已被
   shadow 覆盖。但 full-shadow table replay 同时暴露 266 条 accepted shadow 里有 8 条 accepted mismatch、
   29 个 shadow review rows，因此 full shadow 仍只能作为诊断/候选来源，不能进入 runtime accepted 字段。Evaluator
@@ -266,8 +267,8 @@
   产物见
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
   `.../table_recognizer_number_shadow_image_only_v1/`，full-shadow 对照见
-  `.../table_recognizer_number_shadow_full_v2/` 与
-  `.../table_recognizer_number_shadow_full_image_only_v2/`。
+  `.../table_recognizer_number_shadow_full_v3/` 与
+  `.../table_recognizer_number_shadow_full_image_only_v3/`。
 - 阶段 3/4 AI heuristic v1：`holdem_ai.decide(state) -> Action` 入口保持不变，新增
   `explain_decision(state) -> PolicyDecision`，供 bot/dry-run 审计策略理由。策略评分从原先只看私牌
   扩展为可解释手牌评估：成牌类型、flush/straight/combo draw、估算 outs、pot odds、位置 bonus、

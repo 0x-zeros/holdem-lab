@@ -261,6 +261,75 @@ def test_number_char_recognizer_reports_hard_negative_false_accepts(
         assert cast(dict[str, Any], hard_negatives[method])["false_accepts"] == 0
 
 
+def test_number_char_recognizer_stratifies_implicit_hard_negative_split(
+    tmp_path: Path,
+) -> None:
+    crop_dir = tmp_path / "crops"
+    crop_dir.mkdir()
+    rows: list[dict[str, object]] = []
+    for index, text in enumerate(["$100", "$200", "$300", "$400"]):
+        frame_id = f"positive_{index:03d}"
+        crop_path = crop_dir / f"{frame_id}.png"
+        cv2.imwrite(
+            str(crop_path),
+            cv2.cvtColor(synthetic_number_crop(text), cv2.COLOR_RGB2BGR),
+        )
+        rows.append(
+            {
+                "frame_id": frame_id,
+                "group": "texts",
+                "name": "hero_stack",
+                "role": "hero_stack",
+                "crop_variant": "default",
+                "crop_path": str(crop_path.relative_to(tmp_path)),
+                "truth_canonical_text": text,
+                "truth_normalized_number": int(text[1:]),
+            }
+        )
+    for index in range(2):
+        frame_id = f"negative_{index:03d}"
+        crop_path = crop_dir / f"{frame_id}.png"
+        negative_crop = np.full((54, 220, 3), (24, 60, 110), dtype=np.uint8)
+        cv2.imwrite(str(crop_path), cv2.cvtColor(negative_crop, cv2.COLOR_RGB2BGR))
+        rows.append(
+            {
+                "frame_id": frame_id,
+                "group": "texts",
+                "name": "hero_stack",
+                "role": "hero_stack",
+                "crop_variant": "default",
+                "crop_path": str(crop_path.relative_to(tmp_path)),
+                "truth_canonical_text": None,
+                "truth_visible": False,
+                "clean_status": "no_visible_number",
+            }
+        )
+    manifest_path = tmp_path / "number_crop_dataset_manifest.json"
+    manifest_path.write_text(
+        json.dumps({"schema_version": 1, "rows": rows}),
+        encoding="utf-8",
+    )
+
+    summary = build_and_evaluate_poker_legends_number_char_recognizers(
+        manifest_path,
+        output_dir=tmp_path / "chars",
+        targets=("base",),
+        test_frame_modulo=2,
+        cnn_epochs=2,
+        enable_ctc=False,
+        enable_tesseract=False,
+    )
+
+    assert summary["rows"] == 6
+    assert summary["train_rows"] == 3
+    assert summary["test_rows"] == 3
+    assert summary["hard_negative_rows"] == 2
+    assert summary["hard_negative_test_rows"] == 1
+    base = cast(dict[str, Any], cast(dict[str, Any], summary["targets"])["base"])
+    assert base["test_rows"] == 2
+    assert base["hard_negative_test_rows"] == 1
+
+
 def synthetic_number_crop(text: str) -> np.ndarray:
     crop = np.full((54, 220, 3), (24, 60, 110), dtype=np.uint8)
     cv2.putText(

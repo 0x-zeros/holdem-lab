@@ -1456,7 +1456,6 @@ def _load_rows(
 ) -> tuple[NumberCharRow, ...]:
     manifest = _read_json_object(manifest_path)
     rows: list[NumberCharRow] = []
-    frame_ids: list[str] = []
     selected = [
         row
         for row in _mapping_sequence(manifest.get("rows"))
@@ -1472,11 +1471,7 @@ def _load_rows(
     ]
     if max_crops is not None:
         selected = selected[:max_crops]
-    for row in selected:
-        frame_id = str(row.get("frame_id") or "")
-        if frame_id and frame_id not in frame_ids:
-            frame_ids.append(frame_id)
-    frame_index = {frame_id: index for index, frame_id in enumerate(frame_ids)}
+    positive_frame_index, hard_negative_frame_index = _split_frame_indexes(selected)
     modulo = max(2, test_frame_modulo)
     for index, row in enumerate(selected):
         clean_status = _row_clean_status(row)
@@ -1493,9 +1488,13 @@ def _load_rows(
         split = (
             manifest_split
             if manifest_split in {"train", "validation", "test"}
-            else "test"
-            if frame_index.get(frame_id, 0) % modulo == 0
-            else "train"
+            else _automatic_split(
+                frame_id,
+                clean_status=clean_status,
+                positive_frame_index=positive_frame_index,
+                hard_negative_frame_index=hard_negative_frame_index,
+                modulo=modulo,
+            )
         )
         crop_path = _resolve_crop_path(manifest_path.parent, row.get("crop_path"))
         rows.append(
@@ -1512,6 +1511,42 @@ def _load_rows(
             )
         )
     return tuple(rows)
+
+
+def _split_frame_indexes(
+    rows: Sequence[Mapping[str, object]],
+) -> tuple[dict[str, int], dict[str, int]]:
+    positive_frame_ids: list[str] = []
+    hard_negative_frame_ids: list[str] = []
+    for row in rows:
+        frame_id = str(row.get("frame_id") or "")
+        if not frame_id:
+            continue
+        if _row_clean_status(row) == "no_visible_number":
+            if frame_id not in hard_negative_frame_ids:
+                hard_negative_frame_ids.append(frame_id)
+        elif frame_id not in positive_frame_ids:
+            positive_frame_ids.append(frame_id)
+    return (
+        {frame_id: index for index, frame_id in enumerate(positive_frame_ids)},
+        {frame_id: index for index, frame_id in enumerate(hard_negative_frame_ids)},
+    )
+
+
+def _automatic_split(
+    frame_id: str,
+    *,
+    clean_status: str,
+    positive_frame_index: Mapping[str, int],
+    hard_negative_frame_index: Mapping[str, int],
+    modulo: int,
+) -> str:
+    frame_index = (
+        hard_negative_frame_index.get(frame_id, 0)
+        if clean_status == "no_visible_number"
+        else positive_frame_index.get(frame_id, 0)
+    )
+    return "test" if frame_index % modulo == 0 else "train"
 
 
 def _row_clean_status(row: Mapping[str, object]) -> str:
