@@ -1045,10 +1045,7 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         else None
     )
 
-    evaluation_rows: list[_EvaluationRow] = []
-    for row in source_rows:
-        if row.split != "test":
-            continue
+    def evaluate_row(row: NumberCharRow) -> _EvaluationRow:
         target_evaluations: list[_TargetEvaluation] = []
         tesseract_text = _tesseract_text(row.crop_path) if enable_tesseract else None
         for target in active_targets:
@@ -1202,12 +1199,13 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
                     tesseract=tesseract_prediction,
                 )
             )
-        evaluation_rows.append(
-            _EvaluationRow(
-                source=row,
-                targets=tuple(target_evaluations),
-            )
+        return _EvaluationRow(
+            source=row,
+            targets=tuple(target_evaluations),
         )
+
+    shadow_rows = [evaluate_row(row) for row in source_rows]
+    evaluation_rows = [row for row in shadow_rows if row.source.split == "test"]
     primary_target = active_targets[0]
     target_summaries = _target_summaries(
         source_rows,
@@ -1286,6 +1284,7 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         ),
         "train_rows": len([row for row in source_rows if row.split == "train"]),
         "test_rows": len(evaluation_rows),
+        "shadow_rows": len(shadow_rows),
         "hard_negative_test_rows": len(
             [
                 row
@@ -1314,6 +1313,9 @@ def build_and_evaluate_poker_legends_number_char_recognizers(
         "transformer_ctc": target_summaries[primary_target]["transformer_ctc"],
         "evaluation_rows": [
             _evaluation_row_to_dict(row, output, preview_crop_dir) for row in evaluation_rows
+        ],
+        "shadow_evaluation_rows": [
+            _evaluation_row_to_dict(row, output, preview_crop_dir) for row in shadow_rows
         ],
         "artifacts": {
             "glyph_dir": str(glyph_dir.relative_to(output)),
@@ -2158,6 +2160,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Hard-negative rows: {summary['hard_negative_rows']}",
         f"- Train rows: {summary['train_rows']}",
         f"- Test rows: {summary['test_rows']}",
+        f"- Shadow rows: {summary.get('shadow_rows', summary['test_rows'])}",
         f"- Hard-negative test rows: {summary['hard_negative_test_rows']}",
         f"- Glyph samples: {summary['glyph_samples']}",
         f"- Train glyph samples: {summary['train_glyph_samples']}",
@@ -2405,6 +2408,7 @@ def _stdout_summary(summary: Mapping[str, object]) -> dict[str, object]:
         "hard_negative_rows": summary["hard_negative_rows"],
         "train_rows": summary["train_rows"],
         "test_rows": summary["test_rows"],
+        "shadow_rows": summary.get("shadow_rows", summary["test_rows"]),
         "hard_negative_test_rows": summary["hard_negative_test_rows"],
         "glyph_samples": summary["glyph_samples"],
         "segmentation": summary["segmentation"],

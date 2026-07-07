@@ -446,6 +446,58 @@ def test_component_number_shadow_recognizer_loads_template_cnn_summary(
     assert prediction.confidence == 0.91
 
 
+def test_component_number_shadow_recognizer_prefers_full_shadow_rows(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "number_char_recognizer_summary.json"
+
+    def row(frame_id: str, text: str) -> dict[str, object]:
+        return {
+            "frame_id": frame_id,
+            "field": "texts.hero_stack",
+            "crop_variant": "default",
+            "targets": {
+                "base": {
+                    "template_cnn": {
+                        "text": text,
+                        "confidence": 0.91,
+                        "accepted": True,
+                        "reason": "accepted",
+                    }
+                },
+                "display": {
+                    "template_cnn": {
+                        "text": text,
+                        "confidence": 0.91,
+                        "accepted": True,
+                        "reason": "accepted",
+                    }
+                },
+            },
+        }
+
+    summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "evaluation_rows": [row("test_frame", "$100")],
+                "shadow_evaluation_rows": [
+                    row("train_frame", "$200"),
+                    row("test_frame", "$100"),
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recognizer = PokerLegendsComponentNumberShadowRecognizer.from_summary(summary_path)
+
+    assert [prediction.raw for prediction in recognizer.recognize("train_frame")] == [
+        "$200"
+    ]
+    assert [prediction.raw for prediction in recognizer.recognize("test_frame")] == ["$100"]
+
+
 def test_component_number_shadow_consensus_uses_template_base_when_display_agrees(
     tmp_path: Path,
 ) -> None:

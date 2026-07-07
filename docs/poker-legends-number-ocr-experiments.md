@@ -46,8 +46,8 @@ glyph.
 
 Latest component report:
 
-- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v4/number_char_recognizer_report.md`
-- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v4/number_char_recognizer_review.html`
+- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v5/number_char_recognizer_report.md`
+- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v5/number_char_recognizer_review.html`
 
 Key metrics:
 
@@ -98,6 +98,9 @@ Interpretation:
 - `display` coverage is low because combined segmentation is fragile.
 - Runtime should prefer structured `base` and `overlay` observations, then derive
   `display` through rules.
+- v5 keeps the same test-split metrics and additionally writes full
+  `shadow_evaluation_rows`: 300 shadow rows total, while `evaluation_rows` remains the
+  57-row test split used for metrics and review HTML.
 
 ### Table Recognizer Shadow Reporting
 
@@ -110,10 +113,14 @@ authorization.
 
 Latest shadow reports:
 
-- Truth-assisted:
+- Test-split truth-assisted:
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/`
-- Image-only replay:
+- Test-split image-only replay:
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_image_only_v1/`
+- Full-shadow truth-assisted:
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_v1/`
+- Full-shadow image-only replay:
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_image_only_v1/`
 
 Key safety/coverage checks on the 119-frame reviewed manifest:
 
@@ -144,14 +151,24 @@ Current queue on both truth-assisted and image-only reports:
   rejected by component disagreement and mismatch polluted reviewed truth (`$43,044`).
 
 Image-only readiness diagnostics now include `shadow_number_readiness_flags`. Current
-result:
+test-split result:
 
 - 6 image-only `hero_stack` readiness gaps are tagged `shadow_missing_hero_stack`.
 - None are currently tagged `shadow_covers_hero_stack_readiness_gap`.
 - The reason is coverage of the component summary artifact, not a runtime promotion
-  decision: `number_char_recognizer_summary.json` currently exposes test/evaluation
-  rows, and these six image-only readiness-gap frames are not present in that shadow
-  summary.
+  decision.
+
+Full-shadow result:
+
+- The component summary now exposes all 300 cleaned rows through
+  `shadow_evaluation_rows`.
+- In image-only table replay, 5/6 `hero_stack` readiness gaps are now tagged
+  `shadow_covers_hero_stack_readiness_gap`; the remaining missing frame is
+  `card_review_v1__session_002__keyframe_000293`.
+- Full-shadow accepted predictions are not safe to promote: table replay reports 257
+  accepted shadow `hero_stack` predictions, but 8 accepted mismatches against current
+  reviewed truth and 29 shadow review rows. Treat full shadow as a diagnostic/candidate
+  source until those mismatches are reviewed or filtered.
 
 ### CRNN+CTC and Transformer+CTC Prototype
 

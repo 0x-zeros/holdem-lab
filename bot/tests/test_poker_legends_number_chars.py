@@ -141,6 +141,9 @@ def test_number_char_recognizer_report_compares_template_mlp_and_tesseract(
 
     assert summary["rows"] == 4
     assert summary["test_rows"] == 2
+    assert summary["shadow_rows"] == 4
+    assert len(cast(list[object], summary["evaluation_rows"])) == 2
+    assert len(cast(list[object], summary["shadow_evaluation_rows"])) == 4
     assert summary["glyph_samples"] == 32
     targets = cast(dict[str, Any], summary["targets"])
     base = cast(dict[str, Any], targets["base"])

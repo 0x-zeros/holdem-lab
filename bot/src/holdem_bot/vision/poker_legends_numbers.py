@@ -137,9 +137,12 @@ class PokerLegendsComponentNumberShadowRecognizer:
         method: str = "component_consensus",
     ) -> Self:
         summary = _read_json_object(Path(summary_path))
+        rows = summary.get("shadow_evaluation_rows")
+        if not isinstance(rows, Sequence) or isinstance(rows, str | bytes):
+            rows = summary.get("evaluation_rows")
         predictions = [
             prediction
-            for row in _mapping_sequence(summary.get("evaluation_rows"))
+            for row in _mapping_sequence(rows)
             if (
                 prediction := _shadow_prediction_from_component_row(
                     row,

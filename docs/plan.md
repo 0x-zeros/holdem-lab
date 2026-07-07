@@ -243,12 +243,16 @@
   image-only report 均为 shadow raw 57、shadow accepted 54、accepted shadow truth mismatch 0；
   shadow-number review queue 只剩 1 行：`session_002__keyframe_000047` 为已知 truth/ROI 污染。
   `$399+5` 已通过受约束 component consensus 修复：只有 template base fallback 与 accepted display
-  完全一致时才进入 shadow accepted。新增 image-only shadow readiness 诊断显示 6 个 hero_stack
-  readiness gap 仍为 `shadow_missing_hero_stack`，原因是当前 component summary 只暴露
-  test/evaluation rows，这些 gap 帧不在 shadow summary 中；后续要么导出全量 shadow summary，
-  要么对这些 gap 帧单独补 crop/label。产物见
+  完全一致时才进入 shadow accepted。新增 v5 component summary 保持 test-split 指标不变，并额外导出
+  300 行 full `shadow_evaluation_rows`；image-only full-shadow report 显示 6 个 hero_stack readiness
+  gap 中 5 个已被 shadow 覆盖，剩余 `card_review_v1__session_002__keyframe_000293` 仍缺失。但
+  full-shadow table replay 同时暴露 257 条 accepted shadow 里有 8 条 accepted mismatch、29 个
+  shadow review rows，因此 full shadow 仍只能作为诊断/候选来源，不能进入 runtime accepted 字段。
+  产物见
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
-  `.../table_recognizer_number_shadow_image_only_v1/`。
+  `.../table_recognizer_number_shadow_image_only_v1/`，full-shadow 对照见
+  `.../table_recognizer_number_shadow_full_v1/` 与
+  `.../table_recognizer_number_shadow_full_image_only_v1/`。
 - 阶段 3/4 AI heuristic v1：`holdem_ai.decide(state) -> Action` 入口保持不变，新增
   `explain_decision(state) -> PolicyDecision`，供 bot/dry-run 审计策略理由。策略评分从原先只看私牌
   扩展为可解释手牌评估：成牌类型、flush/straight/combo draw、估算 outs、pot odds、位置 bonus、
