@@ -144,6 +144,8 @@ The table recognizer also writes focused review queues for shadow-number issues:
 - `table_recognizer_shadow_number_review_rows.json`
 - `table_recognizer_shadow_number_review_by_flag.json`
 - `table_recognizer_shadow_number_review_by_class.json`
+- `table_recognizer_shadow_number_promotion_rows.json`
+- `table_recognizer_shadow_number_promotion_by_class.json`
 
 Current queue on both truth-assisted and image-only reports:
 
@@ -178,6 +180,14 @@ Full-shadow result:
   important safety point is that the accepted mismatches currently appear in
   non-actionable frames, but this still is not enough evidence to promote full-shadow
   predictions into accepted runtime fields.
+- A separate promotion view now filters to truth-actionable `hero_stack` frames and
+  reports the hypothetical risk of using shadow OCR only in current action contexts.
+  Truth-assisted full-shadow has 47 `candidate_match_actionable` rows and 10
+  `no_shadow_hero_stack` rows. Image-only full-shadow has 38
+  `candidate_match_actionable`, 16 `excluded_screen_not_actionable`, and 3
+  `no_shadow_hero_stack` rows. There are currently 0
+  `candidate_mismatch_actionable` rows in this promotion view; this is encouraging but
+  still remains offline evidence, not a runtime gate change.
 
 ### CRNN+CTC and Transformer+CTC Prototype
 

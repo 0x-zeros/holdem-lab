@@ -654,6 +654,16 @@ def test_table_eval_reports_shadow_number_predictions(
     assert summary["shadow_number_review_by_class"] == {}
     assert summary["shadow_number_readiness_flag_counts"] == {}
     assert summary["shadow_number_readiness_by_flag"] == {}
+    assert summary["shadow_number_promotion_rows_count"] == 1
+    assert summary["shadow_number_promotion_by_class"] == {
+        "candidate_match_actionable": ["frame_001"]
+    }
+    promotion_by_class = json.loads(
+        (out / "table_recognizer_shadow_number_promotion_by_class.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert promotion_by_class == {"candidate_match_actionable": ["frame_001"]}
 
 
 def test_shadow_number_review_flags_cover_mismatch_and_rejection() -> None:
@@ -758,6 +768,35 @@ def test_shadow_number_review_classes_identify_truth_pollution_suspicion() -> No
         "roi_or_segmentation_gap",
         "truth_pollution_suspected",
     ]
+
+
+def test_shadow_number_promotion_classes_flag_actionable_mismatch() -> None:
+    row = {"screen_kind": "actionable_table"}
+    accepted = [
+        {
+            "group": "texts",
+            "name": "hero_stack",
+            "normalized_number": 900,
+        }
+    ]
+
+    assert poker_legends_table_eval._shadow_number_promotion_classes(
+        row,
+        expected_hero_stack=1000,
+        raw_predictions=accepted,
+        accepted_predictions=accepted,
+    ) == ["candidate_mismatch_actionable"]
+
+
+def test_shadow_number_promotion_classes_exclude_non_actionable_screen() -> None:
+    row = {"screen_kind": "table_observe"}
+
+    assert poker_legends_table_eval._shadow_number_promotion_classes(
+        row,
+        expected_hero_stack=1000,
+        raw_predictions=[],
+        accepted_predictions=[],
+    ) == ["excluded_screen_not_actionable"]
 
 
 def test_shadow_number_readiness_flags_report_shadow_gap_coverage() -> None:

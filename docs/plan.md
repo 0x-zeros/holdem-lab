@@ -251,7 +251,10 @@
   现在额外导出 `table_recognizer_shadow_number_review_by_class.json`，把 full-shadow review row 分成
   accepted mismatch / no accepted / rejected-variant noise / ROI-or-segmentation gap / truth-pollution
   suspicion；当前 3 个 accepted mismatch 都落在非可行动帧，但仍需人工复核或过滤策略后才能讨论 runtime
-  promotion。
+  promotion。新增离线 `table_recognizer_shadow_number_promotion_*` 报告只看 truth-actionable
+  `hero_stack`：truth-assisted full-shadow 为 47 个 candidate match / 10 个缺 shadow；image-only
+  full-shadow 为 38 个 candidate match / 16 个 screen 未识别可行动 / 3 个缺 shadow，当前该 promotion
+  视角下 0 个 actionable mismatch；仍不改变 runtime gate。
   产物见
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
   `.../table_recognizer_number_shadow_image_only_v1/`，full-shadow 对照见

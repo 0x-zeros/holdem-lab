@@ -265,6 +265,7 @@ def evaluate_poker_legends_table_recognizer(
     review_queue = _review_queue_rows(rows)
     number_readiness_rows = _number_readiness_rows(rows)
     shadow_number_review_rows = _shadow_number_review_rows(rows)
+    shadow_number_promotion_rows = _shadow_number_promotion_rows(rows)
     summary: dict[str, object] = {
         "schema_version": 1,
         "frames": len(rows),
@@ -363,6 +364,11 @@ def evaluate_poker_legends_table_recognizer(
             shadow_number_review_rows,
             field_name="shadow_number_review_classes",
         ),
+        "shadow_number_promotion_rows_count": len(shadow_number_promotion_rows),
+        "shadow_number_promotion_by_class": _rows_by_string_field(
+            shadow_number_promotion_rows,
+            field_name="shadow_number_promotion_classes",
+        ),
         "action_panel_flag_counts": dict(sorted(action_panel_flag_counts.items())),
         "blocking_action_panel_flag_counts": dict(
             sorted(blocking_action_panel_flag_counts.items())
@@ -414,6 +420,15 @@ def evaluate_poker_legends_table_recognizer(
     )
     (output / "table_recognizer_shadow_number_review_rows.json").write_text(
         json.dumps(shadow_number_review_rows, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_shadow_number_promotion_by_class.json").write_text(
+        json.dumps(summary["shadow_number_promotion_by_class"], indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    (output / "table_recognizer_shadow_number_promotion_rows.json").write_text(
+        json.dumps(shadow_number_promotion_rows, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     _write_report(output / "table_recognizer_report.md", summary)
@@ -1260,6 +1275,114 @@ def _shadow_flag_is_roi_or_segmentation_gap(flag: str) -> bool:
     }
 
 
+def _shadow_number_promotion_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    promotion_rows: list[dict[str, object]] = []
+    for row in rows:
+        if row.get("truth_screen_kind") != ScreenKind.ACTIONABLE_TABLE.value:
+            continue
+        raw_predictions = _hero_stack_number_predictions(
+            row.get("shadow_number_predictions")
+        )
+        accepted_predictions = _hero_stack_number_predictions(
+            row.get("accepted_shadow_number_predictions")
+        )
+        expected = _row_expected_hero_stack(row)
+        classes = _shadow_number_promotion_classes(
+            row,
+            expected_hero_stack=expected,
+            raw_predictions=raw_predictions,
+            accepted_predictions=accepted_predictions,
+        )
+        promotion_rows.append(
+            {
+                "frame_id": row.get("frame_id"),
+                "result": row.get("result"),
+                "truth_screen_kind": row.get("truth_screen_kind"),
+                "screen_kind": row.get("screen_kind"),
+                "truth_path": row.get("truth_path"),
+                "layout_annotation_path": row.get("layout_annotation_path"),
+                "expected_hero_stack": expected,
+                "shadow_number_promotion_classes": classes,
+                "shadow_number_predictions": raw_predictions,
+                "accepted_shadow_number_predictions": accepted_predictions,
+            }
+        )
+    return promotion_rows
+
+
+def _shadow_number_promotion_classes(
+    row: Mapping[str, object],
+    *,
+    expected_hero_stack: int | None,
+    raw_predictions: Sequence[Mapping[str, object]],
+    accepted_predictions: Sequence[Mapping[str, object]],
+) -> list[str]:
+    if row.get("screen_kind") != ScreenKind.ACTIONABLE_TABLE.value:
+        return ["excluded_screen_not_actionable"]
+    classes: list[str] = []
+    if expected_hero_stack is None:
+        classes.append("no_truth_hero_stack")
+    if not raw_predictions:
+        classes.append("no_shadow_hero_stack")
+    if raw_predictions and not accepted_predictions:
+        classes.append("raw_only_no_accepted")
+    accepted_values = {
+        value
+        for value in (
+            _optional_int(prediction.get("normalized_number"))
+            for prediction in accepted_predictions
+        )
+        if value is not None
+    }
+    if len(accepted_values) > 1:
+        classes.append("accepted_variant_conflict")
+    if accepted_predictions and expected_hero_stack is not None:
+        match_count = sum(
+            1
+            for prediction in accepted_predictions
+            if _number_prediction_matches_truth(prediction, expected_hero_stack)
+        )
+        if match_count == len(accepted_predictions):
+            classes.append("candidate_match_actionable")
+        elif match_count == 0:
+            classes.append("candidate_mismatch_actionable")
+        else:
+            classes.append("candidate_mixed_match_actionable")
+    if not classes:
+        classes.append("needs_review")
+    return sorted(set(classes))
+
+
+def _hero_stack_number_predictions(value: object) -> list[Mapping[str, object]]:
+    return [
+        prediction
+        for prediction in _row_mappings(value)
+        if prediction.get("group") == "texts" and prediction.get("name") == "hero_stack"
+    ]
+
+
+def _row_expected_hero_stack(row: Mapping[str, object]) -> int | None:
+    truth = row.get("truth")
+    if not isinstance(truth, Mapping):
+        return None
+    for text in _row_mappings(truth.get("texts")):
+        if text.get("name") != "hero_stack":
+            continue
+        number = _optional_int(text.get("normalized_number"))
+        if number is not None:
+            return number
+        value = text.get("value")
+        if isinstance(value, str):
+            return parse_poker_legends_chip_amount(value)
+    for seat in _row_mappings(truth.get("seats")):
+        if seat.get("name") != "hero":
+            continue
+        number = _optional_int(seat.get("stack"))
+        if number is not None:
+            return number
+    return None
+
+
 def _review_queue_tag_counts(rows: list[dict[str, object]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in rows:
@@ -1531,6 +1654,7 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         f"- Review queue frames: {summary.get('review_queue_frames', 0)}",
         f"- Number readiness rows: {summary.get('number_readiness_rows_count', 0)}",
         f"- Shadow number review rows: {summary.get('shadow_number_review_rows_count', 0)}",
+        f"- Shadow number promotion rows: {summary.get('shadow_number_promotion_rows_count', 0)}",
         "",
         "## Recognition Mode Counts",
         "",
@@ -1627,6 +1751,14 @@ def _write_report(path: Path, summary: Mapping[str, object]) -> None:
         "## Shadow Number Review Details",
         "",
         *_shadow_number_review_detail_lines(summary.get("rows")),
+        "",
+        "## Shadow Number Promotion By Class",
+        "",
+        *_frame_list_lines(summary.get("shadow_number_promotion_by_class")),
+        "",
+        "## Shadow Number Promotion Details",
+        "",
+        *_shadow_number_promotion_detail_lines(summary.get("rows")),
         "",
         "## Number Readiness Details",
         "",
@@ -1846,6 +1978,27 @@ def _shadow_number_review_detail_lines(value: object) -> list[str]:
             f"{_number_detail_summary(row.get('shadow_number_predictions'))} | "
             f"{_number_detail_summary(row.get('accepted_shadow_number_predictions'))} | "
             f"{_shadow_truth_eval_summary(row.get('shadow_number_truth_evaluations'))} |"
+        )
+    return lines
+
+
+def _shadow_number_promotion_detail_lines(value: object) -> list[str]:
+    rows = _shadow_number_promotion_rows(_row_mappings(value))
+    if not rows:
+        return ["- none"]
+    lines = [
+        "| Frame | Promotion Classes | Expected Hero Stack | Shadow Numbers | "
+        "Accepted Shadow Numbers |",
+        "| --- | --- | ---: | --- | --- |",
+    ]
+    for row in rows:
+        lines.append(
+            "| "
+            f"`{row.get('frame_id')}` | "
+            f"{_inline_codes(row.get('shadow_number_promotion_classes'))} | "
+            f"{row.get('expected_hero_stack')} | "
+            f"{_number_detail_summary(row.get('shadow_number_predictions'))} | "
+            f"{_number_detail_summary(row.get('accepted_shadow_number_predictions'))} |"
         )
     return lines
 
