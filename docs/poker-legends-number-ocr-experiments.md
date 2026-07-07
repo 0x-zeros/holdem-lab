@@ -143,6 +143,7 @@ The table recognizer also writes focused review queues for shadow-number issues:
 
 - `table_recognizer_shadow_number_review_rows.json`
 - `table_recognizer_shadow_number_review_by_flag.json`
+- `table_recognizer_shadow_number_review_by_class.json`
 
 Current queue on both truth-assisted and image-only reports:
 
@@ -169,6 +170,14 @@ Full-shadow result:
   accepted shadow `hero_stack` predictions, but 8 accepted mismatches against current
   reviewed truth and 29 shadow review rows. Treat full shadow as a diagnostic/candidate
   source until those mismatches are reviewed or filtered.
+- The full-shadow review queue is now classified so the risk is easier to triage. On
+  both truth-assisted and image-only full-shadow reports, the 29 review rows include:
+  3 `accepted_mismatch_non_actionable`, 8 `no_accepted_non_actionable`, 12
+  `rejected_variant_noise_with_accepted_match`, 20 `roi_or_segmentation_gap`, 2
+  `truth_pollution_suspected`, and 3 `needs_review` rows. Classes can overlap. The
+  important safety point is that the accepted mismatches currently appear in
+  non-actionable frames, but this still is not enough evidence to promote full-shadow
+  predictions into accepted runtime fields.
 
 ### CRNN+CTC and Transformer+CTC Prototype
 

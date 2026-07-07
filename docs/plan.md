@@ -247,7 +247,11 @@
   300 行 full `shadow_evaluation_rows`；image-only full-shadow report 显示 6 个 hero_stack readiness
   gap 中 5 个已被 shadow 覆盖，剩余 `card_review_v1__session_002__keyframe_000293` 仍缺失。但
   full-shadow table replay 同时暴露 257 条 accepted shadow 里有 8 条 accepted mismatch、29 个
-  shadow review rows，因此 full shadow 仍只能作为诊断/候选来源，不能进入 runtime accepted 字段。
+  shadow review rows，因此 full shadow 仍只能作为诊断/候选来源，不能进入 runtime accepted 字段。Evaluator
+  现在额外导出 `table_recognizer_shadow_number_review_by_class.json`，把 full-shadow review row 分成
+  accepted mismatch / no accepted / rejected-variant noise / ROI-or-segmentation gap / truth-pollution
+  suspicion；当前 3 个 accepted mismatch 都落在非可行动帧，但仍需人工复核或过滤策略后才能讨论 runtime
+  promotion。
   产物见
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
   `.../table_recognizer_number_shadow_image_only_v1/`，full-shadow 对照见

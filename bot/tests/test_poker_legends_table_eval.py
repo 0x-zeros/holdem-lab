@@ -651,6 +651,7 @@ def test_table_eval_reports_shadow_number_predictions(
     }
     assert summary["shadow_number_review_rows_count"] == 0
     assert summary["shadow_number_review_by_flag"] == {}
+    assert summary["shadow_number_review_by_class"] == {}
     assert summary["shadow_number_readiness_flag_counts"] == {}
     assert summary["shadow_number_readiness_by_flag"] == {}
 
@@ -683,6 +684,79 @@ def test_shadow_number_review_flags_cover_mismatch_and_rejection() -> None:
         "shadow_no_accepted_predictions",
         "shadow_raw_truth_mismatch",
         "shadow_rejected:display_only_review",
+    ]
+
+
+def test_shadow_number_review_classes_prioritize_non_actionable_accepted_mismatch() -> None:
+    row = {
+        "truth_screen_kind": "blocked_overlay",
+        "accepted_shadow_number_predictions": [{"group": "texts", "name": "hero_stack"}],
+        "shadow_number_truth_evaluations": [
+            {
+                "prediction_set": "accepted",
+                "status": "mismatch",
+                "expected": 1000,
+                "predicted": 0,
+            }
+        ],
+    }
+
+    assert poker_legends_table_eval._shadow_number_review_classes(
+        row,
+        flags=["shadow_accepted_truth_mismatch"],
+    ) == ["accepted_mismatch_non_actionable"]
+
+
+def test_shadow_number_review_classes_identify_rejected_variant_noise() -> None:
+    row = {
+        "truth_screen_kind": "table_observe",
+        "accepted_shadow_number_predictions": [{"group": "texts", "name": "hero_stack"}],
+        "shadow_number_truth_evaluations": [
+            {
+                "prediction_set": "raw",
+                "status": "mismatch",
+                "expected": 1000,
+                "predicted": None,
+            },
+            {
+                "prediction_set": "accepted",
+                "status": "match",
+                "expected": 1000,
+                "predicted": 1000,
+            },
+        ],
+    }
+
+    assert poker_legends_table_eval._shadow_number_review_classes(
+        row,
+        flags=["shadow_raw_truth_mismatch", "shadow_rejected:template_segmentation_mismatch"],
+    ) == [
+        "rejected_variant_noise_with_accepted_match",
+        "roi_or_segmentation_gap",
+    ]
+
+
+def test_shadow_number_review_classes_identify_truth_pollution_suspicion() -> None:
+    row = {
+        "truth_screen_kind": "blocked_overlay",
+        "accepted_shadow_number_predictions": [],
+        "shadow_number_truth_evaluations": [
+            {
+                "prediction_set": "raw",
+                "status": "mismatch",
+                "expected": 43044,
+                "predicted": None,
+            }
+        ],
+    }
+
+    assert poker_legends_table_eval._shadow_number_review_classes(
+        row,
+        flags=["shadow_no_accepted_predictions", "shadow_rejected:disagreement"],
+    ) == [
+        "no_accepted_non_actionable",
+        "roi_or_segmentation_gap",
+        "truth_pollution_suspected",
     ]
 
 
