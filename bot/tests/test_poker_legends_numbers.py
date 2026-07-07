@@ -356,6 +356,81 @@ def test_poker_legends_number_crop_dataset_requires_reviewed_stack_overlay_label
     assert {row["truth_normalized_number"] for row in rows} == {None}
 
 
+def test_poker_legends_number_crop_dataset_applies_review_overrides(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "numbers.png"
+    annotation_path = tmp_path / "numbers.json"
+    truth_dir = tmp_path / "truth"
+    truth_dir.mkdir()
+    write_number_fixture(image_path, annotation_path)
+    (truth_dir / "numbers.json").write_text(
+        json.dumps(
+            {
+                "frame_id": "numbers",
+                "review": {"status": "candidate_unreviewed"},
+                "texts": [
+                    {
+                        "name": "hero_stack",
+                        "visible": True,
+                        "value": "900",
+                        "normalized_number": 900,
+                    },
+                ],
+                "seats": [
+                    {
+                        "name": "hero",
+                        "visible": True,
+                        "stack": 900,
+                        "committed": 100,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    overrides = tmp_path / "overrides.json"
+    overrides.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "rows": [
+                    {
+                        "frame_id": "numbers",
+                        "group": "texts",
+                        "name": "hero_stack",
+                        "crop_variant": "*",
+                        "clean_status": "labeled_visible",
+                        "truth_canonical_text": "$900+100",
+                        "truth_normalized_number": 900,
+                        "reason": "test review override",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_poker_legends_number_crop_dataset(
+        [annotation_path],
+        image_root=tmp_path,
+        truth_dir=truth_dir,
+        output_dir=tmp_path / "out",
+        review_overrides=overrides,
+        text_names=("hero_stack",),
+        button_names=(),
+    )
+
+    assert summary["review_override_count"] == 3
+    assert summary["labeled_crops"] == 3
+    rows = cast(list[dict[str, Any]], summary["rows"])
+    assert {row["truth_canonical_text"] for row in rows} == {"$900+100"}
+    assert {row["truth_normalized_number"] for row in rows} == {900}
+    assert {tuple(row["truth_chip_numbers"]) for row in rows} == {(900, 100)}
+    assert {row["clean_status"] for row in rows} == {"labeled_visible"}
+    assert {row["review_override_reason"] for row in rows} == {"test review override"}
+
+
 def test_poker_legends_chip_parser_normalizes_split_ocr_text() -> None:
     assert parse_poker_legends_chip_amount("$1.2\n\n3K") == 1230
     assert parse_poker_legends_chip_amount("$31.0") == 310

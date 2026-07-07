@@ -555,6 +555,7 @@ def build_poker_legends_number_crop_dataset(
     image_root: str | Path,
     output_dir: str | Path,
     truth_dir: str | Path | None = None,
+    review_overrides: str | Path | None = None,
     text_names: Sequence[str] = ("pot", "hero_stack", "right_top_stack"),
     button_names: Sequence[str] = (),
 ) -> dict[str, object]:
@@ -572,6 +573,8 @@ def build_poker_legends_number_crop_dataset(
     field_counts: dict[str, int] = {}
     variant_counts: dict[str, int] = {}
     labeled_crops = 0
+    override_index = _number_review_override_index(review_overrides)
+    override_count = 0
     for annotation_path in sorted(annotations):
         annotation = _read_json_object(annotation_path)
         frame_id = str(annotation.get("frame_id") or annotation_path.stem)
@@ -610,6 +613,16 @@ def build_poker_legends_number_crop_dataset(
                     crop_path.parent.mkdir(parents=True, exist_ok=True)
                     cv2.imwrite(str(crop_path), cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
                     truth_label = _truth_number_label(truth, group=group, name=name)
+                    override = _number_review_override(
+                        override_index,
+                        frame_id=frame_id,
+                        group=group,
+                        name=name,
+                        crop_variant=spec.variant,
+                    )
+                    if override is not None:
+                        truth_label = _apply_number_review_override(truth_label, override)
+                        override_count += 1
                     truth_number = _optional_int(truth_label.get("normalized_number"))
                     canonical_text = _canonical_chip_text(truth_label.get("value"), truth_number)
                     if truth_number is not None:
@@ -648,6 +661,8 @@ def build_poker_legends_number_crop_dataset(
                             )
                             if canonical_text is not None
                             else [],
+                            "clean_status": truth_label.get("clean_status"),
+                            "review_override_reason": truth_label.get("review_override_reason"),
                         }
                     )
     summary: dict[str, object] = {
@@ -655,6 +670,7 @@ def build_poker_legends_number_crop_dataset(
         "frames": len(annotations),
         "crops": len(rows),
         "labeled_crops": labeled_crops,
+        "review_override_count": override_count,
         "crop_root": str(crop_root.relative_to(output)),
         "screen_kind_counts": dict(sorted(screen_kind_counts.items())),
         "field_counts": dict(sorted(field_counts.items())),
@@ -818,6 +834,10 @@ def build_crop_dataset_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--truth-dir")
     parser.add_argument("--out", required=True)
     parser.add_argument(
+        "--review-overrides",
+        help="Optional manual number review overrides JSON.",
+    )
+    parser.add_argument(
         "--text-name",
         action="append",
         dest="text_names",
@@ -870,6 +890,7 @@ def crop_dataset_main(argv: Sequence[str] | None = None) -> None:
         image_root=args.image_root,
         truth_dir=args.truth_dir,
         output_dir=args.out,
+        review_overrides=args.review_overrides,
         text_names=tuple(args.text_names or ("pot", "hero_stack", "right_top_stack")),
         button_names=tuple(args.button_names or ()),
     )
@@ -1286,6 +1307,60 @@ def _truth_number_label(
     return {"visible": None, "value": None, "normalized_number": None}
 
 
+def _number_review_override_index(
+    review_overrides: str | Path | None,
+) -> dict[tuple[str, str, str, str], Mapping[str, object]]:
+    if review_overrides is None:
+        return {}
+    data = _read_json_object(Path(review_overrides))
+    index: dict[tuple[str, str, str, str], Mapping[str, object]] = {}
+    for row in _mapping_sequence(data.get("rows")):
+        frame_id = str(row.get("frame_id") or "")
+        group = str(row.get("group") or "")
+        name = str(row.get("name") or "")
+        crop_variant = str(row.get("crop_variant") or "*")
+        if not frame_id or not group or not name:
+            continue
+        index[(frame_id, group, name, crop_variant)] = row
+    return index
+
+
+def _number_review_override(
+    index: Mapping[tuple[str, str, str, str], Mapping[str, object]],
+    *,
+    frame_id: str,
+    group: str,
+    name: str,
+    crop_variant: str,
+) -> Mapping[str, object] | None:
+    return index.get((frame_id, group, name, crop_variant)) or index.get(
+        (frame_id, group, name, "*")
+    )
+
+
+def _apply_number_review_override(
+    truth_label: Mapping[str, object],
+    override: Mapping[str, object],
+) -> dict[str, object]:
+    raw_clean_status = override.get("clean_status")
+    clean_status = raw_clean_status if isinstance(raw_clean_status, str) else None
+    value = override.get("truth_canonical_text", truth_label.get("value"))
+    normalized_number = override.get(
+        "truth_normalized_number",
+        truth_label.get("normalized_number"),
+    )
+    if clean_status in {"no_visible_number", "roi_invalid"}:
+        value = None
+        normalized_number = None
+    return {
+        "visible": truth_label.get("visible", True),
+        "value": value,
+        "normalized_number": _optional_int(normalized_number),
+        "clean_status": clean_status,
+        "review_override_reason": override.get("reason"),
+    }
+
+
 def _truth_text_number_crop_label_is_ambiguous(
     truth: Mapping[str, object],
     *,
@@ -1608,6 +1683,7 @@ def _write_number_crop_dataset_report(path: Path, summary: Mapping[str, object])
         f"- Frames: {summary['frames']}",
         f"- Crops: {summary['crops']}",
         f"- Labeled crops: {summary['labeled_crops']}",
+        f"- Review overrides applied: {summary.get('review_override_count', 0)}",
         f"- Crop root: `{summary['crop_root']}`",
         "",
         "## Screen Kind Counts",

@@ -235,31 +235,39 @@
   replay dry-run 与 live HUD 连续帧路径：默认需要 2 帧当前窗口稳定后才把 `single_frame_valid` 升级为
   `temporally_stable_valid`，overlay clear / 新手牌边界会重新稳定，旧 stable state 不会授权当前行动。
   仍然只做 dry-run / overlay，不做真实点击。
-- 阶段 4 Poker Legends number OCR shadow reporting v1：在 CRNN/CTC 原型未收敛后，当前回到
+- 阶段 4 Poker Legends number OCR shadow reporting v2：在 CRNN/CTC 原型未收敛后，当前回到
   CNN/template 组件路线提升覆盖。已把 component `base` / `overlay` / `display` 输出作为 table
   recognizer 的 shadow evidence 接入报告，只写入 `shadow_number_predictions` /
   `accepted_shadow_number_predictions` 和 artifact，不进入 `RecognizedTable`、`GameState`、
-  accepted critical field、AI 决策或点击授权。119 帧 reviewed manifest 上 truth-assisted 与
-  image-only report 均为 shadow raw 57、shadow accepted 54、accepted shadow truth mismatch 0；
-  shadow-number review queue 只剩 1 行：`session_002__keyframe_000047` 为已知 truth/ROI 污染。
+  accepted critical field、AI 决策或点击授权。number crop dataset v8 新增 review override 支持：
+  builder 可通过 `docs/poker-legends-number-review-overrides.json` 覆盖离线 OCR 标签，当前 119 帧、
+  714 crops、458 labeled crops、36 个 crop-level overrides；该机制只用于离线训练/报告，不自动信任
+  未复核 overlay。119 帧 reviewed manifest 上 test-split truth-assisted 与 image-only report 仍为
+  shadow raw 57、shadow accepted 54、accepted shadow truth mismatch 0；shadow-number review queue
+  只剩 1 行：`session_002__keyframe_000047` 为已知 truth/ROI 污染。
   `$399+5` 已通过受约束 component consensus 修复：只有 template base fallback 与 accepted display
-  完全一致时才进入 shadow accepted。新增 v5 component summary 保持 test-split 指标不变，并额外导出
-  300 行 full `shadow_evaluation_rows`；image-only full-shadow report 显示 6 个 hero_stack readiness
-  gap 中 5 个已被 shadow 覆盖，剩余 `card_review_v1__session_002__keyframe_000293` 仍缺失。但
-  full-shadow table replay 同时暴露 257 条 accepted shadow 里有 8 条 accepted mismatch、29 个
-  shadow review rows，因此 full shadow 仍只能作为诊断/候选来源，不能进入 runtime accepted 字段。Evaluator
+  完全一致时才进入 shadow accepted。新增 v6 component summary 基于 v8 dataset：309 rows（300
+  positive / 9 hard-negative）、246 train / 63 test；base CNN/template/template+CNN 均为 57/63
+  accepted、accepted wrong 0，overlay 为 27/30、accepted wrong 0，display 为 30/63、accepted wrong
+  0。当前 split 没有 hard-negative test row，因此这些组件指标只代表 positive crop 口径；hard-negative
+  风险仍看 full-shadow review queue 与后续冻结 stratified set。v6 额外导出 309 行 full
+  `shadow_evaluation_rows`；image-only full-shadow report 显示 6 个 hero_stack readiness gap 全部已被
+  shadow 覆盖。但 full-shadow table replay 同时暴露 266 条 accepted shadow 里有 8 条 accepted mismatch、
+  29 个 shadow review rows，因此 full shadow 仍只能作为诊断/候选来源，不能进入 runtime accepted 字段。Evaluator
   现在额外导出 `table_recognizer_shadow_number_review_by_class.json`，把 full-shadow review row 分成
   accepted mismatch / no accepted / rejected-variant noise / ROI-or-segmentation gap / truth-pollution
   suspicion；当前 3 个 accepted mismatch 都落在非可行动帧，但仍需人工复核或过滤策略后才能讨论 runtime
   promotion。新增离线 `table_recognizer_shadow_number_promotion_*` 报告只看 truth-actionable
-  `hero_stack`：truth-assisted full-shadow 为 47 个 candidate match / 10 个缺 shadow；image-only
-  full-shadow 为 38 个 candidate match / 16 个 screen 未识别可行动 / 3 个缺 shadow，当前该 promotion
-  视角下 0 个 actionable mismatch；仍不改变 runtime gate。
+  `hero_stack`：truth-assisted full-shadow 为 50 个 candidate match / 7 个缺 shadow；这 7 个在 image-only
+  口径下全部被 ScreenState 拦为 not actionable。image-only full-shadow 为 41 个 candidate match / 16
+  个 screen 未识别可行动 / 0 个缺 shadow，当前该 promotion 视角下 0 个 actionable mismatch。已检查
+  16 个 screen-missed actionable：它们与 preselect/shortcut 类 hard negatives 很接近，直接下调
+  ScreenState 阈值会制造 false actionable 风险，因此暂不放宽 screen gate，仍不改变 runtime gate。
   产物见
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_v2/` 与
   `.../table_recognizer_number_shadow_image_only_v1/`，full-shadow 对照见
-  `.../table_recognizer_number_shadow_full_v1/` 与
-  `.../table_recognizer_number_shadow_full_image_only_v1/`。
+  `.../table_recognizer_number_shadow_full_v2/` 与
+  `.../table_recognizer_number_shadow_full_image_only_v2/`。
 - 阶段 3/4 AI heuristic v1：`holdem_ai.decide(state) -> Action` 入口保持不变，新增
   `explain_decision(state) -> PolicyDecision`，供 bot/dry-run 审计策略理由。策略评分从原先只看私牌
   扩展为可解释手牌评估：成牌类型、flush/straight/combo draw、估算 outs、pot odds、位置 bonus、

@@ -5,11 +5,15 @@ recognizers are connected to runtime click or authorization paths.
 
 ## Current Data
 
-- Dataset: `/tmp/poker-legends-number-crop-dataset-v7`
+- Dataset: `artifacts/poker-legends-videos/number_crop_dataset_v8`
 - Main field evaluated: `hero_stack`
-- Rows used by the latest component experiments: 300 rows total, 291 positive rows
-  and 9 hard-negative rows; split is 243 train / 57 test, with 54 positive test rows
-  and 3 hard-negative test rows. Three reviewed ROI-invalid rows are excluded.
+- Crop dataset: 119 reviewed frames, 714 crops, 458 labeled crops, and 36 crop-level
+  review overrides applied.
+- Rows used by the latest component experiments: 309 rows total, 300 positive rows
+  and 9 hard-negative rows; split is 246 train / 63 test. The current deterministic
+  split placed the 9 hard-negative rows outside the test split, so v6 component test
+  metrics are positive-crop metrics. Hard-negative safety still has to be judged from
+  full-shadow review queues and a future frozen stratified test set.
 - Current reviewed issue classes:
   - Some crops have valid base text but weak or noisy overlay text.
   - Some truth rows are polluted, for example rows 31-33 in the review HTML show no
@@ -18,6 +22,8 @@ recognizers are connected to runtime click or authorization paths.
     for `session_002__keyframe_000047` hero-stack variants.
   - The 24-row hard-negative review pass found 21 visible but unlabeled stack crops
     and 3 ROI-invalid player-name crops, not additional no-visible-number rows.
+  - A later promotion audit labeled three additional visible stack rows:
+    `$345+10`, `$900+100`, and `$365+100`.
   - `display` should be treated as a derived value from `base + overlay`, not as the
     primary runtime OCR target.
 
@@ -46,39 +52,29 @@ glyph.
 
 Latest component report:
 
-- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v5/number_char_recognizer_report.md`
-- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v5/number_char_recognizer_review.html`
+- Report: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v6/number_char_recognizer_report.md`
+- HTML: `artifacts/poker-legends-videos/number_real_hero_stack_components_cnn_template_v6/number_char_recognizer_review.html`
 
 Key metrics:
 
 | Target | Model | Exact | Accepted | Accepted wrong |
 |---|---|---:|---:|---:|
-| base | CNN | 51/54 | 51/54 | 0 |
-| base | template KNN | 54/54 | 54/54 | 0 |
-| base | template+CNN | 51/54 | 51/54 | 0 |
-| overlay | CNN | 24/24 | 21/24 | 0 |
-| overlay | template+CNN | 24/24 | 24/24 | 0 |
-| display | CNN | 27/54 | 27/54 | 0 |
-| display | template+CNN | 27/54 | 27/54 | 0 |
-
-Hard-negative gate on the latest base split:
-
-| Target | Method | Hard-negative false accepts |
-|---|---|---:|
-| base | CNN | 0/3 |
-| base | template KNN | 0/3 |
-| base | template+CNN | 0/3 |
-| overlay | template+CNN | 0/3 |
-| display | template+CNN | 0/3 |
-| base | Tesseract | 3/3 |
+| base | CNN | 57/63 | 57/63 | 0 |
+| base | template KNN | 57/63 | 57/63 | 0 |
+| base | template+CNN | 57/63 | 57/63 | 0 |
+| overlay | CNN | 27/30 | 27/30 | 0 |
+| overlay | template+CNN | 27/30 | 27/30 | 0 |
+| display | CNN | 30/63 | 30/63 | 0 |
+| display | template+CNN | 30/63 | 30/63 | 0 |
+| base | Tesseract | 38/63 | 63/63 | 25 |
 
 Interpretation:
 
 - Component split is valuable.
 - The current CNN/template path is the best working baseline.
-- Review overrides moved three polluted `$43,044` positive rows into hard-negative
-  evaluation. Positive base test rows are now 54, with 3 no-visible-number hard
-  negatives retained in the test artifact.
+- Review overrides now carry both cleanup labels and newly reviewed visible stack
+  labels. They keep known truth pollution such as `$43,044` out of positive OCR
+  training/evaluation while adding reviewed rows that were previously unlabeled.
 - A later manual review added 21 visible stack labels to train data:
   `$290+710`, `$1,000`, `$995+5`, `$900+100`, `$475+200`, and `$475`; it also
   excluded 3 player-name crops as ROI-invalid.
@@ -86,21 +82,21 @@ Interpretation:
   template misread `$990` and `$399` as `$900` / `$390`.
 - Template / CNN / MLP are now trained per target (`base`, `overlay`, `display`) so
   overlay/display symbols cannot contaminate base hard-negative evaluation.
-- Overlay mask cleanup removes horizontal cyan rule-line contamination, improving
-  overlay segmentation from 137/153 to 144/153 overall and from 22/24 to 24/24 on
-  the current test split.
+- Overlay mask cleanup removes horizontal cyan rule-line contamination. On v6 the
+  overlay target segments 165/174 overall and 27/30 on the current test split.
 - Template+CNN relaxed agreement accepts only same-text predictions that pass the
   target contract and stay near the normal template/CNN thresholds; this recovered
-  the reviewed `+80` cases without adding hard-negative false accepts.
+  the reviewed `+80` cases without adding accepted mismatches in the current
+  promotion view.
 - Template-only is not promoted to runtime authority from this small split; the safer
-  base reporting baseline remains CNN or template+CNN, both at 51/54 accepted with
-  accepted wrong 0; overlay template+CNN is now 24/24 accepted with accepted wrong 0.
+  base reporting baseline remains CNN or template+CNN, both at 57/63 accepted with
+  accepted wrong 0; overlay template+CNN is now 27/30 accepted with accepted wrong 0.
 - `display` coverage is low because combined segmentation is fragile.
 - Runtime should prefer structured `base` and `overlay` observations, then derive
   `display` through rules.
-- v5 keeps the same test-split metrics and additionally writes full
-  `shadow_evaluation_rows`: 300 shadow rows total, while `evaluation_rows` remains the
-  57-row test split used for metrics and review HTML.
+- v6 uses the v8 reviewed-overrides dataset and writes full `shadow_evaluation_rows`:
+  309 shadow rows total, while `evaluation_rows` remains the 63-row test split used
+  for metrics and review HTML.
 
 ### Table Recognizer Shadow Reporting
 
@@ -118,9 +114,9 @@ Latest shadow reports:
 - Test-split image-only replay:
   `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_image_only_v1/`
 - Full-shadow truth-assisted:
-  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_v1/`
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_v2/`
 - Full-shadow image-only replay:
-  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_image_only_v1/`
+  `artifacts/poker-legends-videos/multi_source_templates_v2/table_recognizer_number_shadow_full_image_only_v2/`
 
 Key safety/coverage checks on the 119-frame reviewed manifest:
 
@@ -163,12 +159,11 @@ test-split result:
 
 Full-shadow result:
 
-- The component summary now exposes all 300 cleaned rows through
+- The component summary now exposes all 309 cleaned rows through
   `shadow_evaluation_rows`.
-- In image-only table replay, 5/6 `hero_stack` readiness gaps are now tagged
-  `shadow_covers_hero_stack_readiness_gap`; the remaining missing frame is
-  `card_review_v1__session_002__keyframe_000293`.
-- Full-shadow accepted predictions are not safe to promote: table replay reports 257
+- In image-only table replay, all 6 current `hero_stack` readiness gaps are now tagged
+  `shadow_covers_hero_stack_readiness_gap`.
+- Full-shadow accepted predictions are not safe to promote: table replay reports 266
   accepted shadow `hero_stack` predictions, but 8 accepted mismatches against current
   reviewed truth and 29 shadow review rows. Treat full shadow as a diagnostic/candidate
   source until those mismatches are reviewed or filtered.
@@ -182,10 +177,11 @@ Full-shadow result:
   predictions into accepted runtime fields.
 - A separate promotion view now filters to truth-actionable `hero_stack` frames and
   reports the hypothetical risk of using shadow OCR only in current action contexts.
-  Truth-assisted full-shadow has 47 `candidate_match_actionable` rows and 10
-  `no_shadow_hero_stack` rows. Image-only full-shadow has 38
-  `candidate_match_actionable`, 16 `excluded_screen_not_actionable`, and 3
-  `no_shadow_hero_stack` rows. There are currently 0
+  Truth-assisted full-shadow has 50 `candidate_match_actionable` rows and 7
+  `no_shadow_hero_stack` rows. All 7 no-shadow truth-assisted rows are excluded by
+  image-only ScreenState as not currently actionable. Image-only full-shadow has 41
+  `candidate_match_actionable` rows and 16 `excluded_screen_not_actionable` rows, with
+  no remaining `no_shadow_hero_stack`. There are currently 0
   `candidate_mismatch_actionable` rows in this promotion view; this is encouraging but
   still remains offline evidence, not a runtime gate change.
 

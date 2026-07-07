@@ -87,6 +87,36 @@
       "crop_variant": "*",
       "clean_status": "roi_invalid",
       "reason": "Manual review: ROI captures a player name containing digits, not hero stack."
+    },
+    {
+      "frame_id": "session_002__keyframe_000327",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$345+10",
+      "truth_normalized_number": 345,
+      "reason": "Offline visual review during shadow promotion audit: visible stack text."
+    },
+    {
+      "frame_id": "card_review_v1__session_001__keyframe_000063",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$900+100",
+      "truth_normalized_number": 900,
+      "reason": "Offline visual review during shadow promotion audit: visible stack text."
+    },
+    {
+      "frame_id": "card_review_v1__session_002__keyframe_000293",
+      "group": "texts",
+      "name": "hero_stack",
+      "crop_variant": "*",
+      "clean_status": "labeled_visible",
+      "truth_canonical_text": "$365+100",
+      "truth_normalized_number": 365,
+      "reason": "Offline visual review during shadow promotion audit: visible stack text."
     }
   ]
 }
